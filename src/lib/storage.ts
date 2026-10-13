@@ -1,0 +1,67 @@
+// On-device persistence. Images are copied into the app's document directory and referenced by
+// relative path, because iOS can change the absolute container path between app updates.
+import { Directory, File, Paths } from 'expo-file-system';
+
+import { newId } from './id';
+import type { Deck, TableState } from './types';
+
+const DECKS_FILE = 'decks.json';
+const TABLES_FILE = 'tables.json';
+
+function readJson<T>(name: string, fallback: T): T {
+  try {
+    const file = new File(Paths.document, name);
+    if (!file.exists) return fallback;
+    return JSON.parse(file.textSync()) as T;
+  } catch (e) {
+    console.warn(`Could not read ${name}`, e);
+    return fallback;
+  }
+}
+
+function writeJson(name: string, value: unknown) {
+  const file = new File(Paths.document, name);
+  if (!file.exists) file.create();
+  file.write(JSON.stringify(value));
+}
+
+export const loadDecks = () => readJson<Deck[]>(DECKS_FILE, []);
+export const saveDecks = (decks: Deck[]) => writeJson(DECKS_FILE, decks);
+export const loadTables = () => readJson<Record<string, TableState>>(TABLES_FILE, {});
+export const saveTables = (tables: Record<string, TableState>) => writeJson(TABLES_FILE, tables);
+
+function deckDir(deckId: string): Directory {
+  return new Directory(Paths.document, 'decks', deckId);
+}
+
+/** Copies a picked image into the deck's folder and returns its relative path. */
+export function importImage(deckId: string, sourceUri: string): string {
+  const dir = deckDir(deckId);
+  if (!dir.exists) dir.create({ intermediates: true });
+  const ext = sourceUri.match(/\.(\w{3,4})(?:\?.*)?$/)?.[1]?.toLowerCase() ?? 'jpg';
+  const name = `${newId()}.${ext}`;
+  new File(sourceUri).copySync(new File(dir, name));
+  return `decks/${deckId}/${name}`;
+}
+
+export function imageUri(relativePath: string): string {
+  return new File(Paths.document, relativePath).uri;
+}
+
+export function deleteImage(relativePath: string) {
+  try {
+    const file = new File(Paths.document, relativePath);
+    if (file.exists) file.delete();
+  } catch (e) {
+    console.warn('Could not delete image', e);
+  }
+}
+
+export function deleteDeckFiles(deckId: string) {
+  try {
+    const dir = deckDir(deckId);
+    if (dir.exists) dir.delete();
+  } catch (e) {
+    console.warn('Could not delete deck folder', e);
+  }
+}

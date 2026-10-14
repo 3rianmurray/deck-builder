@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import type { ReactNode } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '../theme';
@@ -48,24 +48,27 @@ export function ActionSheet({ visible, title, header, actions, onClose }: Props)
         pending.current = null;
         next?.();
       }}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-      <View style={[styles.sheet, { paddingBottom: insets.bottom + 8 }]}>
-        <ScrollView bounces={false} contentContainerStyle={styles.content}>
-          {header}
-          {title ? <Text style={styles.title}>{title}</Text> : null}
-          {actions.map((a) => (
-            <Pressable
-              key={a.label}
-              onPress={() => run(a)}
-              style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
-              <Text style={[styles.actionText, a.destructive && { color: colors.danger }]}>{a.label}</Text>
+      {/* Lifts the sheet above the keyboard when the header contains a text field. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + 8 }]}>
+          <ScrollView bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+            {header}
+            {title ? <Text style={styles.title}>{title}</Text> : null}
+            {actions.map((a) => (
+              <Pressable
+                key={a.label}
+                onPress={() => run(a)}
+                style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
+                <Text style={[styles.actionText, a.destructive && { color: colors.danger }]}>{a.label}</Text>
+              </Pressable>
+            ))}
+            <Pressable onPress={onClose} style={({ pressed }) => [styles.action, styles.cancel, pressed && styles.pressed]}>
+              <Text style={[styles.actionText, { fontWeight: '600' }]}>Cancel</Text>
             </Pressable>
-          ))}
-          <Pressable onPress={onClose} style={({ pressed }) => [styles.action, styles.cancel, pressed && styles.pressed]}>
-            <Text style={[styles.actionText, { fontWeight: '600' }]}>Cancel</Text>
-          </Pressable>
-        </ScrollView>
-      </View>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

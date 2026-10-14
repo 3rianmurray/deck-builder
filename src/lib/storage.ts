@@ -3,10 +3,11 @@
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { newId } from './id';
-import type { Deck, TableState } from './types';
+import type { Deck, Session, TableState } from './types';
 
 const DECKS_FILE = 'decks.json';
 const TABLES_FILE = 'tables.json';
+const SESSIONS_FILE = 'sessions.json';
 
 function readJson<T>(name: string, fallback: T): T {
   try {
@@ -29,6 +30,8 @@ export const loadDecks = () => readJson<Deck[]>(DECKS_FILE, []);
 export const saveDecks = (decks: Deck[]) => writeJson(DECKS_FILE, decks);
 export const loadTables = () => readJson<Record<string, TableState>>(TABLES_FILE, {});
 export const saveTables = (tables: Record<string, TableState>) => writeJson(TABLES_FILE, tables);
+export const loadSessions = () => readJson<Session[]>(SESSIONS_FILE, []);
+export const saveSessions = (sessions: Session[]) => writeJson(SESSIONS_FILE, sessions);
 
 function deckDir(deckId: string): Directory {
   return new Directory(Paths.document, 'decks', deckId);

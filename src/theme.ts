@@ -8,9 +8,6 @@ export const colors = {
   accent: '#e0b354',
   accentText: '#1b1508',
   danger: '#e5605a',
-  felt: '#1d4a35',
-  feltDark: '#153826',
+  felt: '#1d3a5c',
+  feltDark: '#152b45',
 };
-
-/** Standard poker card proportions (2.5in x 3.5in). */
-export const CARD_RATIO = 5 / 7;

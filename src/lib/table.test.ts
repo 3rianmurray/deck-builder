@@ -12,6 +12,8 @@ import {
   flip,
   missingCards,
   moveCard,
+  moveCards,
+  orderedTable,
   pruneTable,
   resetTable,
   shuffleDiscardIntoDeck,
@@ -71,6 +73,26 @@ test('moving a card to the deck turns it face down, top or bottom', () => {
   assert.equal(t.deck[0].cardId, 'c1');
 });
 
+test('moveCard can keep a card face down outside the deck', () => {
+  let t = createTable(makeDeck(2), noShuffle);
+  t = moveCard(t, t.deck[0].iid, 'table', undefined, false);
+  assert.equal(t.table[0].faceUp, false);
+  t = moveCard(t, t.table[0].iid, 'hand');
+  assert.equal(t.hand[0].faceUp, true);
+});
+
+test('moveCards keeps a held stack together, top card on top of a pile', () => {
+  let t = draw(createTable(makeDeck(5), noShuffle), 2); // hand: c0, c1
+  const stack = [t.hand[1].iid, t.hand[0].iid, t.deck[0].iid]; // c1 on top, then c0, then c2
+  t = moveCards(t, stack, 'discard');
+  assert.deepEqual(t.discard.map((c) => c.cardId), ['c1', 'c0', 'c2']);
+  assert.ok(t.discard.every((c) => c.faceUp));
+  assert.equal(t.hand.length, 0);
+  t = moveCards(t, t.discard.map((c) => c.iid), 'table', false);
+  assert.deepEqual(t.table.map((c) => c.cardId), ['c1', 'c0', 'c2']);
+  assert.ok(t.table.every((c) => !c.faceUp));
+});
+
 test('searching the deck lets any card be pulled out', () => {
   let t = createTable(makeDeck(5), noShuffle);
   const target = t.deck[3].iid;
@@ -110,6 +132,39 @@ test('pruneTable drops cards removed from the deck', () => {
   const pruned = pruneTable(t, { ...deck, cards: deck.cards.filter((c) => c.id !== 'c0') });
   assert.equal(pruned.hand.length, 0);
   assert.equal(cardCount(pruned), 2);
+});
+
+test('createTable deals one instance per copy', () => {
+  const deck = makeDeck(2);
+  deck.cards[0].copies = 3;
+  const t = createTable(deck, noShuffle);
+  assert.deepEqual(t.deck.map((c) => c.cardId), ['c0', 'c0', 'c0', 'c1']);
+});
+
+test('orderedTable stacks the deck in editor order, copies together, first card on top', () => {
+  const deck = makeDeck(3);
+  deck.cards[1].copies = 2;
+  const t = orderedTable(deck);
+  assert.deepEqual(t.deck.map((c) => c.cardId), ['c0', 'c1', 'c1', 'c2']);
+  assert.ok(t.deck.every((c) => !c.faceUp));
+  assert.equal(t.hand.length + t.table.length + t.discard.length, 0);
+});
+
+test('lowering copies prunes extras from piles before cards in play', () => {
+  const deck = makeDeck(1);
+  deck.cards[0].copies = 3;
+  const t = draw(createTable(deck, noShuffle), 1);
+  const pruned = pruneTable(t, { ...deck, cards: [{ ...deck.cards[0], copies: 1 }] });
+  assert.equal(pruned.hand.length, 1);
+  assert.equal(pruned.deck.length, 0);
+});
+
+test('raising copies reports the extra copies as missing', () => {
+  const deck = makeDeck(2);
+  const t = createTable(deck, noShuffle);
+  const more = { ...deck, cards: [{ ...deck.cards[0], copies: 3 }, deck.cards[1]] };
+  assert.deepEqual(missingCards(t, more), ['c0', 'c0']);
+  assert.equal(cardCount(addMissingCards(t, more)), 4);
 });
 
 test('state is never mutated', () => {

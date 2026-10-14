@@ -5,10 +5,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../components/Button';
 import { CardView } from '../components/CardView';
 import { useDecks } from '../lib/DecksContext';
+import { deckSize } from '../lib/types';
 import { colors } from '../theme';
 
 export default function HomeScreen() {
-  const { decks, createDeck } = useDecks();
+  const { decks, createDeck, sessions, getDeck } = useDecks();
   const insets = useSafeAreaInsets();
 
   const newDeck = () => {
@@ -22,6 +23,38 @@ export default function HomeScreen() {
         data={decks}
         keyExtractor={(d) => d.id}
         contentContainerStyle={[styles.list, decks.length === 0 && { flex: 1 }]}
+        ListHeaderComponent={
+          sessions.length ? (
+            <View style={{ gap: 10, marginBottom: 6 }}>
+              <Text style={styles.section}>Sessions</Text>
+              {sessions.map((s) => {
+                const names = s.deckIds.flatMap((d) => getDeck(d)?.name ?? []);
+                return (
+                  <Pressable
+                    key={s.id}
+                    style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
+                    onPress={() => router.push({ pathname: '/session/edit', params: { id: s.id } })}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.name} numberOfLines={1}>
+                        {s.name}
+                      </Text>
+                      <Text style={styles.meta} numberOfLines={1}>
+                        {names.length ? names.join(' · ') : 'No decks'}
+                      </Text>
+                    </View>
+                    <Button
+                      label="Play"
+                      variant="primary"
+                      disabled={names.length === 0}
+                      onPress={() => router.push({ pathname: '/session/[id]', params: { id: s.id } })}
+                    />
+                  </Pressable>
+                );
+              })}
+              {decks.length ? <Text style={[styles.section, { marginTop: 10 }]}>Decks</Text> : null}
+            </View>
+          ) : null
+        }
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>No decks yet</Text>
@@ -40,7 +73,7 @@ export default function HomeScreen() {
                 {item.name}
               </Text>
               <Text style={styles.meta}>
-                {item.cards.length} {item.cards.length === 1 ? 'card' : 'cards'}
+                {deckSize(item)} {deckSize(item) === 1 ? 'card' : 'cards'}
               </Text>
             </View>
             <Button
@@ -53,7 +86,13 @@ export default function HomeScreen() {
         )}
       />
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Button label="+ New Deck" variant="primary" onPress={newDeck} />
+        <Button label="+ New Deck" variant="primary" onPress={newDeck} style={{ flex: 1 }} />
+        <Button
+          label="+ New Session"
+          onPress={() => router.push('/session/edit')}
+          disabled={decks.length === 0}
+          style={{ flex: 1 }}
+        />
       </View>
     </View>
   );
@@ -75,5 +114,6 @@ const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
   emptyTitle: { color: colors.text, fontSize: 22, fontWeight: '700' },
   emptyBody: { color: colors.textMuted, fontSize: 15, textAlign: 'center', lineHeight: 21 },
-  footer: { paddingHorizontal: 16, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  section: { color: colors.textMuted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
 });

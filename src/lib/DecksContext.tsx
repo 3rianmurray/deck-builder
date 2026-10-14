@@ -7,12 +7,15 @@ import {
   deleteImage,
   importImage,
   loadDecks,
+  loadSessions,
   loadTables,
   saveDecks,
+  saveSessions,
   saveTables,
 } from './storage';
+import { moveItems } from './order';
 import { createTable, pruneTable } from './table';
-import type { Card, Deck, TableState } from './types';
+import type { Card, CardShape, Deck, PlayMode, Session, TableState } from './types';
 
 interface DecksApi {
   decks: Deck[];
@@ -21,20 +24,44 @@ interface DecksApi {
   renameDeck: (id: string, name: string) => void;
   deleteDeck: (id: string) => void;
   addCards: (deckId: string, imageUris: string[]) => void;
-  duplicateCard: (deckId: string, cardId: string) => void;
+  setCopies: (deckId: string, cardId: string, copies: number) => void;
   renameCard: (deckId: string, cardId: string, name: string) => void;
   removeCard: (deckId: string, cardId: string) => void;
+  /** Moves cards (indexes, in the order picked) together as a block to start at index `to` in the deck's order. */
+  reorderCards: (deckId: string, picked: number[], to: number) => void;
+  /** Swaps a card's art for a new image (e.g. the old art rotated), deleting the old file if nothing else uses it. */
+  replaceCardImage: (deckId: string, cardId: string, imageUri: string) => void;
   setCardBack: (deckId: string, imageUri: string | null) => void;
-  /** Returns the saved table for a deck, creating a freshly shuffled one if needed. */
-  getTable: (deckId: string) => TableState | undefined;
-  setTable: (deckId: string, table: TableState) => void;
+  setPlayMode: (deckId: string, mode: PlayMode) => void;
+  setCardShape: (deckId: string, shape: CardShape) => void;
+  /**
+   * Returns the saved table for a deck, creating a freshly shuffled one if needed. Each session keeps its own
+   * table for each of its decks, separate from playing the deck on its own (no `sessionId`).
+   */
+  getTable: (deckId: string, sessionId?: string) => TableState | undefined;
+  setTable: (deckId: string, sessionId: string | undefined, table: TableState) => void;
+  sessions: Session[];
+  getSession: (id: string) => Session | undefined;
+  createSession: (name: string, deckIds: string[]) => Session;
+  updateSession: (id: string, changes: Pick<Session, 'name' | 'deckIds'>) => void;
+  deleteSession: (id: string) => void;
 }
 
 const DecksContext = createContext<DecksApi | null>(null);
 
+/** Saved tables are keyed by deck id when played alone (as before sessions existed), or `sessionId:deckId`. */
+function tableKey(deckId: string, sessionId?: string): string {
+  return sessionId ? `${sessionId}:${deckId}` : deckId;
+}
+
+function withoutTables(all: Record<string, TableState>, drop: (key: string) => boolean): Record<string, TableState> {
+  return Object.fromEntries(Object.entries(all).filter(([key]) => !drop(key)));
+}
+
 export function DecksProvider({ children }: { children: ReactNode }) {
   const [decks, setDecks] = useState<Deck[]>(() => loadDecks());
   const [tables, setTables] = useState<Record<string, TableState>>(() => loadTables());
+  const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
   const loaded = useRef(false);
 
   useEffect(() => {
@@ -43,6 +70,9 @@ export function DecksProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loaded.current) saveTables(tables);
   }, [tables]);
+  useEffect(() => {
+    if (loaded.current) saveSessions(sessions);
+  }, [sessions]);
   useEffect(() => {
     loaded.current = true;
   }, []);
@@ -68,7 +98,8 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       },
       deleteDeck(id) {
         setDecks((all) => all.filter((d) => d.id !== id));
-        setTables(({ [id]: _, ...rest }) => rest);
+        setTables((all) => withoutTables(all, (key) => key === id || key.endsWith(`:${id}`)));
+        setSessions((all) => all.map((s) => ({ ...s, deckIds: s.deckIds.filter((d) => d !== id) })));
         deleteDeckFiles(id);
       },
       addCards(deckId, uris) {
@@ -82,13 +113,11 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         }));
         updateDeck(deckId, (d) => ({ ...d, cards: [...d.cards, ...cards] }));
       },
-      duplicateCard(deckId, cardId) {
-        updateDeck(deckId, (d) => {
-          const i = d.cards.findIndex((c) => c.id === cardId);
-          if (i === -1) return d;
-          const copy = { ...d.cards[i], id: newId() };
-          return { ...d, cards: [...d.cards.slice(0, i + 1), copy, ...d.cards.slice(i + 1)] };
-        });
+      setCopies(deckId, cardId, copies) {
+        updateDeck(deckId, (d) => ({
+          ...d,
+          cards: d.cards.map((c) => (c.id === cardId ? { ...c, copies: Math.max(1, Math.floor(copies)) } : c)),
+        }));
       },
       renameCard(deckId, cardId, name) {
         updateDeck(deckId, (d) => ({
@@ -100,11 +129,24 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         const deck = getDeck(deckId);
         const card = deck?.cards.find((c) => c.id === cardId);
         if (!deck || !card) return;
-        // Duplicated cards share one image file, so only delete it once nothing uses it.
+        // Cards duplicated by older app versions share one image file, so only delete it once nothing uses it.
         const stillUsed =
           deck.backImage === card.image || deck.cards.some((c) => c.id !== cardId && c.image === card.image);
         if (!stillUsed) deleteImage(card.image);
         updateDeck(deckId, (d) => ({ ...d, cards: d.cards.filter((c) => c.id !== cardId) }));
+      },
+      reorderCards(deckId, picked, to) {
+        updateDeck(deckId, (d) => ({ ...d, cards: moveItems(d.cards, picked, to) }));
+      },
+      replaceCardImage(deckId, cardId, uri) {
+        const deck = getDeck(deckId);
+        const card = deck?.cards.find((c) => c.id === cardId);
+        if (!deck || !card) return;
+        const image = importImage(deckId, uri);
+        const stillUsed =
+          deck.backImage === card.image || deck.cards.some((c) => c.id !== cardId && c.image === card.image);
+        if (!stillUsed) deleteImage(card.image);
+        updateDeck(deckId, (d) => ({ ...d, cards: d.cards.map((c) => (c.id === cardId ? { ...c, image } : c)) }));
       },
       setCardBack(deckId, uri) {
         const deck = getDeck(deckId);
@@ -113,17 +155,42 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         const backImage = uri ? importImage(deckId, uri) : null;
         updateDeck(deckId, (d) => ({ ...d, backImage }));
       },
-      getTable(deckId) {
+      setPlayMode(deckId, playMode) {
+        updateDeck(deckId, (d) => ({ ...d, playMode }));
+      },
+      setCardShape(deckId, cardShape) {
+        updateDeck(deckId, (d) => ({ ...d, cardShape }));
+      },
+      getTable(deckId, sessionId) {
         const deck = getDeck(deckId);
         if (!deck) return undefined;
-        const saved = tables[deckId];
+        const saved = tables[tableKey(deckId, sessionId)];
         return saved ? pruneTable(saved, deck) : createTable(deck);
       },
-      setTable(deckId, table) {
-        setTables((all) => ({ ...all, [deckId]: table }));
+      setTable(deckId, sessionId, table) {
+        setTables((all) => ({ ...all, [tableKey(deckId, sessionId)]: table }));
+      },
+      sessions,
+      getSession: (id) => sessions.find((s) => s.id === id),
+      createSession(name, deckIds) {
+        const now = Date.now();
+        const session: Session = { id: newId(), name, deckIds, createdAt: now, updatedAt: now };
+        setSessions((all) => [session, ...all]);
+        return session;
+      },
+      updateSession(id, changes) {
+        setSessions((all) => all.map((s) => (s.id === id ? { ...s, ...changes, updatedAt: Date.now() } : s)));
+        // A deck taken out of the session loses its game there, so adding it back later starts fresh.
+        setTables((all) =>
+          withoutTables(all, (key) => key.startsWith(`${id}:`) && !changes.deckIds.some((d) => key === tableKey(d, id))),
+        );
+      },
+      deleteSession(id) {
+        setSessions((all) => all.filter((s) => s.id !== id));
+        setTables((all) => withoutTables(all, (key) => key.startsWith(`${id}:`)));
       },
     };
-  }, [decks, tables, updateDeck]);
+  }, [decks, tables, sessions, updateDeck]);
 
   return <DecksContext.Provider value={api}>{children}</DecksContext.Provider>;
 }

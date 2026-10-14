@@ -29,7 +29,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Card Table uses your photo library so you can turn your own artwork into cards.",
-          "cameraPermission": false,
+          "cameraPermission": "Card Table uses your camera so you can photograph your own artwork and turn it into cards.",
           "microphonePermission": false
         }
       ]

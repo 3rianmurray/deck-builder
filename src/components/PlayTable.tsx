@@ -855,8 +855,9 @@ function Table({
       from,
       w,
       { onPress: () => open({ kind: 'card', iid: inst.iid }), verticalOnly: from === 'hand' },
-      // Dropped cards stay hidden while their stand-in glides into this spot.
-      <View style={landing?.iids.includes(inst.iid) && styles.hiddenCard}>
+      // Hidden while it's being carried (its spot slides out of the row as the gap closes, and would show as a
+      // ghost sliding away) and while a dropped card's stand-in glides into this spot.
+      <View style={(isHeld(inst.iid) || landing?.iids.includes(inst.iid)) && styles.hiddenCard}>
         <CardView deck={deck} card={cardsById.get(inst.cardId)} faceUp={inst.faceUp} width={w} />
       </View>,
       measureCard(inst.iid),

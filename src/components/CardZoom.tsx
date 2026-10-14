@@ -59,7 +59,8 @@ export function CardZoom({ deck, card, area, hasPrev = false, hasNext = false, o
       ]).start(onClose);
 
     // Tracking for the gesture in progress, replaced at the start of each one; never part of rendering.
-    const fresh = () => ({ pinchStart: 0, pinchScale: 1, pinching: false, swiping: false });
+    // `axis` is the direction a swipe locks to once it starts, so it moves cleanly along one line.
+    const fresh = () => ({ pinchStart: 0, pinchScale: 1, pinching: false, swiping: false, axis: 'x' as 'x' | 'y' });
     const s = fresh();
 
     return PanResponder.create({
@@ -84,9 +85,12 @@ export function CardZoom({ deck, card, area, hasPrev = false, hasNext = false, o
           return;
         }
         if (s.pinching) return;
-        if (!s.swiping && Math.hypot(g.dx, g.dy) < SWIPE_SLOP) return;
-        s.swiping = true;
-        anim.pan.setValue({ x: g.dx, y: g.dy });
+        if (!s.swiping) {
+          if (Math.hypot(g.dx, g.dy) < SWIPE_SLOP) return;
+          s.swiping = true;
+          s.axis = Math.abs(g.dx) >= Math.abs(g.dy) ? 'x' : 'y';
+        }
+        anim.pan.setValue(s.axis === 'x' ? { x: g.dx, y: 0 } : { x: 0, y: g.dy });
       },
       onPanResponderRelease: (_, g) => {
         if (s.pinching) {
@@ -95,12 +99,15 @@ export function CardZoom({ deck, card, area, hasPrev = false, hasNext = false, o
           return Animated.spring(anim.scale, { toValue: 1, useNativeDriver: true }).start();
         }
         if (!s.swiping) return close({ x: 0, y: 0, scale: 0.6 }); // a tap
-        const far = Math.hypot(g.dx, g.dy) > DISMISS_DISTANCE || Math.hypot(g.vx, g.vy) > DISMISS_SPEED;
+        // Only the locked direction counts, so a slightly crooked swipe still reads as straight.
+        const d = s.axis === 'x' ? g.dx : g.dy;
+        const v = s.axis === 'x' ? g.vx : g.vy;
+        const far = Math.abs(d) > DISMISS_DISTANCE || Math.abs(v) > DISMISS_SPEED;
         if (!far) return Animated.spring(anim.pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
-        // A mostly sideways swipe steps to the card that way, like turning pages: swiping left shows the next
-        // card (to the right), swiping right the previous one. With no card that way, it puts the zoom away.
-        const dir: 1 | -1 = g.dx < 0 ? 1 : -1;
-        if (Math.abs(g.dx) > Math.abs(g.dy) && onStep && (dir === 1 ? hasNext : hasPrev)) {
+        // A sideways swipe steps to the card that way, like turning pages: swiping left shows the next card
+        // (to the right), swiping right the previous one. With no card that way, it puts the zoom away.
+        const dir: 1 | -1 = d < 0 ? 1 : -1;
+        if (s.axis === 'x' && onStep && (dir === 1 ? hasNext : hasPrev)) {
           Animated.timing(anim.pan, {
             toValue: { x: -dir * area.w, y: 0 },
             duration: 160,
@@ -114,10 +121,9 @@ export function CardZoom({ deck, card, area, hasPrev = false, hasNext = false, o
           });
           return;
         }
-        // Carry on in the swipe's direction until it's off screen.
-        const len = Math.hypot(g.dx, g.dy) || 1;
-        const reach = Math.max(area.w, area.h);
-        close({ x: (g.dx / len) * reach, y: (g.dy / len) * reach, scale: 1 });
+        // Carry on straight along the locked direction until it's off screen.
+        const reach = Math.max(area.w, area.h) * Math.sign(d);
+        close(s.axis === 'x' ? { x: reach, y: 0, scale: 1 } : { x: 0, y: reach, scale: 1 });
       },
     });
   }, [anim, area.w, area.h, onClose, onStep, hasPrev, hasNext]);

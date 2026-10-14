@@ -209,10 +209,8 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       },
       updateSession(id, changes) {
         setSessions((all) => all.map((s) => (s.id === id ? { ...s, ...changes, updatedAt: Date.now() } : s)));
-        // A deck taken out of the session loses its game there, so adding it back later starts fresh.
-        setTables((all) =>
-          withoutTables(all, (key) => key.startsWith(`${id}:`) && !changes.deckIds.some((d) => key === tableKey(d, id))),
-        );
+        // A deck taken out of the session keeps its game there, so taking one out by mistake loses nothing:
+        // adding it back picks up where it left off. (Reset table starts it fresh; deleting the session clears it.)
       },
       groups,
       createGroup(name) {

@@ -81,6 +81,11 @@ export default function EditSessionScreen() {
             <Text style={styles.help}>
               Tap decks in the order you want to swipe through them, or tick a group to add all its decks.
             </Text>
+            {existing ? (
+              <Text style={styles.help}>
+                Taking a deck out keeps its game. Add it back later to pick up where you left off.
+              </Text>
+            ) : null}
           </View>
         }
         ListEmptyComponent={<Text style={styles.help}>Create some decks first, then come back to group them.</Text>}

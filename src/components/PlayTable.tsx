@@ -569,7 +569,9 @@ function Table({
     setRevealed(null);
     // The drag offset is deliberately left alone here: resetting it moves the lifted card back to where it was
     // picked up a moment before it disappears, which flashes it there. The next drag resets it when it starts.
-    onTouchingCard?.(false);
+    // A session's pager may move again, unless a card is zoomed: after a hold or pinch opens the zoom, the
+    // finger that did it lifts off the card here, and the zoom still needs the pager held.
+    onTouchingCard?.(zoomed !== null);
   };
 
   // Press and hold a face-up card without moving to open it full size. The timer restarts with each press and

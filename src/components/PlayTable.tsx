@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { router, Stack } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
@@ -293,6 +294,15 @@ function Table({
   const lastPan = useMemo(() => {
     const now = { x: 0, y: 0 };
     return { get: () => now, set: (p: { x: number; y: number }) => Object.assign(now, p) };
+  }, []);
+  /**
+   * Over a stack target the held stack leaves the finger and settles onto the target, at table size, exactly
+   * where it would land (see `snapTo`). `on` is while it's settled there; `returning` while it springs back to
+   * the finger. Either way the finger doesn't move it. `x`, `y`, `scale` are where and how big it's shown.
+   */
+  const snap = useMemo(() => {
+    const now = { on: false, returning: false, x: 0, y: 0, scale: 1 };
+    return { get: () => now, set: (p: Partial<typeof now>) => Object.assign(now, p) };
   }, []);
   // Cards dropped into the hand or onto the table glide from where they were let go into their new place. The
   // real cards wait, hidden, until they're laid out there; then a stand-in card flies to them and they appear.
@@ -730,11 +740,20 @@ function Table({
     // there's no new layout to wait for before gliding.
     const glideIn = (to: 'hand' | 'table', rise = 0, settled = false) => {
       if (!liftedFrom) return;
-      landingAnim.pos.setValue({
-        x: liftedFrom.x - d.offX * LIFTED_SCALE + lastPan.get().x,
-        y: liftedFrom.y - d.offY * LIFTED_SCALE + lastPan.get().y,
-      });
-      landingAnim.scale.setValue(1);
+      const w = d.width * LIFTED_SCALE;
+      const s = snap.get();
+      if (s.on) {
+        // Already settled on the stack, at table size: start there. (The stand-in scales about its centre, so
+        // put its unscaled box where that shows it at s.x, s.y.)
+        landingAnim.pos.setValue({ x: s.x - (w * (1 - s.scale)) / 2, y: s.y - ((w / ratio) * (1 - s.scale)) / 2 });
+        landingAnim.scale.setValue(s.scale);
+      } else {
+        landingAnim.pos.setValue({
+          x: liftedFrom.x - d.offX * LIFTED_SCALE + lastPan.get().x,
+          y: liftedFrom.y - d.offY * LIFTED_SCALE + lastPan.get().y,
+        });
+        landingAnim.scale.setValue(1);
+      }
       landingAnim.lift.setValue(1);
       setLanding({
         zone: to,
@@ -842,11 +861,57 @@ function Table({
     return shownOf(g)?.iid ?? null;
   };
 
+  /**
+   * Where the held stack would sit on the stack it's over, once dropped: the target's top card spot, risen by
+   * the stack's new height, at table-card size. Also the pan and scale that put the held stack there: it scales
+   * about its grab point, so its top-left lands at base + pan + origin·(1 − scale).
+   */
+  const snapPlacement = (onto: string) => {
+    const g = tableGroups.find((grp) => grp.some((c) => c.iid === onto));
+    const r = g && groupRect(g);
+    if (!drag || !liftedFrom || !g || !r) return null;
+    const total = g.filter((c) => !isHeld(c.iid)).length + drag.stack.length;
+    const rise = pileRise(tableCardWidth, total);
+    const scale = r.w / liftedWidth;
+    const x = r.x - rise;
+    const y = r.y - rise;
+    const base = { x: liftedFrom.x - drag.offX * LIFTED_SCALE, y: liftedFrom.y - drag.offY * LIFTED_SCALE };
+    const origin = { x: drag.offX * LIFTED_SCALE, y: drag.offY * LIFTED_SCALE };
+    return { x, y, scale, pan: { x: x - base.x - origin.x * (1 - scale), y: y - base.y - origin.y * (1 - scale) } };
+  };
+
+  /** Settles the held stack onto a stack target, with a light tap so it can be felt as well as seen. */
+  const snapTo = (onto: string) => {
+    const place = snapPlacement(onto);
+    if (!place) return;
+    snap.set({ on: true, returning: false, x: place.x, y: place.y, scale: place.scale });
+    Animated.parallel([
+      Animated.spring(pan, { toValue: place.pan, speed: 28, bounciness: 4, useNativeDriver: true }),
+      Animated.spring(liftGrow, { toValue: place.scale, speed: 28, bounciness: 4, useNativeDriver: true }),
+    ]).start();
+    Haptics.selectionAsync();
+  };
+
+  /** Springs the held stack back up to the finger after leaving a stack target. */
+  const unsnap = () => {
+    snap.set({ on: false, returning: true });
+    Animated.parallel([
+      Animated.timing(pan, { toValue: lastPan.get(), duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.spring(liftGrow, { toValue: 1, speed: 28, bounciness: 4, useNativeDriver: true }),
+    ]).start(() => {
+      // The finger kept moving while it sprang back: catch up with it.
+      snap.set({ returning: false });
+      if (!snap.get().on) pan.setValue(lastPan.get());
+    });
+    Haptics.selectionAsync();
+  };
+
   const followFinger = (finger: NativeTouchEvent) => {
     if (!drag) return;
     const delta = tableDelta(drag.startX, drag.startY, finger);
-    pan.setValue(delta);
     lastPan.set(delta);
+    // While settled on a stack target (or springing back from one) the held stack doesn't follow the finger.
+    if (!snap.get().on && !snap.get().returning) pan.setValue(delta);
     const zone = zoneAt(finger.pageX, finger.pageY);
     if (zone !== hover) setHover(zone);
     // Over the middle of a table card it's a stack; anywhere else in the hand or on the table, a gap.
@@ -856,7 +921,11 @@ function Table({
     const moved = next?.zone !== insertAt?.zone || next?.index !== insertAt?.index;
     // The blank space moves (or opens, or closes): the cards around it slide over rather than jump.
     if (moved || onto !== stackTarget) animateLayout();
-    if (onto !== stackTarget) setStackTarget(onto);
+    if (onto !== stackTarget) {
+      if (onto) snapTo(onto);
+      else unsnap();
+      setStackTarget(onto);
+    }
     if (moved) setInsertAt(next);
   };
 
@@ -909,6 +978,9 @@ function Table({
       onPanResponderGrant: (e) => {
         const n = e.nativeEvent;
         pan.setValue({ x: 0, y: 0 });
+        lastPan.set({ x: 0, y: 0 });
+        // Reset here rather than when the last drag ended: dropping reads it after the drag has been cleared.
+        snap.set({ on: false, returning: false });
         onTouchingCard?.(true);
         setDrag({
           iid: inst.iid,
@@ -1265,6 +1337,11 @@ function Table({
 
   /** The held stack's card size while it's being carried. */
   const liftedWidth = drag ? drag.width * LIFTED_SCALE : 0;
+  /** With a stack target: how many cards that stack will have once the held ones land on it. */
+  const targetTotal = (() => {
+    const g = drag?.active && stackTarget ? tableGroups.find((grp) => grp.some((c) => c.iid === stackTarget)) : undefined;
+    return g && drag ? g.filter((c) => !isHeld(c.iid)).length + drag.stack.length : null;
+  })();
 
   /** Where on the (flat) table the lifted stack was picked up. */
   const liftedFrom = drag?.active ? toTable(drag.startX, drag.startY) : null;
@@ -1557,6 +1634,13 @@ function Table({
             width={liftedWidth}
             onReady={markShown}
           />
+          {/* Settled on a stack target: how big the stack will be once these land on it. */}
+          {targetTotal !== null ? (
+            // Counter-scaled, so it stays the same readable size while the card shrinks onto the stack.
+            <Animated.View style={[styles.stackingBadge, { transform: [{ scale: Animated.divide(1, liftGrow) }] }]}>
+              <Text style={styles.stackingBadgeText}>Stack · {targetTotal}</Text>
+            </Animated.View>
+          ) : null}
           {drag.stack.length > 1 ? (
             <View style={styles.stackBadge}>
               <Text style={styles.stackBadgeText}>{drag.stack.length}</Text>
@@ -1777,6 +1861,20 @@ const styles = StyleSheet.create({
   },
   collapsed: { position: 'absolute', opacity: 0 },
   hiddenCard: { opacity: 0 },
+  stackingBadge: {
+    position: 'absolute',
+    top: -14,
+    left: -14,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: colors.accent,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  stackingBadgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
   stackTargetOutline: {
     position: 'absolute',
     left: -3,

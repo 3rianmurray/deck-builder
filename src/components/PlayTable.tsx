@@ -276,7 +276,12 @@ function Table({
   // Cards dropped into the hand or onto the table glide from where they were let go into their new place. The
   // real cards wait, hidden, until they're laid out there; then a stand-in card flies to them and they appear.
   const [landing, setLanding] = useState<Landing | null>(null);
-  const [landingAnim] = useState(() => ({ pos: new Animated.ValueXY(), scale: new Animated.Value(1) }));
+  const [landingAnim] = useState(() => ({
+    pos: new Animated.ValueXY(),
+    scale: new Animated.Value(1),
+    /** How much of the held stack's big "lifted" shadow is left: it fades as the card settles onto the table. */
+    lift: new Animated.Value(1),
+  }));
   const [pan] = useState(() => new Animated.ValueXY());
   const [rootOrigin, setRootOrigin] = useState<{ x: number; y: number } | null>(null);
   const rootRef = useRef<View>(null);
@@ -645,6 +650,7 @@ function Table({
         const from = { x: liftedFrom.x - d.offX + lastPan.get().x, y: liftedFrom.y - d.offY + lastPan.get().y };
         landingAnim.pos.setValue(from);
         landingAnim.scale.setValue(LIFTED_SCALE);
+        landingAnim.lift.setValue(1);
         setLanding({ zone, iids: ids, cardId: d.stack[0].cardId, faceUp: d.faceUp, width: d.width, before: cardLayouts[ids[0]] });
       }
       // A single card put back exactly where it came from stays put, just turned over if it was flipped.
@@ -968,6 +974,8 @@ function Table({
       Animated.parallel([
         Animated.timing(landingAnim.pos, { toValue: { x: toX, y: toY }, duration: LANDING_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         Animated.timing(landingAnim.scale, { toValue: scale, duration: LANDING_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        // Settling onto the cloth: by the end only the card's own resting shadow is left, as on the real card.
+        Animated.timing(landingAnim.lift, { toValue: 0, duration: LANDING_MS, easing: Easing.out(Easing.quad), useNativeDriver: true }),
       ]).start(() => setLanding(null));
     };
     const laidOut = landingRect !== landing.before;
@@ -1226,11 +1234,23 @@ function Table({
 
       {landing ? (
         <Animated.View
-          style={[
-            styles.landing,
-            tabletop && tabletopShadow.lifted,
-            { transform: [...landingAnim.pos.getTranslateTransform(), { scale: landingAnim.scale }] },
-          ]}>
+          style={[styles.landing, { transform: [...landingAnim.pos.getTranslateTransform(), { scale: landingAnim.scale }] }]}>
+          {/*
+            The lifted shadow sits on its own layer under the card and fades out on the way down, so the hand-over
+            to the real card (which only has its resting shadow) doesn't make the shadow jump.
+          */}
+          <Animated.View
+            style={[
+              styles.landingShadow,
+              {
+                width: landing.width,
+                height: landing.width / ratio,
+                borderRadius: Math.max(4, landing.width * 0.06),
+                opacity: landingAnim.lift,
+              },
+              tabletop ? tabletopShadow.lifted : styles.liftedShadowClassic,
+            ]}
+          />
           <CardView deck={deck} card={cardsById.get(landing.cardId)} faceUp={landing.faceUp} width={landing.width} />
         </Animated.View>
       ) : null}
@@ -1487,6 +1507,15 @@ const styles = StyleSheet.create({
   collapsed: { position: 'absolute', opacity: 0 },
   hiddenCard: { opacity: 0 },
   landing: { position: 'absolute', left: 0, top: 0, pointerEvents: 'none' },
+  landingShadow: { position: 'absolute', left: 0, top: 0, backgroundColor: colors.surfaceRaised },
+  // The classic look's lifted shadow (as on the held stack), for the landing card to fade out.
+  liftedShadowClassic: {
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 12,
+  },
   insertMarker: { position: 'absolute', width: 4, borderRadius: 2, backgroundColor: colors.accent, pointerEvents: 'none' },
   stage: { overflow: 'hidden' },
   // Tabletop look: the piles sit straight on the cloth, and the hand on the wooden rail.

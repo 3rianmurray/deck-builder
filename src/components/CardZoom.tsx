@@ -16,30 +16,37 @@ const PINCH_CLOSE = 0.8;
 
 const distance = (a: NativeTouchEvent, b: NativeTouchEvent) => Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
 
+/** A card to show, with a key that's unique to that copy of it (two copies of a card can sit side by side). */
+export interface ZoomItem {
+  key: string;
+  card: Card;
+}
+
 interface Props {
   deck: Deck;
-  card: Card;
+  current: ZoomItem;
   /** The space to fill: the card grows to nearly cover it. */
   area: { w: number; h: number };
   /** The cards a sideways swipe steps to: on the left (`prev`) and right (`next`), if any. */
-  prev?: Card;
-  next?: Card;
+  prev?: ZoomItem;
+  next?: ZoomItem;
   /** Show the next (1) or previous (-1) card instead; only called when there is one. */
   onStep?: (dir: 1 | -1) => void;
   onClose: () => void;
 }
 
 /** Space between the zoomed card and its neighbours waiting just off the sides of the screen. */
-const NEIGHBOUR_GAP = 16;
+const NEIGHBOUR_GAP = 32;
 
 /**
  * A face-up card blown up to nearly fill the screen, for reading small print. Swipe sideways to step to the
  * card beside it (where there is one); otherwise pinch in, swipe it away in any direction, or tap the
  * background to put it back.
  */
-export function CardZoom({ deck, card, area, prev, next, onStep, onClose }: Props) {
+export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: Props) {
   const ratio = cardRatio(deck);
   const width = Math.min(area.w * 0.92, area.h * 0.9 * ratio);
+  const height = width / ratio;
   // Neighbours sit one card-width-and-a-gap to either side, so they ride in with the swipe.
   const spacing = width + NEIGHBOUR_GAP;
   const hasPrev = !!prev;
@@ -49,27 +56,33 @@ export function CardZoom({ deck, card, area, prev, next, onStep, onClose }: Prop
     scale: new Animated.Value(0.6),
     opacity: new Animated.Value(0),
   }));
+  // Neighbours stay hidden whenever the card isn't full size (opening, pinching, closing): shrinking pulls
+  // them in from off screen, where they'd look like a mistake.
+  const [showNeighbours, setShowNeighbours] = useState(false);
 
   // After a step the strip has slid a whole card over, putting the new card in the middle. Once the new card
   // (with its own neighbours) is in place, recentre the strip before anything is drawn, so nothing jumps.
   useLayoutEffect(() => {
     anim.pan.setValue({ x: 0, y: 0 });
-  }, [card, anim]);
+  }, [current.key, anim]);
 
   useEffect(() => {
     Animated.parallel([
       Animated.spring(anim.scale, { toValue: 1, friction: 7, tension: 80, useNativeDriver: true }),
       Animated.timing(anim.opacity, { toValue: 1, duration: 140, useNativeDriver: true }),
-    ]).start();
+    ]).start(() => setShowNeighbours(true));
   }, [anim]);
 
   const responder = useMemo(() => {
-    const close = (to: { x: number; y: number; scale: number }) =>
-      Animated.parallel([
+    const close = (to: { x: number; y: number; scale: number }) => {
+      // A swipe away keeps its neighbours in view as it slides; anything that shrinks hides them first.
+      if (to.scale < 1) setShowNeighbours(false);
+      return Animated.parallel([
         Animated.timing(anim.pan, { toValue: { x: to.x, y: to.y }, duration: 180, easing: Easing.in(Easing.quad), useNativeDriver: true }),
         Animated.timing(anim.scale, { toValue: to.scale, duration: 180, useNativeDriver: true }),
         Animated.timing(anim.opacity, { toValue: 0, duration: 180, useNativeDriver: true }),
       ]).start(onClose);
+    };
 
     // Tracking for the gesture in progress, replaced at the start of each one; never part of rendering.
     // `axis` is the direction a swipe locks to once it starts, so it moves cleanly along one line.
@@ -91,6 +104,7 @@ export function CardZoom({ deck, card, area, prev, next, onStep, onClose }: Prop
             s.pinching = true;
             s.pinchStart = distance(touches[0], touches[1]);
             anim.pan.setValue({ x: 0, y: 0 });
+            setShowNeighbours(false);
           }
           const k = s.pinchStart > 0 ? distance(touches[0], touches[1]) / s.pinchStart : 1;
           s.pinchScale = Math.min(1, Math.max(0.4, k));
@@ -109,7 +123,7 @@ export function CardZoom({ deck, card, area, prev, next, onStep, onClose }: Prop
         if (s.pinching) {
           // Released after pinching: closed if it was squeezed far enough, otherwise back to full size.
           if (s.pinchScale <= PINCH_CLOSE) return close({ x: 0, y: 0, scale: 0.3 });
-          return Animated.spring(anim.scale, { toValue: 1, useNativeDriver: true }).start();
+          return Animated.spring(anim.scale, { toValue: 1, useNativeDriver: true }).start(() => setShowNeighbours(true));
         }
         if (!s.swiping) return close({ x: 0, y: 0, scale: 0.6 }); // a tap
         // Only the locked direction counts, so a slightly crooked swipe still reads as straight.
@@ -145,18 +159,26 @@ export function CardZoom({ deck, card, area, prev, next, onStep, onClose }: Prop
           transform: [...anim.pan.getTranslateTransform(), { scale: anim.scale }],
           pointerEvents: 'none',
         }}>
-        {/* Keyed by card, so each stays put on the strip rather than one view being repainted mid-slide. */}
-        {prev ? (
-          <View key={`prev-${prev.id}`} style={[styles.neighbour, { left: -spacing }]}>
-            <CardView deck={deck} card={prev} width={width} />
-          </View>
-        ) : null}
-        <CardView deck={deck} card={card} width={width} />
-        {next ? (
-          <View key={`next-${next.id}`} style={[styles.neighbour, { left: spacing }]}>
-            <CardView deck={deck} card={next} width={width} />
-          </View>
-        ) : null}
+        {/*
+          The strip. Each card keeps its own view, keyed by that copy, and only its position changes: after a
+          step, the view that slid in becomes the middle one as it is, already drawn, so its art never has to
+          reload (which flickered between the old and new card for a few frames).
+        */}
+        <View style={{ width, height }}>
+          {[
+            { item: prev, offset: -spacing },
+            { item: current, offset: 0 },
+            { item: next, offset: spacing },
+          ].map(({ item, offset }) =>
+            item ? (
+              <View
+                key={item.key}
+                style={[styles.slot, { left: offset }, offset !== 0 && !showNeighbours && styles.hidden]}>
+                <CardView deck={deck} card={item.card} width={width} />
+              </View>
+            ) : null,
+          )}
+        </View>
       </Animated.View>
     </Animated.View>
   );
@@ -164,5 +186,6 @@ export function CardZoom({ deck, card, area, prev, next, onStep, onClose }: Prop
 
 const styles = StyleSheet.create({
   backdrop: { backgroundColor: 'rgba(0,0,0,0.82)', alignItems: 'center', justifyContent: 'center', zIndex: 20 },
-  neighbour: { position: 'absolute', top: 0 },
+  slot: { position: 'absolute', top: 0 },
+  hidden: { opacity: 0 },
 });

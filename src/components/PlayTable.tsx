@@ -23,7 +23,7 @@ import { ActionSheet, type SheetAction } from './ActionSheet';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { matSpot, TableLookContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
-import { CardZoom } from './CardZoom';
+import { CardZoom, type ZoomItem } from './CardZoom';
 import { CardView, EmptySlot, PileDepth, pileRise, pileThickness, prefersReducedMotion } from './CardView';
 import { useDecks } from '../lib/DecksContext';
 import * as T from '../lib/table';
@@ -850,12 +850,17 @@ function Table({
     const found = zoomed ? T.findCard(table, zoomed) : null;
     if (!found) return null;
     const inst = table[found.zone][found.index];
-    const card = cardsById.get(inst.cardId);
-    if (!card) return null;
-    if (found.zone !== 'hand' && found.zone !== 'table') return { card };
+    /** A card on the table as the zoom shows it: keyed by its copy, so each keeps its own view while sliding. */
+    const item = (c: CardInstance | undefined): ZoomItem | undefined => {
+      const card = c && cardsById.get(c.cardId);
+      return c && card ? { key: c.iid, card } : undefined;
+    };
+    const current = item(inst);
+    if (!current) return null;
+    if (found.zone !== 'hand' && found.zone !== 'table') return { current };
     const row = table[found.zone].filter((c) => c.faceUp);
     const i = row.findIndex((c) => c.iid === inst.iid);
-    return { card, prev: row[i - 1], next: row[i + 1] };
+    return { current, prev: item(row[i - 1]), next: item(row[i + 1]) };
   })();
 
   /** Where on the (flat) table the lifted stack was picked up. */
@@ -1141,11 +1146,11 @@ function Table({
       {zoomView ? (
         <CardZoom
           deck={deck}
-          card={zoomView.card}
+          current={zoomView.current}
           area={rootSize}
-          prev={zoomView.prev && cardsById.get(zoomView.prev.cardId)}
-          next={zoomView.next && cardsById.get(zoomView.next.cardId)}
-          onStep={(dir) => setZoomed(dir === 1 ? zoomView.next!.iid : zoomView.prev!.iid)}
+          prev={zoomView.prev}
+          next={zoomView.next}
+          onStep={(dir) => setZoomed(dir === 1 ? zoomView.next!.key : zoomView.prev!.key)}
           onClose={() => setZoomed(null)}
         />
       ) : null}

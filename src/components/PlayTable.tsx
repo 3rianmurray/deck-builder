@@ -300,8 +300,9 @@ function Table({
    * where it would land (see `snapTo`). `on` is while it's settled there; `returning` while it springs back to
    * the finger. Either way the finger doesn't move it. `x`, `y`, `scale` are where and how big it's shown.
    */
+  // `leftSource`: the finger has been off the stack the held card came from, so it may now go back onto it.
   const snap = useMemo(() => {
-    const now = { on: false, returning: false, x: 0, y: 0, scale: 1 };
+    const now = { on: false, returning: false, x: 0, y: 0, scale: 1, leftSource: false };
     return { get: () => now, set: (p: Partial<typeof now>) => Object.assign(now, p) };
   }, []);
   // Cards dropped into the hand or onto the table glide from where they were let go into their new place. The
@@ -856,10 +857,15 @@ function Table({
    */
   const stackTargetAt = (pageX: number, pageY: number): string | null => {
     const p = toTable(pageX, pageY);
-    const g = p && !reveal ? groupAt(p.x, p.y, STACK_TARGET_INSET) : undefined;
-    // The stack a card is being taken off isn't a target: the finger starts out over it, and dropping a card
-    // straight back on would just put it back.
-    if (!g || g.some((c) => isHeld(c.iid))) return null;
+    if (!p || reveal) return null;
+    // The stack a card is being taken off starts out under the finger, so it only becomes a target once the
+    // finger has been off it: then the card can go back on if the player changes their mind.
+    const source = tableGroups.find((grp) => grp.length > 1 && grp.some((c) => isHeld(c.iid)));
+    const sourceRect = source && groupRect(source);
+    if (sourceRect && !inside(sourceRect, p.x, p.y)) snap.set({ leftSource: true });
+    const g = groupAt(p.x, p.y, STACK_TARGET_INSET);
+    if (!g || (g === source && !snap.get().leftSource)) return null;
+    // A card that's being carried away whole (every card of it held) isn't there to stack onto.
     return shownOf(g)?.iid ?? null;
   };
 
@@ -985,7 +991,7 @@ function Table({
         pan.setValue({ x: 0, y: 0 });
         lastPan.set({ x: 0, y: 0 });
         // Reset here rather than when the last drag ended: dropping reads it after the drag has been cleared.
-        snap.set({ on: false, returning: false });
+        snap.set({ on: false, returning: false, leftSource: false });
         onTouchingCard?.(true);
         setDrag({
           iid: inst.iid,

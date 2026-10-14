@@ -59,6 +59,8 @@ export interface Deck {
   playMode?: PlayMode;
   /** Missing means standard (decks saved before sizes existed). */
   cardShape?: CardShape;
+  /** The home-screen group it's filed under, if any (see lib/groups.ts). */
+  groupId?: string;
   /** Relative image path for the card back, or null to use the built-in back. */
   backImage: string | null;
   cards: Card[];

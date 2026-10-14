@@ -3,12 +3,14 @@
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { newId } from './id';
+import type { DeckGroup } from './groups';
 import type { Deck, Session, Settings, TableState } from './types';
 
 const DECKS_FILE = 'decks.json';
 const TABLES_FILE = 'tables.json';
 const SESSIONS_FILE = 'sessions.json';
 const SETTINGS_FILE = 'settings.json';
+const GROUPS_FILE = 'groups.json';
 
 function readJson<T>(name: string, fallback: T): T {
   try {
@@ -36,6 +38,8 @@ export const saveSessions = (sessions: Session[]) => writeJson(SESSIONS_FILE, se
 const DEFAULT_SETTINGS: Settings = { tableLook: 'tabletop' };
 export const loadSettings = (): Settings => ({ ...DEFAULT_SETTINGS, ...readJson<Partial<Settings>>(SETTINGS_FILE, {}) });
 export const saveSettings = (settings: Settings) => writeJson(SETTINGS_FILE, settings);
+export const loadGroups = () => readJson<DeckGroup[]>(GROUPS_FILE, []);
+export const saveGroups = (groups: DeckGroup[]) => writeJson(GROUPS_FILE, groups);
 
 function deckDir(deckId: string): Directory {
   return new Directory(Paths.document, 'decks', deckId);

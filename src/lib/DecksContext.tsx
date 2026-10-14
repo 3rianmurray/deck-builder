@@ -7,14 +7,17 @@ import {
   deleteImage,
   importImage,
   loadDecks,
+  loadGroups,
   loadSessions,
   loadSettings,
   loadTables,
   saveDecks,
+  saveGroups,
   saveSessions,
   saveSettings,
   saveTables,
 } from './storage';
+import type { DeckGroup } from './groups';
 import { moveItems } from './order';
 import { createTable, pruneTable } from './table';
 import type { Card, CardShape, Deck, PlayMode, Session, Settings, TableLook, TableState } from './types';
@@ -49,6 +52,16 @@ interface DecksApi {
   createSession: (name: string, deckIds: string[]) => Session;
   updateSession: (id: string, changes: Pick<Session, 'name' | 'deckIds'>) => void;
   deleteSession: (id: string) => void;
+  /** Home-screen groups, in display order (see lib/groups.ts). */
+  groups: DeckGroup[];
+  createGroup: (name: string) => DeckGroup;
+  renameGroup: (id: string, name: string) => void;
+  /** Removes the group; its decks are kept and become ungrouped. */
+  deleteGroup: (id: string) => void;
+  toggleGroup: (id: string) => void;
+  setGroupOrder: (groups: DeckGroup[]) => void;
+  /** Puts the decks in this order (any not listed keep their place at the end) and files each under a group. */
+  arrangeDecks: (order: string[], groupOf: Record<string, string | undefined>) => void;
 }
 
 const DecksContext = createContext<DecksApi | null>(null);
@@ -67,6 +80,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
   const [tables, setTables] = useState<Record<string, TableState>>(() => loadTables());
   const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
+  const [groups, setGroups] = useState<DeckGroup[]>(() => loadGroups());
   const loaded = useRef(false);
 
   useEffect(() => {
@@ -81,6 +95,9 @@ export function DecksProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loaded.current) saveSettings(settings);
   }, [settings]);
+  useEffect(() => {
+    if (loaded.current) saveGroups(groups);
+  }, [groups]);
   useEffect(() => {
     loaded.current = true;
   }, []);
@@ -197,12 +214,42 @@ export function DecksProvider({ children }: { children: ReactNode }) {
           withoutTables(all, (key) => key.startsWith(`${id}:`) && !changes.deckIds.some((d) => key === tableKey(d, id))),
         );
       },
+      groups,
+      createGroup(name) {
+        const group: DeckGroup = { id: newId(), name };
+        setGroups((all) => [...all, group]);
+        return group;
+      },
+      renameGroup(id, name) {
+        setGroups((all) => all.map((g) => (g.id === id ? { ...g, name } : g)));
+      },
+      deleteGroup(id) {
+        setGroups((all) => all.filter((g) => g.id !== id));
+        setDecks((all) => all.map((d) => (d.groupId === id ? { ...d, groupId: undefined } : d)));
+      },
+      toggleGroup(id) {
+        setGroups((all) => all.map((g) => (g.id === id ? { ...g, collapsed: !g.collapsed } : g)));
+      },
+      setGroupOrder(next) {
+        setGroups(next);
+      },
+      arrangeDecks(order, groupOf) {
+        setDecks((all) => {
+          const byId = new Map(all.map((d) => [d.id, d]));
+          const placed = order.flatMap((id) => {
+            const d = byId.get(id);
+            return d ? [{ ...d, groupId: groupOf[id] }] : [];
+          });
+          const listed = new Set(order);
+          return [...placed, ...all.filter((d) => !listed.has(d.id))];
+        });
+      },
       deleteSession(id) {
         setSessions((all) => all.filter((s) => s.id !== id));
         setTables((all) => withoutTables(all, (key) => key.startsWith(`${id}:`)));
       },
     };
-  }, [decks, tables, sessions, settings, updateDeck]);
+  }, [decks, tables, sessions, settings, groups, updateDeck]);
 
   return <DecksContext.Provider value={api}>{children}</DecksContext.Provider>;
 }

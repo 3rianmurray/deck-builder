@@ -1,89 +1,186 @@
-import { router } from 'expo-router';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { router, Stack } from 'expo-router';
+import { useState } from 'react';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ActionSheet } from '../components/ActionSheet';
 import { Button } from '../components/Button';
 import { CardView } from '../components/CardView';
+import { LIFT_HOLD_MS, ReorderableList } from '../components/ReorderableList';
 import { useDecks } from '../lib/DecksContext';
+import { buildRows, dropDeck, dropGroup } from '../lib/groups';
+import type { Row } from '../lib/groups';
 import { deckSize } from '../lib/types';
 import { colors } from '../theme';
 
+/** A press this far from a row's right edge is on its Play or ••• button, so it doesn't pick the row up. */
+const BUTTON_ZONE = 100;
+
 export default function HomeScreen() {
-  const { decks, createDeck, sessions, getDeck } = useDecks();
+  const {
+    decks,
+    createDeck,
+    sessions,
+    getDeck,
+    groups,
+    createGroup,
+    renameGroup,
+    deleteGroup,
+    toggleGroup,
+    setGroupOrder,
+    arrangeDecks,
+  } = useDecks();
   const insets = useSafeAreaInsets();
+  const [groupMenu, setGroupMenu] = useState<string | null>(null);
+
+  const rows = buildRows(decks, groups);
+  const menuGroup = groups.find((g) => g.id === groupMenu);
 
   const newDeck = () => {
     const deck = createDeck(`Deck ${decks.length + 1}`);
     router.push({ pathname: '/deck/[id]', params: { id: deck.id } });
   };
 
-  return (
-    <View style={styles.screen}>
-      <FlatList
-        data={decks}
-        keyExtractor={(d) => d.id}
-        contentContainerStyle={[styles.list, decks.length === 0 && { flex: 1 }]}
-        ListHeaderComponent={
-          sessions.length ? (
-            <View style={{ gap: 10, marginBottom: 6 }}>
-              <Text style={styles.section}>Sessions</Text>
-              {sessions.map((s) => {
-                const names = s.deckIds.flatMap((d) => getDeck(d)?.name ?? []);
-                return (
-                  <Pressable
-                    key={s.id}
-                    style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
-                    onPress={() => router.push({ pathname: '/session/edit', params: { id: s.id } })}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.name} numberOfLines={1}>
-                        {s.name}
-                      </Text>
-                      <Text style={styles.meta} numberOfLines={1}>
-                        {names.length ? names.join(' · ') : 'No decks'}
-                      </Text>
-                    </View>
-                    <Button
-                      label="Play"
-                      variant="primary"
-                      disabled={names.length === 0}
-                      onPress={() => router.push({ pathname: '/session/[id]', params: { id: s.id } })}
-                    />
-                  </Pressable>
-                );
-              })}
-              {decks.length ? <Text style={[styles.section, { marginTop: 10 }]}>Decks</Text> : null}
-            </View>
-          ) : null
-        }
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No decks yet</Text>
-            <Text style={styles.emptyBody}>
-              Create a deck, add your own card art from Photos, then take it to the table to draw, shuffle and play.
-            </Text>
-          </View>
-        }
-        renderItem={({ item }) => (
+  // Naming uses the system prompt, which only iOS has; elsewhere groups get a numbered name to rename later.
+  const askName = (title: string, current: string, done: (name: string) => void) => {
+    if (Platform.OS !== 'ios') return done(current);
+    Alert.prompt(title, undefined, (name) => name.trim() && done(name.trim()), 'plain-text', current);
+  };
+
+  const newGroup = () => askName('New group', `Group ${groups.length + 1}`, (name) => createGroup(name));
+
+  const drop = (row: Row, at: number) => {
+    if (row.kind === 'deck') {
+      const { order, groupOf } = dropDeck(decks, groups, row.id, at);
+      arrangeDecks(order, groupOf);
+    } else {
+      setGroupOrder(dropGroup(decks, groups, row.id, at));
+    }
+  };
+
+  const renderRow = (row: Row, lifted = false) => {
+    if (row.kind === 'group') {
+      const group = groups.find((g) => g.id === row.id);
+      if (!group) return null;
+      const count = decks.filter((d) => d.groupId === group.id).length;
+      return (
+        <Pressable
+          onPress={() => toggleGroup(group.id)}
+          // Matches the list's hold-to-lift, so letting go after lifting doesn't also toggle the group.
+          onLongPress={() => {}}
+          delayLongPress={LIFT_HOLD_MS}
+          accessibilityRole="button"
+          accessibilityLabel={`${group.name}, ${count} ${count === 1 ? 'deck' : 'decks'}, ${group.collapsed ? 'collapsed' : 'expanded'}`}
+          style={[styles.groupRow, lifted && styles.liftedRow]}>
+          <Text style={styles.chevron}>{group.collapsed ? '▸' : '▾'}</Text>
+          <Text style={styles.groupName} numberOfLines={1}>
+            {group.name}
+          </Text>
+          <Text style={styles.groupCount}>{count}</Text>
+          <Pressable onPress={() => setGroupMenu(group.id)} hitSlop={12} accessibilityLabel={`${group.name} options`}>
+            <Text style={styles.groupMenu}>•••</Text>
+          </Pressable>
+        </Pressable>
+      );
+    }
+    const deck = getDeck(row.id);
+    if (!deck) return null;
+    return (
+      <Pressable
+        style={({ pressed }) => [styles.row, deck.groupId && styles.inGroup, lifted && styles.liftedRow, pressed && { opacity: 0.75 }]}
+        onPress={() => router.push({ pathname: '/deck/[id]', params: { id: deck.id } })}
+        // Matches the list's hold-to-lift, so letting go after lifting doesn't also open the deck.
+        onLongPress={() => {}}
+        delayLongPress={LIFT_HOLD_MS}>
+        <CardView deck={deck} card={deck.cards[0]} faceUp={!deck.backImage && !!deck.cards[0]} width={48} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.name} numberOfLines={1}>
+            {deck.name}
+          </Text>
+          <Text style={styles.meta}>
+            {deckSize(deck)} {deckSize(deck) === 1 ? 'card' : 'cards'}
+          </Text>
+        </View>
+        <Button
+          label="Play"
+          variant="primary"
+          disabled={deck.cards.length === 0}
+          onPress={() => router.push({ pathname: '/play/[id]', params: { id: deck.id } })}
+        />
+      </Pressable>
+    );
+  };
+
+  const sessionsSection = sessions.length ? (
+    <View style={{ gap: 10, marginBottom: 16 }}>
+      <Text style={styles.section}>Sessions</Text>
+      {sessions.map((s) => {
+        const names = s.deckIds.flatMap((d) => getDeck(d)?.name ?? []);
+        return (
           <Pressable
+            key={s.id}
             style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
-            onPress={() => router.push({ pathname: '/deck/[id]', params: { id: item.id } })}>
-            <CardView deck={item} card={item.cards[0]} faceUp={!item.backImage && !!item.cards[0]} width={48} />
+            onPress={() => router.push({ pathname: '/session/edit', params: { id: s.id } })}>
             <View style={{ flex: 1 }}>
               <Text style={styles.name} numberOfLines={1}>
-                {item.name}
+                {s.name}
               </Text>
-              <Text style={styles.meta}>
-                {deckSize(item)} {deckSize(item) === 1 ? 'card' : 'cards'}
+              <Text style={styles.meta} numberOfLines={1}>
+                {names.length ? names.join(' · ') : 'No decks'}
               </Text>
             </View>
             <Button
               label="Play"
               variant="primary"
-              disabled={item.cards.length === 0}
-              onPress={() => router.push({ pathname: '/play/[id]', params: { id: item.id } })}
+              disabled={names.length === 0}
+              onPress={() => router.push({ pathname: '/session/[id]', params: { id: s.id } })}
             />
           </Pressable>
-        )}
+        );
+      })}
+    </View>
+  ) : null;
+
+  return (
+    <View style={styles.screen}>
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable onPress={newGroup} hitSlop={12} accessibilityRole="button">
+              <Text style={styles.headerButton}>New group</Text>
+            </Pressable>
+          ),
+        }}
+      />
+      <ReorderableList
+        rows={rows}
+        keyOf={(r) => `${r.kind}:${r.id}`}
+        renderRow={(r) => <View style={styles.rowWrap}>{renderRow(r)}</View>}
+        renderLifted={(r) => <View style={styles.liftedWrap}>{renderRow(r, true)}</View>}
+        canLift={(_, x, width) => x < width - BUTTON_ZONE}
+        onDrop={drop}
+        bottomInset={insets.bottom + 72}
+        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 100 }]}
+        header={
+          <>
+            {sessionsSection}
+            {decks.length || groups.length ? (
+              <Text style={[styles.section, { marginBottom: 10 }]}>Decks</Text>
+            ) : (
+              <View style={styles.empty}>
+                <Text style={styles.emptyTitle}>No decks yet</Text>
+                <Text style={styles.emptyBody}>
+                  Create a deck, add your own card art from Photos, then take it to the table to draw, shuffle and play.
+                </Text>
+              </View>
+            )}
+          </>
+        }
+        footer={
+          decks.length > 1 || groups.length ? (
+            <Text style={styles.hint}>Hold a deck or group to drag it. Drop a deck under a group to file it there.</Text>
+          ) : null
+        }
       />
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
         <Button label="+ New Deck" variant="primary" onPress={newDeck} style={{ flex: 1 }} />
@@ -94,13 +191,42 @@ export default function HomeScreen() {
           style={{ flex: 1 }}
         />
       </View>
+
+      <ActionSheet
+        visible={!!menuGroup}
+        title={menuGroup?.name}
+        onClose={() => setGroupMenu(null)}
+        actions={
+          menuGroup
+            ? [
+                ...(Platform.OS === 'ios'
+                  ? [
+                      {
+                        label: 'Rename group',
+                        opensModal: true,
+                        onPress: () => askName('Rename group', menuGroup.name, (name) => renameGroup(menuGroup.id, name)),
+                      },
+                    ]
+                  : []),
+                {
+                  label: 'Delete group (keeps its decks)',
+                  destructive: true,
+                  onPress: () => deleteGroup(menuGroup.id),
+                },
+              ]
+            : []
+        }
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  list: { padding: 16, gap: 10 },
+  list: { padding: 16 },
+  headerButton: { color: colors.accent, fontSize: 16, fontWeight: '600' },
+  rowWrap: { paddingBottom: 10 },
+  liftedWrap: { paddingHorizontal: 16 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -109,11 +235,38 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
   },
+  // Decks in a group sit slightly indented under its header.
+  inGroup: { marginLeft: 14 },
+  liftedRow: { backgroundColor: colors.surfaceRaised },
+  groupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 6,
+    borderRadius: 10,
+    backgroundColor: 'rgba(224,179,84,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(224,179,84,0.35)',
+  },
+  chevron: { color: colors.accent, fontSize: 16, width: 14 },
+  groupName: { flex: 1, color: colors.text, fontSize: 16, fontWeight: '700' },
+  groupCount: { color: colors.textMuted, fontSize: 14 },
+  groupMenu: { color: colors.accent, fontSize: 16, fontWeight: '700', paddingLeft: 8 },
   name: { color: colors.text, fontSize: 17, fontWeight: '600' },
   meta: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
+  hint: { color: colors.textMuted, fontSize: 13, textAlign: 'center', marginTop: 8 },
+  empty: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80, paddingHorizontal: 16, gap: 10 },
   emptyTitle: { color: colors.text, fontSize: 22, fontWeight: '700' },
   emptyBody: { color: colors.textMuted, fontSize: 15, textAlign: 'center', lineHeight: 21 },
   section: { color: colors.textMuted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  footer: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
 });

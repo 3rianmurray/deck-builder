@@ -28,9 +28,15 @@ export function TabletopSurface() {
     <View style={[StyleSheet.absoluteFill, styles.surface]}>
       {/* Base cloth colour, lighter where the lamp is (top centre), darker nearer the player. */}
       <LinearGradient colors={[colors.feltLight, colors.felt, colors.feltDeep]} locations={[0, 0.45, 1]} style={StyleSheet.absoluteFill} />
-      {/* The weave, on a plane tilted back. It's oversized so the tilt never shows its edges. */}
-      <View style={styles.tiltedPlane}>
-        <Image source={FELT_TEXTURE} resizeMode="repeat" style={styles.texture} />
+      {/*
+        The weave, on a plane tilted back. It's oversized so the tilt never shows its edges. The clipping
+        wrapper flattens it before it meets the layers around it; without it, iOS sorts the tilted plane by
+        depth and hides the half leaning away behind the flat gradient underneath.
+      */}
+      <View style={[StyleSheet.absoluteFill, styles.flatten]}>
+        <View style={styles.tiltedPlane}>
+          <Image source={FELT_TEXTURE} resizeMode="repeat" style={styles.texture} />
+        </View>
       </View>
       {/* Vignette: the cloth darkens towards every edge. */}
       <LinearGradient colors={['rgba(0,0,0,0.45)', 'transparent']} style={[styles.edge, { top: 0, height: '22%' }]} />
@@ -73,6 +79,7 @@ export const matSpot: ViewStyle = {
 
 const styles = StyleSheet.create({
   surface: { overflow: 'hidden', pointerEvents: 'none' },
+  flatten: { overflow: 'hidden' },
   tiltedPlane: {
     position: 'absolute',
     left: '-60%',

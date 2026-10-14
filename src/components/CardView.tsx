@@ -89,7 +89,8 @@ export function CardView({ deck, card: cardProp, faceUp = true, width, onPress, 
     <Animated.View
       style={[
         { transform },
-        tabletop && [tabletopShadow.resting, { borderRadius: radius, backgroundColor: colors.surfaceRaised }],
+        // Sized to the card exactly: unsized, it can stretch wider than the card and show as a grey card behind.
+        tabletop && [tabletopShadow.resting, { width, height, borderRadius: radius, backgroundColor: colors.surfaceRaised }],
         style,
       ]}>
       <Pressable

@@ -935,6 +935,12 @@ function Table({
         The table itself, laid out flat and drawn leaning back on the tabletop. It exactly covers this view, so
         layouts measured inside it are in the same (flat) coordinates that `toTable` maps fingers into.
       */}
+      {/*
+        The clipping wrapper matters: iOS sorts 3D layers by depth, so the half of the table leaning away from
+        the viewer would otherwise be hidden behind the cloth. Clipping flattens the tilted table into this
+        wrapper first, so it's drawn whole, on top.
+      */}
+      <View style={[StyleSheet.absoluteFill, styles.stage]}>
       <View style={[StyleSheet.absoluteFill, tilt.angle ? { transform: tiltTransform(tilt) } : null]}>
       {missing > 0 ? (
         <Pressable style={styles.banner} onPress={() => apply((t) => T.addMissingCards(t, deck), 'Added to deck')}>
@@ -1101,6 +1107,7 @@ function Table({
         </Animated.View>
       ) : null}
 
+      </View>
       </View>
 
       {zoomed && cardsById.get(zoomed) ? (
@@ -1289,6 +1296,7 @@ const styles = StyleSheet.create({
     elevation: 14,
   },
   collapsed: { position: 'absolute', opacity: 0 },
+  stage: { overflow: 'hidden' },
   // Tabletop look: the piles sit straight on the cloth, and the hand on the wooden rail.
   pilesOnCloth: { backgroundColor: 'transparent' },
   handOnRail: { backgroundColor: 'transparent', overflow: 'hidden' },

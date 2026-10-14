@@ -1,3 +1,4 @@
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -21,6 +22,9 @@ const COLUMNS = 3;
 const GAP = 10;
 const PADDING = 16;
 
+/** What a picked picture is for: new cards, or the deck's card back. */
+type ArtTarget = 'cards' | 'back';
+
 async function pickImages(multiple: boolean): Promise<string[]> {
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'],
@@ -29,6 +33,12 @@ async function pickImages(multiple: boolean): Promise<string[]> {
     // Full quality here; the cropper compresses once when it saves.
     quality: 1,
   });
+  return result.canceled ? [] : result.assets.map((a) => a.uri);
+}
+
+/** Picks images from the Files app (iCloud Drive and other storage apps), copied somewhere the app can read them. */
+async function pickFiles(multiple: boolean): Promise<string[]> {
+  const result = await DocumentPicker.getDocumentAsync({ type: 'image/*', multiple, copyToCacheDirectory: true });
   return result.canceled ? [] : result.assets.map((a) => a.uri);
 }
 
@@ -53,10 +63,15 @@ export default function DeckEditorScreen() {
   const [selected, setSelected] = useState<Card | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [copiesDraft, setCopiesDraft] = useState('1');
-  const [addSheetOpen, setAddSheetOpen] = useState(false);
+  /**
+   * The open picture menu: where new card art (`cards`) or the card back (`back`) comes from, or, after
+   * choosing a sprite sheet, where that sheet comes from (`sheet-…`).
+   */
+  const [menu, setMenu] = useState<ArtTarget | `sheet-${ArtTarget}` | null>(null);
   /** Images waiting in the cropper, and what they become once cropped. */
-  const [crop, setCrop] = useState<{ uris: string[]; target: 'cards' | 'back' | { cardId: string } } | null>(null);
-  const [spriteSheet, setSpriteSheet] = useState<string | null>(null);
+  const [crop, setCrop] = useState<{ uris: string[]; target: ArtTarget | { cardId: string } } | null>(null);
+  /** A sprite sheet being cut into cards, or picked from for the card back. */
+  const [spriteSheet, setSpriteSheet] = useState<{ uri: string; target: ArtTarget } | null>(null);
 
   if (!deck) {
     return (
@@ -79,17 +94,54 @@ export default function DeckEditorScreen() {
     }
   };
 
-  const addCards = () =>
-    withBusy(async () => {
-      const uris = await pickImages(true);
-      if (uris.length) setCrop({ uris, target: 'cards' });
-    });
-
-  const addCardFromCamera = () =>
+  // Art for new cards (several at once from Photos or Files) or the card back (one). Everything goes through
+  // the cropper, except sprite sheets, which have their own screen.
+  const fromCamera = (target: ArtTarget) =>
     withBusy(async () => {
       const uri = await takePhoto();
-      if (uri) setCrop({ uris: [uri], target: 'cards' });
+      if (uri) setCrop({ uris: [uri], target });
     });
+  const fromPhotos = (target: ArtTarget) =>
+    withBusy(async () => {
+      const uris = await pickImages(target === 'cards');
+      if (uris.length) setCrop({ uris, target });
+    });
+  const fromFiles = (target: ArtTarget) =>
+    withBusy(async () => {
+      const uris = await pickFiles(target === 'cards');
+      if (uris.length) setCrop({ uris, target });
+    });
+  const sheetFrom = (target: ArtTarget, source: 'photos' | 'files') =>
+    withBusy(async () => {
+      const [uri] = source === 'photos' ? await pickImages(false) : await pickFiles(false);
+      if (uri) setSpriteSheet({ uri, target });
+    });
+
+  // The pickers are system screens, which iOS can only show once this menu has gone (hence opensModal).
+  const sourceActions = (target: ArtTarget) => [
+    { label: 'Take photo', opensModal: true, onPress: () => fromCamera(target) },
+    { label: 'Choose from Photos', opensModal: true, onPress: () => fromPhotos(target) },
+    { label: 'Choose from Files', opensModal: true, onPress: () => fromFiles(target) },
+    // A sprite sheet is a way of using a picture, not a place it comes from: so ask where it is next.
+    {
+      label: target === 'cards' ? 'Import sprite sheet…' : 'From a sprite sheet…',
+      onPress: () => setMenu(`sheet-${target}`),
+    },
+  ];
+  const sheetSourceActions = (target: ArtTarget) => [
+    { label: 'From Photos', opensModal: true, onPress: () => sheetFrom(target, 'photos') },
+    { label: 'From Files', opensModal: true, onPress: () => sheetFrom(target, 'files') },
+  ];
+  const menuProps =
+    menu === 'cards'
+      ? { title: 'Add cards', actions: sourceActions('cards') }
+      : menu === 'back'
+        ? { title: 'Card back', actions: sourceActions('back') }
+        : menu === 'sheet-cards'
+          ? { title: 'Sprite sheet from…', actions: sheetSourceActions('cards') }
+          : menu === 'sheet-back'
+            ? { title: 'Sprite sheet from…', actions: sheetSourceActions('back') }
+            : { actions: [] };
 
   const saveCropped = (uris: string[]) => {
     const target = crop?.target;
@@ -98,25 +150,6 @@ export default function DeckEditorScreen() {
     else decks.addCards(deck.id, uris);
     setCrop(null);
   };
-
-  const importSpriteSheet = () =>
-    withBusy(async () => {
-      const [uri] = await pickImages(false);
-      if (uri) setSpriteSheet(uri);
-    });
-
-  // Each opens a system picker, which iOS can only present after this sheet has dismissed.
-  const addActions = [
-    { label: 'Take photo', opensModal: true, onPress: addCardFromCamera },
-    { label: 'Choose from Photos', opensModal: true, onPress: addCards },
-    { label: 'Import sprite sheet', opensModal: true, onPress: importSpriteSheet },
-  ];
-
-  const chooseBack = () =>
-    withBusy(async () => {
-      const [uri] = await pickImages(false);
-      if (uri) setCrop({ uris: [uri], target: 'back' });
-    });
 
   const confirmDelete = () =>
     Alert.alert(`Delete "${deck.name}"?`, 'This removes the deck and all of its card images from this device.', [
@@ -203,11 +236,11 @@ export default function DeckEditorScreen() {
             ) : null}
 
             <View style={[styles.backRow, { marginTop: 12 }]}>
-              <CardView deck={deck} faceUp={false} width={64} onPress={chooseBack} />
+              <CardView deck={deck} faceUp={false} width={64} onPress={() => setMenu('back')} />
               <View style={{ flex: 1, gap: 8 }}>
                 <Text style={styles.label}>Card back</Text>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Button label="Choose image" onPress={chooseBack} />
+                  <Button label="Choose image" onPress={() => setMenu('back')} disabled={busy} />
                   {deck.backImage ? <Button label="Reset" onPress={() => decks.setCardBack(deck.id, null)} /> : null}
                 </View>
               </View>
@@ -217,11 +250,11 @@ export default function DeckEditorScreen() {
               <Text style={styles.sectionTitle}>
                 Cards <Text style={styles.muted}>({deckSize(deck)})</Text>
               </Text>
-              <Button label="+ Add cards" variant="primary" onPress={() => setAddSheetOpen(true)} disabled={busy} />
+              <Button label="+ Add cards" variant="primary" onPress={() => setMenu('cards')} disabled={busy} />
             </View>
             {deck.cards.length === 0 ? (
               <Text style={[styles.muted, { marginTop: 8 }]}>
-                Take a photo or pick images from Photos to turn them into cards. Tap a card to rename it, set how many copies are in the deck, or remove it.
+                Take a photo, pick images from Photos or Files, or cut up a sprite sheet to make cards. Tap a card to rename it, set how many copies are in the deck, or remove it.
               </Text>
             ) : (
               <Text style={[styles.muted, { fontSize: 13 }]}>
@@ -293,19 +326,16 @@ export default function DeckEditorScreen() {
         onClose={() => setSheetOpen(false)}
       />
 
-      <ActionSheet
-        visible={addSheetOpen}
-        title="Add cards"
-        actions={addActions}
-        onClose={() => setAddSheetOpen(false)}
-      />
+      <ActionSheet visible={menu !== null} {...menuProps} onClose={() => setMenu(null)} />
 
       <CropModal uris={crop?.uris ?? []} ratio={cardRatio(deck)} onDone={saveCropped} onCancel={() => setCrop(null)} />
 
       <SpriteSheetModal
-        uri={spriteSheet}
+        uri={spriteSheet?.uri ?? null}
+        pickOne={spriteSheet?.target === 'back'}
         onDone={(uris) => {
-          decks.addCards(deck.id, uris);
+          if (spriteSheet?.target === 'back') decks.setCardBack(deck.id, uris[0]);
+          else decks.addCards(deck.id, uris);
           setSpriteSheet(null);
         }}
         onCancel={() => setSpriteSheet(null)}

@@ -34,13 +34,18 @@ function parseCount(text: string, fallback: number, max: number): number {
 interface Props {
   /** The picked sprite sheet. The modal is shown while this is set. */
   uri: string | null;
-  /** Called with one image uri per card, in card order. */
+  /**
+   * Take just one card from the sheet (e.g. a card back): the player taps the cell they want, instead of
+   * choosing how many cells to cut into cards.
+   */
+  pickOne?: boolean;
+  /** Called with one image uri per card, in card order (just the one, when picking one). */
   onDone: (cards: string[]) => void;
   onCancel: () => void;
 }
 
-/** Slices one image laid out as a grid of cards into separate card images. */
-export function SpriteSheetModal({ uri, onDone, onCancel }: Props) {
+/** Slices one image laid out as a grid of cards into separate card images, or takes one card from it. */
+export function SpriteSheetModal({ uri, pickOne = false, onDone, onCancel }: Props) {
   const insets = useSafeAreaInsets();
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [loaded, setLoaded] = useState<(LoadedImage & { source: string }) | null>(null);
@@ -51,6 +56,8 @@ export function SpriteSheetModal({ uri, onDone, onCancel }: Props) {
   const [order, setOrder] = useState<SheetOrder>('rows');
   const [turn, setTurn] = useState<QuarterTurn>(0);
   const [progress, setProgress] = useState<number | null>(null);
+  /** When picking one card: the cell chosen, as row and column. */
+  const [chosen, setChosen] = useState({ r: 0, c: 0 });
 
   const image = loaded && loaded.source === uri ? loaded : null;
 
@@ -68,7 +75,11 @@ export function SpriteSheetModal({ uri, onDone, onCancel }: Props) {
   const rows = parseCount(rowsText, 1, MAX_CELLS_PER_SIDE);
   const columns = parseCount(colsText, 1, MAX_CELLS_PER_SIDE);
   const cells = rows * columns;
-  const grid: Grid = { rows, columns, count: parseCount(countText, cells, cells), order };
+  const grid: Grid = pickOne
+    ? { rows, columns, count: cells, order: 'rows' }
+    : { rows, columns, count: parseCount(countText, cells, cells), order };
+  // The chosen cell, kept inside the grid if it shrinks.
+  const pick = { r: Math.min(chosen.r, rows - 1), c: Math.min(chosen.c, columns - 1) };
 
   // Fit the preview inside the screen width and a bit under half its height.
   const box = { w: screenW - PADDING * 2, h: screenH * 0.42 };
@@ -77,7 +88,8 @@ export function SpriteSheetModal({ uri, onDone, onCancel }: Props) {
 
   const importCards = async () => {
     if (!image) return;
-    const rects = cellRects(image.width, image.height, grid);
+    const all = cellRects(image.width, image.height, grid);
+    const rects = pickOne ? [all[pick.r * columns + pick.c]] : all;
     const out: string[] = [];
     try {
       for (const [i, rect] of rects.entries()) {
@@ -100,7 +112,8 @@ export function SpriteSheetModal({ uri, onDone, onCancel }: Props) {
         <ScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: 24, paddingHorizontal: PADDING, gap: 16 }}>
-          <Text style={styles.title}>Import sprite sheet</Text>
+          <Text style={styles.title}>{pickOne ? 'Choose a card from the sheet' : 'Import sprite sheet'}</Text>
+          {pickOne ? <Text style={styles.help}>Set the grid, then tap the card to use.</Text> : null}
 
           <View style={[styles.previewBox, { height: preview?.h ?? box.h }]}>
             {image && preview ? (
@@ -109,19 +122,28 @@ export function SpriteSheetModal({ uri, onDone, onCancel }: Props) {
                 {Array.from({ length: rows }, (_, r) =>
                   Array.from({ length: columns }, (_, c) => {
                     const n = cellNumber(r, c, grid);
+                    const box = {
+                      left: (c * preview.w) / columns,
+                      top: (r * preview.h) / rows,
+                      width: preview.w / columns,
+                      height: preview.h / rows,
+                    };
+                    if (pickOne) {
+                      // Picking one: every cell can be tapped; the chosen one is outlined, the rest dimmed.
+                      const on = pick.r === r && pick.c === c;
+                      return (
+                        <Pressable
+                          key={`${r}-${c}`}
+                          onPress={() => setChosen({ r, c })}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: on }}
+                          accessibilityLabel={`Row ${r + 1}, column ${c + 1}`}
+                          style={[styles.cell, box, on ? styles.chosenCell : styles.otherCell]}
+                        />
+                      );
+                    }
                     return (
-                      <View
-                        key={`${r}-${c}`}
-                        style={[
-                          styles.cell,
-                          {
-                            left: (c * preview.w) / columns,
-                            top: (r * preview.h) / rows,
-                            width: preview.w / columns,
-                            height: preview.h / rows,
-                          },
-                          n === null && styles.unusedCell,
-                        ]}>
+                      <View key={`${r}-${c}`} style={[styles.cell, box, n === null && styles.unusedCell]}>
                         {n !== null ? <Text style={styles.cellNumber}>{n + 1}</Text> : null}
                       </View>
                     );
@@ -136,21 +158,26 @@ export function SpriteSheetModal({ uri, onDone, onCancel }: Props) {
           <View style={styles.fields}>
             <NumberField label="Rows" value={rowsText} onChange={setRowsText} />
             <NumberField label="Columns" value={colsText} onChange={setColsText} />
-            <NumberField label="Cards" value={countText} onChange={setCountText} placeholder={String(cells)} />
+            {pickOne ? null : (
+              <NumberField label="Cards" value={countText} onChange={setCountText} placeholder={String(cells)} />
+            )}
           </View>
-          <Text style={styles.help}>
-            Cards counts the cells that have artwork, starting from cell 1. Leave it empty to use every cell.
-          </Text>
-
-          <Segment
-            label="Order"
-            value={order}
-            onChange={setOrder}
-            options={[
-              ['rows', 'Across rows'],
-              ['columns', 'Down columns'],
-            ]}
-          />
+          {pickOne ? null : (
+            <>
+              <Text style={styles.help}>
+                Cards counts the cells that have artwork, starting from cell 1. Leave it empty to use every cell.
+              </Text>
+              <Segment
+                label="Order"
+                value={order}
+                onChange={setOrder}
+                options={[
+                  ['rows', 'Across rows'],
+                  ['columns', 'Down columns'],
+                ]}
+              />
+            </>
+          )}
 
           <Segment
             label="Rotate cards"
@@ -168,7 +195,15 @@ export function SpriteSheetModal({ uri, onDone, onCancel }: Props) {
         <View style={[styles.actions, { paddingBottom: insets.bottom + 12 }]}>
           <Button label="Cancel" onPress={onCancel} disabled={busy} style={{ flex: 1 }} />
           <Button
-            label={busy ? `Cutting ${progress + 1} of ${grid.count}…` : `Add ${grid.count} ${grid.count === 1 ? 'card' : 'cards'}`}
+            label={
+              pickOne
+                ? busy
+                  ? 'Cutting…'
+                  : 'Use this card'
+                : busy
+                  ? `Cutting ${progress + 1} of ${grid.count}…`
+                  : `Add ${grid.count} ${grid.count === 1 ? 'card' : 'cards'}`
+            }
             variant="primary"
             onPress={importCards}
             disabled={busy || !image}
@@ -252,6 +287,8 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   unusedCell: { backgroundColor: 'rgba(0,0,0,0.65)', borderColor: 'rgba(255,255,255,0.25)' },
+  chosenCell: { borderWidth: 3, borderColor: colors.accent },
+  otherCell: { backgroundColor: 'rgba(0,0,0,0.45)', borderColor: 'rgba(255,255,255,0.25)' },
   cellNumber: {
     color: colors.accentText,
     backgroundColor: colors.accent,

@@ -580,13 +580,21 @@ function Table({
   useEffect(() => {
     if (holdKey === null || !holdIid) return;
     const timer = setTimeout(() => {
-      // The finger stays down, but the press is over: letting go now won't also count as a tap.
+      // The finger stays down, but the press is over: letting go now won't also count as a tap. (The session
+      // pager stays held, now on behalf of the zoom; see below.)
       setDrag(null);
-      onTouchingCard?.(false);
       setZoomed(holdIid);
     }, HOLD_TO_ZOOM_MS);
     return () => clearTimeout(timer);
-  }, [holdKey, holdIid, onTouchingCard]);
+  }, [holdKey, holdIid]);
+
+  // While a card is zoomed, its sideways swipes step through cards; a session's deck pager must hold still,
+  // or it would swipe to another deck at the same time.
+  const zoomOpen = zoomed !== null;
+  useEffect(() => {
+    if (zoomOpen) onTouchingCard?.(true);
+    else onTouchingCard?.(false);
+  }, [zoomOpen, onTouchingCard]);
 
   const drop = (d: Drag, zone: Zone | null) => {
     if (!zone) return;

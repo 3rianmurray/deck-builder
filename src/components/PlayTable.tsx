@@ -165,6 +165,8 @@ interface Landing {
   width: number;
   /** The first card's layout when it was dropped, to tell when it has been laid out in its new place. */
   before?: Rect;
+  /** The glide has finished and the real cards are showing; the stand-in goes a moment later. */
+  revealed?: boolean;
 }
 
 /** A position between the cards in the hand or on the table, counting the cards there that aren't being carried. */
@@ -276,6 +278,19 @@ function Table({
   // Cards dropped into the hand or onto the table glide from where they were let go into their new place. The
   // real cards wait, hidden, until they're laid out there; then a stand-in card flies to them and they appear.
   const [landing, setLanding] = useState<Landing | null>(null);
+  /** The table's flat layer (inside any tilt), which landing cards are measured against. */
+  const stageRef = useRef<View>(null);
+  /** Each card's view in the hand and on the table, so a landing card can be measured exactly. */
+  const cardViews = useMemo(() => {
+    const views = new Map<string, View>();
+    return {
+      get: (iid: string) => views.get(iid),
+      track: (iid: string, view: View | null) => {
+        if (view) views.set(iid, view);
+        else views.delete(iid);
+      },
+    };
+  }, []);
   const [landingAnim] = useState(() => ({
     pos: new Animated.ValueXY(),
     scale: new Animated.Value(1),
@@ -843,6 +858,7 @@ function Table({
   ) => (
     <View
       key={inst.iid}
+      ref={(view) => cardViews.track(inst.iid, view)}
       onLayout={onLayout}
       {...dragHandlers(inst, from, cardWidth, opts).panHandlers}
       accessible
@@ -864,7 +880,7 @@ function Table({
       { onPress: () => open({ kind: 'card', iid: inst.iid }), verticalOnly: from === 'hand' },
       // Hidden while it's being carried (its spot slides out of the row as the gap closes, and would show as a
       // ghost sliding away) and while a dropped card's stand-in glides into this spot.
-      <View style={(isHeld(inst.iid) || landing?.iids.includes(inst.iid)) && styles.hiddenCard}>
+      <View style={(isHeld(inst.iid) || (landing && !landing.revealed && landing.iids.includes(inst.iid))) && styles.hiddenCard}>
         <CardView deck={deck} card={cardsById.get(inst.cardId)} faceUp={inst.faceUp} width={w} />
       </View>,
       measureCard(inst.iid),
@@ -965,18 +981,33 @@ function Table({
   const landingRect = landing ? cardLayouts[landing.iids[0]] : undefined;
   const landingOrigin = landing ? laidOutAt(landing.zone) : null;
   useEffect(() => {
-    if (!landing || !landingRect || !landingOrigin) return;
-    const glide = () => {
-      const scale = landingRect.w / landing.width;
+    if (!landing || landing.revealed || !landingRect || !landingOrigin) return;
+    /** Glides the stand-in onto a card at this spot and size on the (flat) table. */
+    const glideTo = (x: number, y: number, w: number, h: number) => {
       // The stand-in scales about its centre, so aim its centre at the card's centre.
-      const toX = landingOrigin.x + landingRect.x + landingRect.w / 2 - landing.width / 2;
-      const toY = landingOrigin.y + landingRect.y + landingRect.h / 2 - landing.width / ratio / 2;
+      const toX = x + w / 2 - landing.width / 2;
+      const toY = y + h / 2 - landing.width / ratio / 2;
       Animated.parallel([
         Animated.timing(landingAnim.pos, { toValue: { x: toX, y: toY }, duration: LANDING_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(landingAnim.scale, { toValue: scale, duration: LANDING_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(landingAnim.scale, { toValue: w / landing.width, duration: LANDING_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         // Settling onto the cloth: by the end only the card's own resting shadow is left, as on the real card.
         Animated.timing(landingAnim.lift, { toValue: 0, duration: LANDING_MS, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      ]).start(() => setLanding(null));
+      ]).start(() => {
+        // Hand over without a gap: show the real card first, and only take the stand-in away a couple of frames
+        // later, once the real card is surely on screen right underneath it.
+        setLanding((l) => l && { ...l, revealed: true });
+        requestAnimationFrame(() => requestAnimationFrame(() => setLanding(null)));
+      });
+    };
+    const glide = () => {
+      // Aim at where the real card actually is, measured on the table (scrolling and borders included), rather
+      // than adding up layouts, which can come out a few points off and make it jump at the hand-over.
+      const view = cardViews.get(landing.iids[0]);
+      const stage = stageRef.current;
+      const fallback = () =>
+        glideTo(landingOrigin.x + landingRect.x, landingOrigin.y + landingRect.y, landingRect.w, landingRect.h);
+      if (view && stage) view.measureLayout(stage, glideTo, fallback);
+      else fallback();
     };
     const laidOut = landingRect !== landing.before;
     if (laidOut) {
@@ -1117,7 +1148,7 @@ function Table({
         wrapper first, so it's drawn whole, on top.
       */}
       <View style={[StyleSheet.absoluteFill, styles.stage]}>
-      <View style={[StyleSheet.absoluteFill, tilt.angle ? { transform: tiltTransform(tilt) } : null]}>
+      <View ref={stageRef} style={[StyleSheet.absoluteFill, tilt.angle ? { transform: tiltTransform(tilt) } : null]}>
       {missing > 0 ? (
         <Pressable style={styles.banner} onPress={() => apply((t) => T.addMissingCards(t, deck), 'Added to deck')}>
           <Text style={styles.bannerText}>

@@ -354,8 +354,17 @@ function Table({
   const measureRoot = () => rootRef.current?.measureInWindow((x, y) => setRootOrigin({ x, y }));
   const [layout, setLayout] = useState<Partial<Record<LayoutKey, Rect>>>({});
   /** A card on its way from the deck to the discard pile after a reveal. */
-  const [flying, setFlying] = useState<{ iid: string; cardId: string; faceUp: boolean } | null>(null);
-  const [flight] = useState(() => ({ pos: new Animated.ValueXY(), scale: new Animated.Value(1) }));
+  // `landed`: it has reached the discard pile and the real card is there underneath; the flying one stays on
+  // top until the real one's picture is on screen, so swapping them never shows a blank frame.
+  const [flying, setFlying] = useState<{ iid: string; cardId: string; faceUp: boolean; landed?: boolean } | null>(null);
+  const [flight] = useState(() => ({
+    pos: new Animated.ValueXY(),
+    scale: new Animated.Value(1),
+    /** How much lifted shadow it casts: none on the piles, most at the top of its arc. */
+    lift: new Animated.Value(0),
+  }));
+  /** The flying card is gone once the real top card of the discard pile has been drawn under it. */
+  const flightDone = (iid: string) => setFlying((f) => (f?.landed && f.iid === iid ? null : f));
   /** The card (by instance, so its neighbours can be found) blown up to nearly full screen, if any. */
   const [zoomed, setZoomed] = useState<string | null>(null);
   const [rootSize, setRootSize] = useState({ w: 0, h: 0 });
@@ -484,8 +493,10 @@ function Table({
     const land = pileRise(pileWidth, table.discard.length + 1);
     flight.pos.setValue({ x: from.x + PILE_INSET - lift, y: from.y + PILE_INSET - lift });
     flight.scale.setValue(1);
+    flight.lift.setValue(0);
     setFlying({ iid: top.iid, cardId: top.cardId, faceUp: false });
     setTimeout(() => setFlying((f) => f && { ...f, faceUp: true }), FLIGHT_MS * 0.2);
+    const half = { duration: FLIGHT_MS / 2, useNativeDriver: true };
     Animated.parallel([
       Animated.timing(flight.pos, {
         toValue: { x: to.x + PILE_INSET - land, y: to.y + PILE_INSET - land },
@@ -493,14 +504,22 @@ function Table({
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: true,
       }),
-      // Rises a little mid-flight, then settles onto the pile.
+      // Rises a little mid-flight, then settles onto the pile; its lifted shadow grows and fades with it, so
+      // by touchdown it casts only the resting shadow the real card has.
       Animated.sequence([
-        Animated.timing(flight.scale, { toValue: 1.12, duration: FLIGHT_MS / 2, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(flight.scale, { toValue: 1, duration: FLIGHT_MS / 2, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+        Animated.timing(flight.scale, { toValue: 1.12, easing: Easing.out(Easing.quad), ...half }),
+        Animated.timing(flight.scale, { toValue: 1, easing: Easing.in(Easing.quad), ...half }),
+      ]),
+      Animated.sequence([
+        Animated.timing(flight.lift, { toValue: 1, easing: Easing.out(Easing.quad), ...half }),
+        Animated.timing(flight.lift, { toValue: 0, easing: Easing.in(Easing.quad), ...half }),
       ]),
     ]).start(() => {
+      // Put the real card on the pile under the flying one; the flying one goes once that's drawn (or after a
+      // moment, if its picture is slow to report).
       move();
-      setFlying(null);
+      setFlying((f) => f && { ...f, landed: true });
+      setTimeout(() => flightDone(top.iid), 150);
     });
   };
 
@@ -573,7 +592,7 @@ function Table({
   /** Held in a drag, or mid-flight after a reveal: either way, not shown on its pile. */
   const isAway = (iid: string) => isHeld(iid) || flying?.iid === iid;
   /** As `isAway`, for drawing: a just-lifted card stays on its pile until its lifted copy is showing. */
-  const drawnAway = (iid: string) => carriedAway(iid) || flying?.iid === iid;
+  const drawnAway = (iid: string) => carriedAway(iid) || (flying?.iid === iid && !flying.landed);
   /** The top card of a pile that isn't already in the held stack: what tapping that pile would pick up. */
   const nextFree = (zone: Zone) => table[zone].find((c) => !isAway(c.iid));
 
@@ -1442,6 +1461,7 @@ function Table({
                   card={cardsById.get(discardShowing.cardId)}
                   width={pileWidth}
                   flipIn={discardShowing.iid === revealed}
+                  onReady={() => flightDone(discardShowing.iid)}
                 />
               ) : (
                 <EmptySlot deck={deck} width={pileWidth} label={reveal ? 'Revealed cards' : 'Discard'} />
@@ -1701,8 +1721,20 @@ function Table({
       ) : null}
 
       {flying ? (
-        <Animated.View
-          style={[styles.flying, tabletop && tabletopShadow.lifted, { transform: [...flight.pos.getTranslateTransform(), { scale: flight.scale }] }]}>
+        <Animated.View style={[styles.flying, { transform: [...flight.pos.getTranslateTransform(), { scale: flight.scale }] }]}>
+          {/* Its lifted shadow on a layer of its own, so it can fade in and out without touching the card. */}
+          <Animated.View
+            style={[
+              styles.landingShadow,
+              {
+                width: pileWidth,
+                height: pileWidth / ratio,
+                borderRadius: Math.max(4, pileWidth * 0.06),
+                opacity: flight.lift,
+              },
+              tabletop ? tabletopShadow.lifted : styles.liftedShadowClassic,
+            ]}
+          />
           <CardView deck={deck} card={cardsById.get(flying.cardId)} faceUp={flying.faceUp} width={pileWidth} />
         </Animated.View>
       ) : null}
@@ -1950,17 +1982,8 @@ const styles = StyleSheet.create({
   // Tabletop look: the piles sit straight on the cloth, and the hand on the wooden rail.
   pilesOnCloth: { backgroundColor: 'transparent' },
   handOnRail: { backgroundColor: 'transparent', overflow: 'hidden' },
-  flying: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    pointerEvents: 'none',
-    shadowColor: '#000',
-    shadowOpacity: 0.45,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 12,
-  },
+  // The revealed card in flight. Its shadow is a separate layer that fades (see where it's drawn).
+  flying: { position: 'absolute', left: 0, top: 0, pointerEvents: 'none' },
   stackEdge: {
     position: 'absolute',
     backgroundColor: colors.surfaceRaised,

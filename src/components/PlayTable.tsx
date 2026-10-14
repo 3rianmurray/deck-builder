@@ -1,5 +1,5 @@
 import { router, Stack } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
   Alert,
@@ -149,6 +149,24 @@ interface Helper {
   moved: boolean;
 }
 
+/** How much bigger the held stack is drawn than the cards it came from. */
+const LIFTED_SCALE = 1.08;
+/** How long dropped cards take to glide into their place in the hand or on the table. */
+const LANDING_MS = 220;
+
+/** Cards just dropped into the hand or onto the table, gliding into place (see `landing` in Table). */
+interface Landing {
+  zone: 'hand' | 'table';
+  /** The dropped cards, hidden until the glide ends. The first is the one shown gliding. */
+  iids: string[];
+  cardId: string;
+  faceUp: boolean;
+  /** The width the glide starts at: the held stack's. */
+  width: number;
+  /** The first card's layout when it was dropped, to tell when it has been laid out in its new place. */
+  before?: Rect;
+}
+
 /** A position between the cards in the hand or on the table, counting the cards there that aren't being carried. */
 interface InsertAt {
   zone: 'hand' | 'table';
@@ -250,6 +268,15 @@ function Table({
   const [hover, setHover] = useState<Zone | null>(null);
   /** Where the carried cards would go if dropped in the hand or on the table now, shown by a marker. */
   const [insertAt, setInsertAt] = useState<InsertAt | null>(null);
+  /** How far the held stack has moved from where it was picked up, kept outside React state (it changes every frame). */
+  const lastPan = useMemo(() => {
+    const now = { x: 0, y: 0 };
+    return { get: () => now, set: (p: { x: number; y: number }) => Object.assign(now, p) };
+  }, []);
+  // Cards dropped into the hand or onto the table glide from where they were let go into their new place. The
+  // real cards wait, hidden, until they're laid out there; then a stand-in card flies to them and they appear.
+  const [landing, setLanding] = useState<Landing | null>(null);
+  const [landingAnim] = useState(() => ({ pos: new Animated.ValueXY(), scale: new Animated.Value(1) }));
   const [pan] = useState(() => new Animated.ValueXY());
   const [rootOrigin, setRootOrigin] = useState<{ x: number; y: number } | null>(null);
   const rootRef = useRef<View>(null);
@@ -618,6 +645,13 @@ function Table({
         if (d.faceUp !== d.startFaceUp) apply((t) => T.flip(t, d.iid));
         return;
       }
+      // Glide in from where the held stack is now: its top-left corner, as drawn (it's drawn scaled up a little).
+      if (liftedFrom) {
+        const from = { x: liftedFrom.x - d.offX + lastPan.get().x, y: liftedFrom.y - d.offY + lastPan.get().y };
+        landingAnim.pos.setValue(from);
+        landingAnim.scale.setValue(LIFTED_SCALE);
+        setLanding({ zone, iids: ids, cardId: d.stack[0].cardId, faceUp: d.faceUp, width: d.width, before: cardLayouts[ids[0]] });
+      }
       apply((t) => T.insertCards(t, ids, zone, at.index, d.faceUp));
       return;
     }
@@ -659,7 +693,9 @@ function Table({
 
   const followFinger = (finger: NativeTouchEvent) => {
     if (!drag) return;
-    pan.setValue(tableDelta(drag.startX, drag.startY, finger));
+    const delta = tableDelta(drag.startX, drag.startY, finger);
+    pan.setValue(delta);
+    lastPan.set(delta);
     const zone = zoneAt(finger.pageX, finger.pageY);
     if (zone !== hover) setHover(zone);
     const index = zone === 'hand' || zone === 'table' ? insertionAt(zone, finger.pageX, finger.pageY) : null;
@@ -819,7 +855,10 @@ function Table({
       from,
       w,
       { onPress: () => open({ kind: 'card', iid: inst.iid }), verticalOnly: from === 'hand' },
-      <CardView deck={deck} card={cardsById.get(inst.cardId)} faceUp={inst.faceUp} width={w} />,
+      // Dropped cards stay hidden while their stand-in glides into this spot.
+      <View style={landing?.iids.includes(inst.iid) && styles.hiddenCard}>
+        <CardView deck={deck} card={cardsById.get(inst.cardId)} faceUp={inst.faceUp} width={w} />
+      </View>,
       measureCard(inst.iid),
       isHeld(inst.iid),
     );
@@ -911,6 +950,34 @@ function Table({
     const i = row.findIndex((c) => c.iid === inst.iid);
     return { current, prev: item(row[i - 1]), next: item(row[i + 1]) };
   })();
+
+  // Once the dropped cards have been laid out in their new place, glide the stand-in to them, shrinking or
+  // growing to their size (hand and table cards differ), then show the real cards. If the layout doesn't
+  // change (put back exactly where it was) it glides there anyway after a moment.
+  const landingRect = landing ? cardLayouts[landing.iids[0]] : undefined;
+  const landingOrigin = landing ? laidOutAt(landing.zone) : null;
+  useEffect(() => {
+    if (!landing || !landingRect || !landingOrigin) return;
+    const glide = () => {
+      const scale = landingRect.w / landing.width;
+      // The stand-in scales about its centre, so aim its centre at the card's centre.
+      const toX = landingOrigin.x + landingRect.x + landingRect.w / 2 - landing.width / 2;
+      const toY = landingOrigin.y + landingRect.y + landingRect.h / 2 - landing.width / ratio / 2;
+      Animated.parallel([
+        Animated.timing(landingAnim.pos, { toValue: { x: toX, y: toY }, duration: LANDING_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(landingAnim.scale, { toValue: scale, duration: LANDING_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]).start(() => setLanding(null));
+    };
+    const laidOut = landingRect !== landing.before;
+    if (laidOut) {
+      glide();
+      return;
+    }
+    const timer = setTimeout(glide, 120);
+    return () => clearTimeout(timer);
+    // Only the card's layout and the landing itself matter; the rest is read fresh each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landing, landingRect]);
 
   // The gold bar showing where carried cards will land in the hand or on the table: in the gap before the card
   // at the insertion point, after the last card, or at the start of an empty row.
@@ -1155,6 +1222,17 @@ function Table({
 
       {insertMarker ? <View style={[styles.insertMarker, insertMarker]} /> : null}
 
+      {landing ? (
+        <Animated.View
+          style={[
+            styles.landing,
+            tabletop && tabletopShadow.lifted,
+            { transform: [...landingAnim.pos.getTranslateTransform(), { scale: landingAnim.scale }] },
+          ]}>
+          <CardView deck={deck} card={cardsById.get(landing.cardId)} faceUp={landing.faceUp} width={landing.width} />
+        </Animated.View>
+      ) : null}
+
       {/* The held stack follows the finger above everything else: its top card, with the edges of the rest. */}
       {drag?.active && liftedFrom ? (
         <Animated.View
@@ -1164,7 +1242,7 @@ function Table({
             {
               left: liftedFrom.x - drag.offX,
               top: liftedFrom.y - drag.offY,
-              transform: [...pan.getTranslateTransform(), { scale: 1.08 }],
+              transform: [...pan.getTranslateTransform(), { scale: LIFTED_SCALE }],
             },
           ]}>
           {drag.stack
@@ -1405,6 +1483,8 @@ const styles = StyleSheet.create({
     elevation: 14,
   },
   collapsed: { position: 'absolute', opacity: 0 },
+  hiddenCard: { opacity: 0 },
+  landing: { position: 'absolute', left: 0, top: 0, pointerEvents: 'none' },
   insertMarker: { position: 'absolute', width: 4, borderRadius: 2, backgroundColor: colors.accent, pointerEvents: 'none' },
   stage: { overflow: 'hidden' },
   // Tabletop look: the piles sit straight on the cloth, and the hand on the wooden rail.

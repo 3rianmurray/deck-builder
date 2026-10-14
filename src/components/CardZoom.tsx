@@ -174,7 +174,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
               <View
                 key={item.key}
                 style={[styles.slot, { left: spot * spacing }, spot !== slot && !showNeighbours && styles.hidden]}>
-                <CardView deck={deck} card={item.card} width={width} />
+                <CardView deck={deck} card={item.card} width={width} sharp />
               </View>
             ) : null,
           )}

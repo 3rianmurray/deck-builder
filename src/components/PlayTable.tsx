@@ -329,6 +329,8 @@ function Table({
   const [pan] = useState(() => new Animated.ValueXY());
   /** The held stack's growth from its own size to the lifted size, as a fraction of the lifted size. */
   const [liftGrow] = useState(() => new Animated.Value(1));
+  /** The stack-target count badge's size as it pops in. */
+  const [badgePop] = useState(() => new Animated.Value(0));
   const [rootOrigin, setRootOrigin] = useState<{ x: number; y: number } | null>(null);
   const rootRef = useRef<View>(null);
   // Measured on layout and again whenever a finger lands: in a session pager this table slides sideways,
@@ -889,6 +891,9 @@ function Table({
       Animated.spring(pan, { toValue: place.pan, speed: 28, bounciness: 4, useNativeDriver: true }),
       Animated.spring(liftGrow, { toValue: place.scale, speed: 28, bounciness: 4, useNativeDriver: true }),
     ]).start();
+    // The stack's count pops in from its corner: past full size, then back.
+    badgePop.setValue(0);
+    Animated.spring(badgePop, { toValue: 1, speed: 14, bounciness: 14, useNativeDriver: true }).start();
     Haptics.selectionAsync();
   };
 
@@ -1337,6 +1342,11 @@ function Table({
 
   /** The held stack's card size while it's being carried. */
   const liftedWidth = drag ? drag.width * LIFTED_SCALE : 0;
+  /** With a stack target: the bottom-right corner of where the held card will sit on it, for its count badge. */
+  const targetBadgeAt = (() => {
+    const place = drag?.active && stackTarget ? snapPlacement(stackTarget) : null;
+    return place ? { left: place.x + tableCardWidth, top: place.y + tableCardWidth / ratio } : null;
+  })();
   /** With a stack target: how many cards that stack will have once the held ones land on it. */
   const targetTotal = (() => {
     const g = drag?.active && stackTarget ? tableGroups.find((grp) => grp.some((c) => c.iid === stackTarget)) : undefined;
@@ -1587,7 +1597,7 @@ function Table({
               tabletop ? tabletopShadow.lifted : styles.liftedShadowClassic,
             ]}
           />
-          <CardView deck={deck} card={cardsById.get(landing.cardId)} faceUp={landing.faceUp} width={landing.width} />
+          <CardView deck={deck} card={cardsById.get(landing.cardId)} faceUp={landing.faceUp} width={landing.width} sharp />
         </Animated.View>
       ) : null}
 
@@ -1632,21 +1642,27 @@ function Table({
             card={cardsById.get(drag.stack[0].cardId)}
             faceUp={drag.faceUp}
             width={liftedWidth}
+            sharp
             onReady={markShown}
           />
-          {/* Settled on a stack target: how big the stack will be once these land on it. */}
-          {targetTotal !== null ? (
-            // Counter-scaled, so it stays the same readable size while the card shrinks onto the stack.
-            <Animated.View style={[styles.stackingBadge, { transform: [{ scale: Animated.divide(1, liftGrow) }] }]}>
-              <Text style={styles.stackingBadgeText}>Stack · {targetTotal}</Text>
-            </Animated.View>
-          ) : null}
           {drag.stack.length > 1 ? (
             <View style={styles.stackBadge}>
               <Text style={styles.stackBadgeText}>{drag.stack.length}</Text>
             </View>
           ) : null}
         </Animated.View>
+      ) : null}
+
+      {/*
+        Over a stack target: how big the stack will be once the held cards land on it. It belongs to the stack,
+        at its bottom-right corner, drawn above the held card so that can't cover it, and pops in from there.
+      */}
+      {targetTotal !== null && targetBadgeAt ? (
+        <View style={[styles.stackingAnchor, targetBadgeAt]}>
+          <Animated.View style={[styles.stackingBadge, { transform: [{ scale: badgePop }] }]}>
+            <Text style={styles.stackingBadgeText}>{targetTotal}</Text>
+          </Animated.View>
+        </View>
       ) : null}
 
       {/* Can't be pressed normally while a finger holds a card; the drag handler checks for a second finger here. */}
@@ -1861,13 +1877,20 @@ const styles = StyleSheet.create({
   },
   collapsed: { position: 'absolute', opacity: 0 },
   hiddenCard: { opacity: 0 },
+  // A zero-size point at the stack's bottom-right corner; the badge hangs off it, up and to the left, and
+  // grows out of that corner.
+  stackingAnchor: { position: 'absolute', width: 0, height: 0, pointerEvents: 'none' },
   stackingBadge: {
     position: 'absolute',
-    top: -14,
-    left: -14,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    right: -8,
+    bottom: -8,
+    minWidth: 28,
+    height: 28,
+    paddingHorizontal: 7,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transformOrigin: ['100%', '100%', 0],
     backgroundColor: colors.accent,
     shadowColor: '#000',
     shadowOpacity: 0.4,

@@ -77,6 +77,12 @@ interface Props {
    * to appear in a new card), or straight away for the built-in back, which has no picture.
    */
   onReady?: () => void;
+  /**
+   * Load the art at full resolution. Normally it's shrunk to the card's size to save memory, but a card shown
+   * at one size and then drawn bigger (lifted, zoomed) would reuse that shrunk copy and look soft until it
+   * reloaded. For cards that are drawn large or resized while you watch.
+   */
+  sharp?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -91,6 +97,7 @@ export function CardView({
   selected,
   flipIn = false,
   onReady,
+  sharp = false,
   style,
 }: Props) {
   const height = width / cardRatio(deck);
@@ -133,6 +140,7 @@ export function CardView({
             style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
             contentFit="cover"
             onDisplay={onReady}
+            allowDownscaling={!sharp}
           />
         ) : deck.backImage ? (
           <Image
@@ -140,6 +148,7 @@ export function CardView({
             style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
             contentFit="cover"
             onDisplay={onReady}
+            allowDownscaling={!sharp}
           />
         ) : (
           <DefaultBack radius={radius} />

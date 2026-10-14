@@ -639,18 +639,19 @@ function Table({
     const ids = d.stack.map((h) => h.iid);
     // In the hand or on the table the cards go where the finger is, between the cards there.
     if ((zone === 'hand' || zone === 'table') && at?.zone === zone) {
-      // A single card put back exactly where it came from stays put, just turned over if it was flipped.
-      const was = table[zone].findIndex((c) => c.iid === d.iid);
-      if (d.stack.length === 1 && zone === d.from && at.index === was) {
-        if (d.faceUp !== d.startFaceUp) apply((t) => T.flip(t, d.iid));
-        return;
-      }
-      // Glide in from where the held stack is now: its top-left corner, as drawn (it's drawn scaled up a little).
+      // Glide in from where the held stack is now (its top-left corner, as drawn) to wherever the cards end up,
+      // even if that's exactly where they came from: otherwise they'd jump back into place.
       if (liftedFrom) {
         const from = { x: liftedFrom.x - d.offX + lastPan.get().x, y: liftedFrom.y - d.offY + lastPan.get().y };
         landingAnim.pos.setValue(from);
         landingAnim.scale.setValue(LIFTED_SCALE);
         setLanding({ zone, iids: ids, cardId: d.stack[0].cardId, faceUp: d.faceUp, width: d.width, before: cardLayouts[ids[0]] });
+      }
+      // A single card put back exactly where it came from stays put, just turned over if it was flipped.
+      const was = table[zone].findIndex((c) => c.iid === d.iid);
+      if (d.stack.length === 1 && zone === d.from && at.index === was) {
+        if (d.faceUp !== d.startFaceUp) apply((t) => T.flip(t, d.iid));
+        return;
       }
       apply((t) => T.insertCards(t, ids, zone, at.index, d.faceUp));
       return;

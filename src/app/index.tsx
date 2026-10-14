@@ -1,4 +1,4 @@
-import { router, Stack } from 'expo-router';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +32,7 @@ export default function HomeScreen() {
   } = useDecks();
   const insets = useSafeAreaInsets();
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   const rows = buildRows(decks, groups);
   const menuGroup = groups.find((g) => g.id === groupMenu);
@@ -143,15 +144,6 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          headerRight: () => (
-            <Pressable onPress={newGroup} hitSlop={12} accessibilityRole="button">
-              <Text style={styles.headerButton}>New group</Text>
-            </Pressable>
-          ),
-        }}
-      />
       <ReorderableList
         rows={rows}
         keyOf={(r) => `${r.kind}:${r.id}`}
@@ -164,9 +156,18 @@ export default function HomeScreen() {
         header={
           <>
             {sessionsSection}
-            {decks.length || groups.length ? (
-              <Text style={[styles.section, { marginBottom: 10 }]}>Decks</Text>
-            ) : (
+            <View style={styles.sectionRow}>
+              <Text style={styles.section}>Decks</Text>
+              <Pressable
+                onPress={() => setAddMenuOpen(true)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Add a deck or group"
+                style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.7 }]}>
+                <Text style={styles.addButtonText}>+</Text>
+              </Pressable>
+            </View>
+            {decks.length || groups.length ? null : (
               <View style={styles.empty}>
                 <Text style={styles.emptyTitle}>No decks yet</Text>
                 <Text style={styles.emptyBody}>
@@ -191,6 +192,17 @@ export default function HomeScreen() {
           style={{ flex: 1 }}
         />
       </View>
+
+      <ActionSheet
+        visible={addMenuOpen}
+        title="Add"
+        onClose={() => setAddMenuOpen(false)}
+        actions={[
+          { label: 'New Deck', onPress: newDeck },
+          // The name prompt is another modal, which iOS can only show once this menu has gone.
+          { label: 'New Group', opensModal: true, onPress: newGroup },
+        ]}
+      />
 
       <ActionSheet
         visible={!!menuGroup}
@@ -224,7 +236,16 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   list: { padding: 16 },
-  headerButton: { color: colors.accent, fontSize: 16, fontWeight: '600' },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  addButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addButtonText: { color: colors.accentText, fontSize: 22, fontWeight: '700', lineHeight: 24 },
   rowWrap: { paddingBottom: 10 },
   liftedWrap: { paddingHorizontal: 16 },
   row: {

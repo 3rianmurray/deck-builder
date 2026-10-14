@@ -252,7 +252,7 @@ function Table({
   /** A card on its way from the deck to the discard pile after a reveal. */
   const [flying, setFlying] = useState<{ iid: string; cardId: string; faceUp: boolean } | null>(null);
   const [flight] = useState(() => ({ pos: new Animated.ValueXY(), scale: new Animated.Value(1) }));
-  /** The card blown up to nearly full screen by a pinch, if any. */
+  /** The card (by instance, so its neighbours can be found) blown up to nearly full screen, if any. */
   const [zoomed, setZoomed] = useState<string | null>(null);
   const [rootSize, setRootSize] = useState({ w: 0, h: 0 });
 
@@ -576,17 +576,17 @@ function Table({
   // is cancelled as soon as the card lifts, a pinch starts, or the finger lets go (any of which changes `holdKey`).
   const holding = drag && drag.zoomable && !drag.active && !drag.abandoned && !drag.pinch;
   const holdKey = holding ? drag.pressedAt : null;
-  const holdCard = holding ? drag.cardId : null;
+  const holdIid = holding ? drag.iid : null;
   useEffect(() => {
-    if (holdKey === null || !holdCard) return;
+    if (holdKey === null || !holdIid) return;
     const timer = setTimeout(() => {
       // The finger stays down, but the press is over: letting go now won't also count as a tap.
       setDrag(null);
       onTouchingCard?.(false);
-      setZoomed(holdCard);
+      setZoomed(holdIid);
     }, HOLD_TO_ZOOM_MS);
     return () => clearTimeout(timer);
-  }, [holdKey, holdCard, onTouchingCard]);
+  }, [holdKey, holdIid, onTouchingCard]);
 
   const drop = (d: Drag, zone: Zone | null) => {
     if (!zone) return;
@@ -699,7 +699,7 @@ function Table({
           // Face-down cards stay put, so a pinch can't be used to peek.
           if (spread && spread >= PINCH_OPEN && inst.faceUp) {
             endDrag();
-            setZoomed(inst.cardId);
+            setZoomed(inst.iid);
           }
           return;
         }
@@ -781,7 +781,7 @@ function Table({
             </View>
           ),
           actions: [
-            ...(inst.faceUp ? [{ label: 'View full size', onPress: () => setZoomed(inst.cardId) }] : []),
+            ...(inst.faceUp ? [{ label: 'View full size', onPress: () => setZoomed(inst.iid) }] : []),
             ...moveActions(inst.iid, found.zone),
           ],
         };
@@ -790,7 +790,7 @@ function Table({
         return {
           title: `Discard pile · ${table.discard.length} cards`,
           actions: [
-            ...(table.discard[0] ? [{ label: 'View top card full size', onPress: () => setZoomed(table.discard[0].cardId) }] : []),
+            ...(table.discard[0] ? [{ label: 'View top card full size', onPress: () => setZoomed(table.discard[0].iid) }] : []),
             ...(reveal
               ? [{ label: 'Put top card back on the deck', onPress: () => apply((t) => T.takeTopOfDiscard(t, 'deck')) }]
               : [
@@ -834,6 +834,20 @@ function Table({
   const discardShowing = nextFree('discard');
   const discardCount = table.discard.filter((c) => !isAway(c.iid)).length;
   const highlight = (zone: Zone) => drag?.active && hover === zone && styles.dropTarget;
+  // The zoomed card, and for a card in the hand or on the table the face-up cards either side of it there, which
+  // a sideways swipe moves to. Face-down cards are skipped, so swiping can't reveal one.
+  const zoomView = (() => {
+    const found = zoomed ? T.findCard(table, zoomed) : null;
+    if (!found) return null;
+    const inst = table[found.zone][found.index];
+    const card = cardsById.get(inst.cardId);
+    if (!card) return null;
+    if (found.zone !== 'hand' && found.zone !== 'table') return { card };
+    const row = table[found.zone].filter((c) => c.faceUp);
+    const i = row.findIndex((c) => c.iid === inst.iid);
+    return { card, prev: row[i - 1], next: row[i + 1] };
+  })();
+
   /** Where on the (flat) table the lifted stack was picked up. */
   const liftedFrom = drag?.active ? toTable(drag.startX, drag.startY) : null;
 
@@ -1114,8 +1128,16 @@ function Table({
       </View>
       </View>
 
-      {zoomed && cardsById.get(zoomed) ? (
-        <CardZoom deck={deck} card={cardsById.get(zoomed)!} area={rootSize} onClose={() => setZoomed(null)} />
+      {zoomView ? (
+        <CardZoom
+          deck={deck}
+          card={zoomView.card}
+          area={rootSize}
+          hasPrev={!!zoomView.prev}
+          hasNext={!!zoomView.next}
+          onStep={(dir) => setZoomed(dir === 1 ? zoomView.next!.iid : zoomView.prev!.iid)}
+          onClose={() => setZoomed(null)}
+        />
       ) : null}
 
       {toast ? (

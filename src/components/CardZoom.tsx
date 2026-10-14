@@ -21,14 +21,20 @@ interface Props {
   card: Card;
   /** The space to fill: the card grows to nearly cover it. */
   area: { w: number; h: number };
+  /** Whether there's a card to step to on the left (`hasPrev`) or right (`hasNext`) with a sideways swipe. */
+  hasPrev?: boolean;
+  hasNext?: boolean;
+  /** Show the next (1) or previous (-1) card instead; only called when there is one. */
+  onStep?: (dir: 1 | -1) => void;
   onClose: () => void;
 }
 
 /**
- * A face-up card blown up to nearly fill the screen, for reading small print. Pinch in, swipe it away in any
- * direction, or tap the background to put it back.
+ * A face-up card blown up to nearly fill the screen, for reading small print. Swipe sideways to step to the
+ * card beside it (where there is one); otherwise pinch in, swipe it away in any direction, or tap the
+ * background to put it back.
  */
-export function CardZoom({ deck, card, area, onClose }: Props) {
+export function CardZoom({ deck, card, area, hasPrev = false, hasNext = false, onStep, onClose }: Props) {
   const ratio = cardRatio(deck);
   const width = Math.min(area.w * 0.92, area.h * 0.9 * ratio);
   const [anim] = useState(() => ({
@@ -91,13 +97,30 @@ export function CardZoom({ deck, card, area, onClose }: Props) {
         if (!s.swiping) return close({ x: 0, y: 0, scale: 0.6 }); // a tap
         const far = Math.hypot(g.dx, g.dy) > DISMISS_DISTANCE || Math.hypot(g.vx, g.vy) > DISMISS_SPEED;
         if (!far) return Animated.spring(anim.pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
+        // A mostly sideways swipe steps to the card that way, like turning pages: swiping left shows the next
+        // card (to the right), swiping right the previous one. With no card that way, it puts the zoom away.
+        const dir: 1 | -1 = g.dx < 0 ? 1 : -1;
+        if (Math.abs(g.dx) > Math.abs(g.dy) && onStep && (dir === 1 ? hasNext : hasPrev)) {
+          Animated.timing(anim.pan, {
+            toValue: { x: -dir * area.w, y: 0 },
+            duration: 160,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }).start(() => {
+            onStep(dir);
+            // The new card comes in from the side the swipe came from.
+            anim.pan.setValue({ x: dir * area.w, y: 0 });
+            Animated.spring(anim.pan, { toValue: { x: 0, y: 0 }, friction: 9, tension: 70, useNativeDriver: true }).start();
+          });
+          return;
+        }
         // Carry on in the swipe's direction until it's off screen.
         const len = Math.hypot(g.dx, g.dy) || 1;
         const reach = Math.max(area.w, area.h);
         close({ x: (g.dx / len) * reach, y: (g.dy / len) * reach, scale: 1 });
       },
     });
-  }, [anim, area.w, area.h, onClose]);
+  }, [anim, area.w, area.h, onClose, onStep, hasPrev, hasNext]);
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: anim.opacity }]} {...responder.panHandlers}>

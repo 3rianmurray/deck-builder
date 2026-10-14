@@ -773,9 +773,12 @@ function Table({
     if ((zone === 'hand' || zone === 'table') && at?.zone === zone) {
       // A single card dropped back into its own row lands in its blank space, which is already in place.
       glideIn(zone, 0, d.stack.length === 1 && leftBlankIn(zone));
-      // A single card put back exactly where it came from stays put, just turned over if it was flipped.
+      // A single card put back exactly where it came from stays put, just turned over if it was flipped. Not a
+      // card taken off a stack, though: as the stack's top it sits at the stack's end, so dropping it just after
+      // the stack looks like "the same place", but it's meant to come off the stack and sit beside it.
       const was = table[zone].findIndex((c) => c.iid === d.iid);
-      if (d.stack.length === 1 && zone === d.from && at.index === was) {
+      const wasStacked = !!table[zone][was]?.stack;
+      if (d.stack.length === 1 && zone === d.from && at.index === was && !wasStacked) {
         if (d.faceUp !== d.startFaceUp) apply((t) => T.flip(t, d.iid));
         return;
       }

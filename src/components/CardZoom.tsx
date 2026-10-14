@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Animated, Easing, PanResponder, StyleSheet } from 'react-native';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { Animated, Easing, PanResponder, StyleSheet, View } from 'react-native';
 import type { NativeTouchEvent } from 'react-native';
 
 import { cardRatio } from '../lib/types';
@@ -21,27 +21,40 @@ interface Props {
   card: Card;
   /** The space to fill: the card grows to nearly cover it. */
   area: { w: number; h: number };
-  /** Whether there's a card to step to on the left (`hasPrev`) or right (`hasNext`) with a sideways swipe. */
-  hasPrev?: boolean;
-  hasNext?: boolean;
+  /** The cards a sideways swipe steps to: on the left (`prev`) and right (`next`), if any. */
+  prev?: Card;
+  next?: Card;
   /** Show the next (1) or previous (-1) card instead; only called when there is one. */
   onStep?: (dir: 1 | -1) => void;
   onClose: () => void;
 }
+
+/** Space between the zoomed card and its neighbours waiting just off the sides of the screen. */
+const NEIGHBOUR_GAP = 16;
 
 /**
  * A face-up card blown up to nearly fill the screen, for reading small print. Swipe sideways to step to the
  * card beside it (where there is one); otherwise pinch in, swipe it away in any direction, or tap the
  * background to put it back.
  */
-export function CardZoom({ deck, card, area, hasPrev = false, hasNext = false, onStep, onClose }: Props) {
+export function CardZoom({ deck, card, area, prev, next, onStep, onClose }: Props) {
   const ratio = cardRatio(deck);
   const width = Math.min(area.w * 0.92, area.h * 0.9 * ratio);
+  // Neighbours sit one card-width-and-a-gap to either side, so they ride in with the swipe.
+  const spacing = width + NEIGHBOUR_GAP;
+  const hasPrev = !!prev;
+  const hasNext = !!next;
   const [anim] = useState(() => ({
     pan: new Animated.ValueXY(),
     scale: new Animated.Value(0.6),
     opacity: new Animated.Value(0),
   }));
+
+  // After a step the strip has slid a whole card over, putting the new card in the middle. Once the new card
+  // (with its own neighbours) is in place, recentre the strip before anything is drawn, so nothing jumps.
+  useLayoutEffect(() => {
+    anim.pan.setValue({ x: 0, y: 0 });
+  }, [card, anim]);
 
   useEffect(() => {
     Animated.parallel([
@@ -108,17 +121,14 @@ export function CardZoom({ deck, card, area, hasPrev = false, hasNext = false, o
         // (to the right), swiping right the previous one. With no card that way, it puts the zoom away.
         const dir: 1 | -1 = d < 0 ? 1 : -1;
         if (s.axis === 'x' && onStep && (dir === 1 ? hasNext : hasPrev)) {
+          // Slide the strip on until the neighbour is in the middle, then make it the zoomed card (the layout
+          // effect above recentres the strip as it switches).
           Animated.timing(anim.pan, {
-            toValue: { x: -dir * area.w, y: 0 },
-            duration: 160,
-            easing: Easing.in(Easing.quad),
+            toValue: { x: -dir * spacing, y: 0 },
+            duration: 200,
+            easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
-          }).start(() => {
-            onStep(dir);
-            // The new card comes in from the side the swipe came from.
-            anim.pan.setValue({ x: dir * area.w, y: 0 });
-            Animated.spring(anim.pan, { toValue: { x: 0, y: 0 }, friction: 9, tension: 70, useNativeDriver: true }).start();
-          });
+          }).start(() => onStep(dir));
           return;
         }
         // Carry on straight along the locked direction until it's off screen.
@@ -126,7 +136,7 @@ export function CardZoom({ deck, card, area, hasPrev = false, hasNext = false, o
         close(s.axis === 'x' ? { x: reach, y: 0, scale: 1 } : { x: 0, y: reach, scale: 1 });
       },
     });
-  }, [anim, area.w, area.h, onClose, onStep, hasPrev, hasNext]);
+  }, [anim, area.w, area.h, onClose, onStep, hasPrev, hasNext, spacing]);
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: anim.opacity }]} {...responder.panHandlers}>
@@ -135,7 +145,18 @@ export function CardZoom({ deck, card, area, hasPrev = false, hasNext = false, o
           transform: [...anim.pan.getTranslateTransform(), { scale: anim.scale }],
           pointerEvents: 'none',
         }}>
+        {/* Keyed by card, so each stays put on the strip rather than one view being repainted mid-slide. */}
+        {prev ? (
+          <View key={`prev-${prev.id}`} style={[styles.neighbour, { left: -spacing }]}>
+            <CardView deck={deck} card={prev} width={width} />
+          </View>
+        ) : null}
         <CardView deck={deck} card={card} width={width} />
+        {next ? (
+          <View key={`next-${next.id}`} style={[styles.neighbour, { left: spacing }]}>
+            <CardView deck={deck} card={next} width={width} />
+          </View>
+        ) : null}
       </Animated.View>
     </Animated.View>
   );
@@ -143,4 +164,5 @@ export function CardZoom({ deck, card, area, hasPrev = false, hasNext = false, o
 
 const styles = StyleSheet.create({
   backdrop: { backgroundColor: 'rgba(0,0,0,0.82)', alignItems: 'center', justifyContent: 'center', zIndex: 20 },
+  neighbour: { position: 'absolute', top: 0 },
 });

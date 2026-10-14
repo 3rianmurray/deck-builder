@@ -1143,8 +1143,8 @@ function Table({
           deck={deck}
           card={zoomView.card}
           area={rootSize}
-          hasPrev={!!zoomView.prev}
-          hasNext={!!zoomView.next}
+          prev={zoomView.prev && cardsById.get(zoomView.prev.cardId)}
+          next={zoomView.next && cardsById.get(zoomView.next.cardId)}
           onStep={(dir) => setZoomed(dir === 1 ? zoomView.next!.iid : zoomView.prev!.iid)}
           onClose={() => setZoomed(null)}
         />

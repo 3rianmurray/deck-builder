@@ -127,6 +127,11 @@ interface Drag {
   /** A second finger on the screen while cards are held: a tap picks up a card, a swipe scrolls the hand or table. */
   helper?: Helper;
   /**
+   * The lifted copy of the card is on screen (its picture takes a few frames to appear). Until then the card
+   * itself stays visible where it is; after, it turns into a blank space and the copy grows from it.
+   */
+  shown: boolean;
+  /**
    * Two fingers landed before the card was lifted: a pinch, not a drag. Spreading them zooms a face-up card;
    * the card never lifts, and letting go doesn't count as a tap. `startDistance` is between the two fingers.
    */
@@ -153,7 +158,7 @@ interface Helper {
  * How much bigger the held stack is than the cards it came from. It's drawn at that size (not scaled up from
  * the smaller card, which blurs the art).
  */
-const LIFTED_SCALE = 1.5;
+const LIFTED_SCALE = 1.25;
 /**
  * Dropping on a table card stacks onto it only over its middle: this fraction of the card on each side is
  * left for dropping next to it instead.
@@ -177,6 +182,8 @@ interface Landing {
   revealed?: boolean;
   /** How far up and left of its spot the card lands: on top of a stack it sits risen above the pile. */
   rise: number;
+  /** The card's view is already in its final place, so the glide can start straight away. */
+  settled?: boolean;
 }
 
 /** A position between the cards in the hand or on the table, counting the cards there that aren't being carried. */
@@ -530,9 +537,16 @@ function Table({
     LayoutAnimation.configureNext({ duration: 180, update: { type: LayoutAnimation.Types.easeInEaseOut } });
 
   const isHeld = (iid: string | undefined) => !!iid && !!drag?.active && drag.stack.some((h) => h.iid === iid);
-  /** The top card of a pile that isn't already in the held stack: what tapping that pile would pick up. */
+  /**
+   * Carried, and its lifted copy is on screen: only then does the card itself vanish from where it was (as a
+   * blank space in a row, or from the top of a pile), so nothing blinks out while the copy appears.
+   */
+  const carriedAway = (iid: string) => isHeld(iid) && !!drag?.shown;
   /** Held in a drag, or mid-flight after a reveal: either way, not shown on its pile. */
   const isAway = (iid: string) => isHeld(iid) || flying?.iid === iid;
+  /** As `isAway`, for drawing: a just-lifted card stays on its pile until its lifted copy is showing. */
+  const drawnAway = (iid: string) => carriedAway(iid) || flying?.iid === iid;
+  /** The top card of a pile that isn't already in the held stack: what tapping that pile would pick up. */
   const nextFree = (zone: Zone) => table[zone].find((c) => !isAway(c.iid));
 
   // The play table in groups: each stack together (bottom first), every other card alone. A group is drawn as
@@ -682,6 +696,21 @@ function Table({
     return () => clearTimeout(timer);
   }, [holdKey, holdIid]);
 
+  // The lifted copy of a card appears only once its picture is on screen (see `drag.shown`); then it grows from
+  // the card's own size to the lifted size. If the picture is slow to report, it goes ahead after a moment.
+  const markShown = () => setDrag((d) => (d && d.active && !d.shown ? { ...d, shown: true } : d));
+  const liftKey = drag?.active ? drag.pressedAt : null;
+  const shownKey = drag?.active && drag.shown ? drag.pressedAt : null;
+  useEffect(() => {
+    if (liftKey === null) return;
+    const timer = setTimeout(markShown, 150);
+    return () => clearTimeout(timer);
+  }, [liftKey]);
+  useEffect(() => {
+    if (shownKey === null) return;
+    Animated.spring(liftGrow, { toValue: 1, speed: 24, bounciness: 5, useNativeDriver: true }).start();
+  }, [shownKey, liftGrow]);
+
   // While a card is zoomed, its sideways swipes step through cards; a session's deck pager must hold still,
   // or it would swipe to another deck at the same time.
   const zoomOpen = zoomed !== null;
@@ -691,14 +720,15 @@ function Table({
   }, [zoomOpen, onTouchingCard]);
 
   const drop = (d: Drag, zone: Zone | null, at: InsertAt | null, onto: string | null) => {
-    if (!zone) return;
     const ids = d.stack.map((h) => h.iid);
 
     // Glide in from where the held stack is now (its top-left corner, as drawn) to wherever the cards end up,
     // even if that's exactly where they came from: otherwise they'd jump back into place. The stand-in starts
     // exactly as the held card was drawn, at the lifted size, and shrinks as it lands, so it stays sharp.
     // `rise` is how far above its spot the card ends up (on top of a stack).
-    const glideIn = (to: 'hand' | 'table', rise = 0) => {
+    // `settled`: the card's view is already where it will end up (its own blank space, back in its own row), so
+    // there's no new layout to wait for before gliding.
+    const glideIn = (to: 'hand' | 'table', rise = 0, settled = false) => {
       if (!liftedFrom) return;
       landingAnim.pos.setValue({
         x: liftedFrom.x - d.offX * LIFTED_SCALE + lastPan.get().x,
@@ -714,8 +744,21 @@ function Table({
         width: d.width * LIFTED_SCALE,
         before: cardLayouts[ids[0]],
         rise,
+        settled,
       });
     };
+    /** Whether the dragged card left a blank space in this row (a single card, not the top of a stack). */
+    const leftBlankIn = (z: Zone) =>
+      d.from === z && (z === 'hand' || tableGroups.some((g) => g.length === 1 && g[0].iid === d.iid));
+
+    // Let go somewhere that isn't a place for cards: a single card from the hand or table glides back into
+    // its blank space.
+    if (!zone) {
+      if (d.stack.length === 1 && (d.from === 'hand' || d.from === 'table') && leftBlankIn(d.from)) {
+        glideIn(d.from, 0, true);
+      }
+      return;
+    }
 
     // Dropped right on a table card or stack: the cards go on top of it, making (or growing) a stack.
     if (zone === 'table' && onto) {
@@ -728,7 +771,8 @@ function Table({
 
     // In the hand or on the table the cards go where the finger is, between the cards there.
     if ((zone === 'hand' || zone === 'table') && at?.zone === zone) {
-      glideIn(zone);
+      // A single card dropped back into its own row lands in its blank space, which is already in place.
+      glideIn(zone, 0, d.stack.length === 1 && leftBlankIn(zone));
       // A single card put back exactly where it came from stays put, just turned over if it was flipped.
       const was = table[zone].findIndex((c) => c.iid === d.iid);
       if (d.stack.length === 1 && zone === d.from && at.index === was) {
@@ -801,10 +845,13 @@ function Table({
     if (zone !== hover) setHover(zone);
     // Over the middle of a table card it's a stack; anywhere else in the hand or on the table, a gap.
     const onto = zone === 'table' ? stackTargetAt(finger.pageX, finger.pageY) : null;
-    if (onto !== stackTarget) setStackTarget(onto);
     const index = !onto && (zone === 'hand' || zone === 'table') ? insertionAt(zone, finger.pageX, finger.pageY) : null;
     const next = zone && index !== null ? { zone: zone as 'hand' | 'table', index } : null;
-    if (next?.zone !== insertAt?.zone || next?.index !== insertAt?.index) setInsertAt(next);
+    const moved = next?.zone !== insertAt?.zone || next?.index !== insertAt?.index;
+    // The blank space moves (or opens, or closes): the cards around it slide over rather than jump.
+    if (moved || onto !== stackTarget) animateLayout();
+    if (onto !== stackTarget) setStackTarget(onto);
+    if (moved) setInsertAt(next);
   };
 
   /** A release or terminate that arrives while the holding finger is still down came from another finger. */
@@ -876,6 +923,7 @@ function Table({
           startFaceUp: inst.faceUp,
           faceUp: inst.faceUp,
           stack: [{ iid: inst.iid, cardId: inst.cardId, from }],
+          shown: false,
         });
       },
       // These fire for every extra finger that lands, moves or lifts while this card is held.
@@ -913,8 +961,8 @@ function Table({
           if (lift) {
             animateLayout();
             // Grow from the card's own size up to the lifted size, rather than popping straight to it.
+            // Starts at the card's own size; it grows once its lifted copy is on screen (see `drag.shown`).
             liftGrow.setValue(1 / LIFTED_SCALE);
-            Animated.spring(liftGrow, { toValue: 1, speed: 24, bounciness: 5, useNativeDriver: true }).start();
           }
           setDrag((d) => d && (lift ? { ...d, active: true } : { ...d, abandoned: true }));
           if (!lift) return;
@@ -973,16 +1021,18 @@ function Table({
       { onPress: () => open({ kind: 'card', iid: inst.iid }), verticalOnly: from === 'hand' },
       <>
         {/*
-          Hidden while it's being carried (its spot slides out of the row as the gap closes, and would show as a
-          ghost sliding away) and while a dropped card's stand-in glides into this spot.
+          A blank space while it's being carried (once its lifted copy is showing), and while a dropped card's
+          stand-in glides into this spot.
         */}
-        <View style={(isHeld(inst.iid) || landingOn(inst.iid)) && styles.hiddenCard}>
+        <View style={(carriedAway(inst.iid) || landingOn(inst.iid)) && styles.hiddenCard}>
           <CardView deck={deck} card={cardsById.get(inst.cardId)} faceUp={inst.faceUp} width={w} />
         </View>
         {targetOutline(inst.iid)}
       </>,
       measureCard(inst.iid),
-      isHeld(inst.iid),
+      // The card being dragged keeps its spot, as the blank space that moves to where it will land; any other
+      // cards carried with it step out of the row, and their neighbours close up.
+      isHeld(inst.iid) && inst.iid !== drag?.iid,
     );
 
   /**
@@ -994,8 +1044,9 @@ function Table({
   const renderStack = (g: CardInstance[]) => {
     if (g.length === 1) return renderCard(g[0], tableCardWidth, 'table');
     const top = groupTop(g);
-    const shown = shownOf(g);
-    const left = g.filter((c) => !isHeld(c.iid)).length;
+    // As drawn: a card lifted off the stack stays on it until its lifted copy is showing.
+    const shown = [...g].reverse().find((c) => !carriedAway(c.iid));
+    const left = g.filter((c) => !carriedAway(c.iid)).length;
     return draggable(
       top,
       'table',
@@ -1017,9 +1068,59 @@ function Table({
         {targetOutline(shown?.iid)}
       </>,
       measureCard(top.iid),
-      left === 0,
+      g.every((c) => isHeld(c.iid)),
     );
   };
+
+  // ---- Rows while dragging, home-screen style ----
+  // The card being dragged leaves a blank space where it was. Over its own row, that space moves to wherever
+  // the card would land and the cards around it slide over to make room; over the other row, a fresh space
+  // opens there instead, and the one it left stays put until it's dropped.
+
+  type RowItem<T> = { kind: 'item'; item: T } | { kind: 'gap' };
+
+  /** Puts `own` (the dragged card's blank) or a fresh gap at `at` in `items`, or `own` back at `home`. */
+  const arrange = <T,>(items: T[], own: T | undefined, home: number, at: number | null): RowItem<T>[] => {
+    const row: RowItem<T>[] = items.map((item) => ({ kind: 'item', item }));
+    if (own !== undefined) row.splice(Math.min(at ?? home, row.length), 0, { kind: 'item', item: own });
+    else if (at !== null) row.splice(Math.min(at, row.length), 0, { kind: 'gap' });
+    return row;
+  };
+
+  const handRow = (): RowItem<CardInstance>[] => {
+    if (!drag?.active) return table.hand.map((item) => ({ kind: 'item', item }));
+    const own = drag.from === 'hand' ? table.hand.find((c) => c.iid === drag.iid) : undefined;
+    const home = own ? table.hand.filter((c, i) => !isHeld(c.iid) && i < table.hand.indexOf(own)).length : 0;
+    const at = insertAt?.zone === 'hand' && !stackTarget ? insertAt.index : null;
+    const staying = table.hand.filter((c) => !isHeld(c.iid));
+    // Other carried cards stay mounted at the end, stepped out of the row.
+    const extras = table.hand.filter((c) => isHeld(c.iid) && c !== own).map((item) => ({ kind: 'item' as const, item }));
+    return [...arrange(staying, own, home, at), ...extras];
+  };
+
+  const tableRow = (): RowItem<CardInstance[]>[] => {
+    if (!drag?.active) return tableGroups.map((item) => ({ kind: 'item', item }));
+    // Only a single card dragged from the table leaves a blank; taking the top off a stack leaves the stack.
+    const own = drag.from === 'table' ? tableGroups.find((g) => g.length === 1 && g[0].iid === drag.iid) : undefined;
+    const staying = tableGroups.filter((g) => g !== own && g.some((c) => !isHeld(c.iid)));
+    const extras = tableGroups.filter((g) => g !== own && !g.some((c) => !isHeld(c.iid))).map((item) => ({ kind: 'item' as const, item }));
+    // Insertion points count cards; turn one into a position among the (stacked) spots.
+    const spotFor = (cards: number) => {
+      let n = 0;
+      for (let i = 0; i < staying.length; i++) {
+        if (n >= cards) return i;
+        n += staying[i].filter((c) => !isHeld(c.iid)).length;
+      }
+      return staying.length;
+    };
+    const ownIndex = own ? table.table.findIndex((c) => c.iid === own[0].iid) : -1;
+    const home = own ? spotFor(table.table.filter((c, i) => !isHeld(c.iid) && i < ownIndex).length) : 0;
+    const at = insertAt?.zone === 'table' && !stackTarget ? spotFor(insertAt.index) : null;
+    return [...arrange(staying, own, home, at), ...extras];
+  };
+
+  /** A blank space the size of a card in a row, where carried cards would land. */
+  const gap = (w: number) => <View key="gap" style={{ width: w, height: w / ratio }} />;
 
   const sheetProps = (() => {
     switch (sheet.kind) {
@@ -1086,9 +1187,9 @@ function Table({
   const deckTop = table.deck[0];
   const topDiscard = table.discard[0];
   // While the top card of a pile is lifted, show what is underneath it.
-  const deckShowing = table.deck.filter((c) => !isAway(c.iid)).length;
-  const discardShowing = nextFree('discard');
-  const discardCount = table.discard.filter((c) => !isAway(c.iid)).length;
+  const deckShowing = table.deck.filter((c) => !drawnAway(c.iid)).length;
+  const discardShowing = table.discard.find((c) => !drawnAway(c.iid));
+  const discardCount = table.discard.filter((c) => !drawnAway(c.iid)).length;
   const highlight = (zone: Zone) => drag?.active && hover === zone && styles.dropTarget;
   // The zoomed card, and for a card in the hand or on the table the face-up cards either side of it there, which
   // a sideways swipe moves to. Face-down cards are skipped, so swiping can't reveal one.
@@ -1145,7 +1246,7 @@ function Table({
       if (view && stage) view.measureLayout(stage, glideTo, fallback);
       else fallback();
     };
-    const laidOut = landingRect !== landing.before;
+    const laidOut = landing.settled || landingRect !== landing.before;
     if (laidOut) {
       glide();
       return;
@@ -1368,7 +1469,7 @@ function Table({
             onScrollEndDrag={(e) => trackScroll('play', e.nativeEvent.contentOffset.y)}
             onMomentumScrollEnd={(e) => trackScroll('play', e.nativeEvent.contentOffset.y)}>
             {table.table.length ? (
-              tableGroups.map(renderStack)
+              tableRow().map((r) => (r.kind === 'gap' ? gap(tableCardWidth) : renderStack(r.item)))
             ) : (
               <Text style={styles.hint}>Drag a card here to play it.</Text>
             )}
@@ -1391,7 +1492,7 @@ function Table({
               onScrollEndDrag={(e) => trackScroll('hand', e.nativeEvent.contentOffset.x)}
               onMomentumScrollEnd={(e) => trackScroll('hand', e.nativeEvent.contentOffset.x)}>
               {table.hand.length ? (
-                table.hand.map((inst) => renderCard(inst, handWidth, 'hand'))
+                handRow().map((r) => (r.kind === 'gap' ? gap(handWidth) : renderCard(r.item, handWidth, 'hand')))
               ) : (
                 <EmptySlot deck={deck} width={handWidth} label="Tap or drag the deck to draw" />
               )}
@@ -1431,6 +1532,8 @@ function Table({
           style={[
             styles.lifted,
             tabletop && tabletopShadow.lifted,
+            // Invisible until its picture is on screen, so it never shows up blank.
+            !drag.shown && styles.hiddenCard,
             {
               // Bigger, but still held at the same spot under the finger: the grab point grows with the card.
               left: liftedFrom.x - drag.offX * LIFTED_SCALE,
@@ -1459,7 +1562,13 @@ function Table({
             ))
             .reverse()}
           {/* Drawn at its lifted size (not scaled up from the small card), so the art stays sharp. */}
-          <CardView deck={deck} card={cardsById.get(drag.stack[0].cardId)} faceUp={drag.faceUp} width={liftedWidth} />
+          <CardView
+            deck={deck}
+            card={cardsById.get(drag.stack[0].cardId)}
+            faceUp={drag.faceUp}
+            width={liftedWidth}
+            onReady={markShown}
+          />
           {drag.stack.length > 1 ? (
             <View style={styles.stackBadge}>
               <Text style={styles.stackBadgeText}>{drag.stack.length}</Text>

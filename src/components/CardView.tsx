@@ -72,15 +72,37 @@ interface Props {
   selected?: boolean;
   /** Start showing the other face and flip to `faceUp` as soon as the card appears, e.g. a card just revealed. */
   flipIn?: boolean;
+  /**
+   * Called once the card is actually drawn: when its art has been decoded and shown (pictures take a few frames
+   * to appear in a new card), or straight away for the built-in back, which has no picture.
+   */
+  onReady?: () => void;
   style?: StyleProp<ViewStyle>;
 }
 
 /** Renders a card face, or the deck's back when `faceUp` is false or there is no card. */
-export function CardView({ deck, card: cardProp, faceUp = true, width, onPress, onLongPress, selected, flipIn = false, style }: Props) {
+export function CardView({
+  deck,
+  card: cardProp,
+  faceUp = true,
+  width,
+  onPress,
+  onLongPress,
+  selected,
+  flipIn = false,
+  onReady,
+  style,
+}: Props) {
   const height = width / cardRatio(deck);
   const radius = Math.max(4, width * 0.06);
   const { shown, shownCard: card, transform } = useFlip(faceUp, flipIn, cardProp);
   const showFace = shown && card;
+  const hasPicture = !!showFace || !!deck.backImage;
+  useEffect(() => {
+    if (!hasPicture) onReady?.();
+    // Only on mount: the built-in back is there as soon as the card is.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // On the tabletop the card casts a real shadow on the cloth. It goes on this outer layer, because the card
   // itself clips its corners, which would clip the shadow too.
   const tabletop = useTableLook() === 'tabletop';
@@ -106,9 +128,19 @@ export function CardView({ deck, card: cardProp, faceUp = true, width, onPress, 
           pressed && { opacity: 0.8 },
         ]}>
         {showFace ? (
-          <Image source={{ uri: imageUri(card.image) }} style={[StyleSheet.absoluteFill, { borderRadius: radius }]} contentFit="cover" />
+          <Image
+            source={{ uri: imageUri(card.image) }}
+            style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
+            contentFit="cover"
+            onDisplay={onReady}
+          />
         ) : deck.backImage ? (
-          <Image source={{ uri: imageUri(deck.backImage) }} style={[StyleSheet.absoluteFill, { borderRadius: radius }]} contentFit="cover" />
+          <Image
+            source={{ uri: imageUri(deck.backImage) }}
+            style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
+            contentFit="cover"
+            onDisplay={onReady}
+          />
         ) : (
           <DefaultBack radius={radius} />
         )}

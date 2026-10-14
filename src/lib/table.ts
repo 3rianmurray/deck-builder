@@ -111,6 +111,26 @@ export function moveCards(state: TableState, iids: string[], to: Zone, faceUp?: 
   return order.reduce((s, iid) => moveCard(s, iid, to, pile ? 'top' : 'bottom', faceUp), state);
 }
 
+/**
+ * Puts cards (listed in the order they should appear) into a zone at a position, e.g. dropping them between
+ * two cards in the hand. `index` counts the zone's cards once these have been taken out of wherever they were,
+ * so the same zone can be rearranged in place. They face `faceUp`, or the zone's usual way.
+ */
+export function insertCards(state: TableState, iids: string[], to: Zone, index: number, faceUp?: boolean): TableState {
+  const moving: CardInstance[] = [];
+  for (const iid of iids) {
+    const found = findCard(state, iid);
+    if (found) moving.push({ ...state[found.zone][found.index], faceUp: faceUp ?? defaultFace(to) });
+  }
+  if (moving.length === 0) return state;
+  const ids = new Set(moving.map((c) => c.iid));
+  const next = { ...state };
+  for (const z of ZONES) next[z] = state[z].filter((c) => !ids.has(c.iid));
+  const at = Math.max(0, Math.min(next[to].length, index));
+  next[to] = [...next[to].slice(0, at), ...moving, ...next[to].slice(at)];
+  return next;
+}
+
 export function draw(state: TableState, count = 1): TableState {
   let next = state;
   for (let i = 0; i < count && next.deck.length > 0; i++) {

@@ -149,6 +149,12 @@ interface Helper {
   moved: boolean;
 }
 
+/** A position between the cards in the hand or on the table, counting the cards there that aren't being carried. */
+interface InsertAt {
+  zone: 'hand' | 'table';
+  index: number;
+}
+
 interface HeldCard {
   iid: string;
   cardId: string;
@@ -242,6 +248,8 @@ function Table({
   // Drag and drop. Layouts are relative to the screen's root view, which sits at `rootOrigin` in the window.
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hover, setHover] = useState<Zone | null>(null);
+  /** Where the carried cards would go if dropped in the hand or on the table now, shown by a marker. */
+  const [insertAt, setInsertAt] = useState<InsertAt | null>(null);
   const [pan] = useState(() => new Animated.ValueXY());
   const [rootOrigin, setRootOrigin] = useState<{ x: number; y: number } | null>(null);
   const rootRef = useRef<View>(null);
@@ -566,6 +574,7 @@ function Table({
     if (drag?.active) animateLayout();
     setDrag(null);
     setHover(null);
+    setInsertAt(null);
     setRevealed(null);
     // The drag offset is deliberately left alone here: resetting it moves the lifted card back to where it was
     // picked up a moment before it disappears, which flashes it there. The next drag resets it when it starts.
@@ -598,9 +607,21 @@ function Table({
     else onTouchingCard?.(false);
   }, [zoomOpen, onTouchingCard]);
 
-  const drop = (d: Drag, zone: Zone | null) => {
+  const drop = (d: Drag, zone: Zone | null, at: InsertAt | null) => {
     if (!zone) return;
-    // A single card put back where it came from stays in its place, just turned over if it was flipped.
+    const ids = d.stack.map((h) => h.iid);
+    // In the hand or on the table the cards go where the finger is, between the cards there.
+    if ((zone === 'hand' || zone === 'table') && at?.zone === zone) {
+      // A single card put back exactly where it came from stays put, just turned over if it was flipped.
+      const was = table[zone].findIndex((c) => c.iid === d.iid);
+      if (d.stack.length === 1 && zone === d.from && at.index === was) {
+        if (d.faceUp !== d.startFaceUp) apply((t) => T.flip(t, d.iid));
+        return;
+      }
+      apply((t) => T.insertCards(t, ids, zone, at.index, d.faceUp));
+      return;
+    }
+    // A single card put back on its own pile stays where it is, just turned over if it was flipped.
     if (d.stack.length === 1 && zone === d.from) {
       if (d.faceUp !== d.startFaceUp) apply((t) => T.flip(t, d.iid));
       return;
@@ -608,7 +629,32 @@ function Table({
     // Piles keep their rules: the deck is always face down and the discard pile always face up.
     const faceUp = zone === 'deck' ? false : zone === 'discard' ? true : d.faceUp;
     if (zone === 'discard' && !d.faceUp) setRevealed(d.stack[0].iid);
-    apply((t) => T.moveCards(t, d.stack.map((h) => h.iid), zone, faceUp));
+    apply((t) => T.moveCards(t, ids, zone, faceUp));
+  };
+
+  /** Where a card in the hand or on the table sits on the (flat) table, counting how far its row is scrolled. */
+  const laidOutAt = (zone: 'hand' | 'table') =>
+    zone === 'table'
+      ? playRect && { x: playRect.x, y: playRect.y - scroll.play }
+      : handRect && layout.handScroll && { x: handRect.x + layout.handScroll.x - scroll.hand, y: handRect.y + layout.handScroll.y };
+
+  /**
+   * Where dropped cards would go in the hand or on the table: after every card that comes before the finger.
+   * In the hand that's every card to its left; on the table it reads like a page, so also every card in a row
+   * above it. Cards being carried don't count, since they're leaving.
+   */
+  const insertionAt = (zone: 'hand' | 'table', pageX: number, pageY: number): number | null => {
+    const o = laidOutAt(zone);
+    const p = toTable(pageX, pageY);
+    if (!o || !p) return null;
+    return table[zone].filter((c) => {
+      const r = !isHeld(c.iid) && cardLayouts[c.iid];
+      if (!r) return false;
+      const x = o.x + r.x;
+      const y = o.y + r.y;
+      if (zone === 'hand') return x + r.w / 2 < p.x;
+      return y + r.h <= p.y || (p.y >= y && p.y < y + r.h && x + r.w / 2 < p.x);
+    }).length;
   };
 
   const followFinger = (finger: NativeTouchEvent) => {
@@ -616,6 +662,9 @@ function Table({
     pan.setValue(tableDelta(drag.startX, drag.startY, finger));
     const zone = zoneAt(finger.pageX, finger.pageY);
     if (zone !== hover) setHover(zone);
+    const index = zone === 'hand' || zone === 'table' ? insertionAt(zone, finger.pageX, finger.pageY) : null;
+    const next = zone && index !== null ? { zone: zone as 'hand' | 'table', index } : null;
+    if (next?.zone !== insertAt?.zone || next?.index !== insertAt?.index) setInsertAt(next);
   };
 
   /** A release or terminate that arrives while the holding finger is still down came from another finger. */
@@ -645,7 +694,7 @@ function Table({
       }
       const d = drag;
       endDrag();
-      drop(d, hover);
+      drop(d, hover, insertAt);
     },
     onTouchCancel: (e: GestureResponderEvent) => {
       if (drag?.orphaned && e.nativeEvent.changedTouches.some((t) => t.identifier === drag.touchId)) endDrag();
@@ -732,7 +781,7 @@ function Table({
         const d = drag;
         endDrag();
         if (!d || d.abandoned || d.pinch) return;
-        if (d.active) return drop(d, hover);
+        if (d.active) return drop(d, hover, insertAt);
         const longPress = Date.now() - d.pressedAt >= LONG_PRESS_MS && opts.onLongPress;
         (longPress ? opts.onLongPress : opts.onPress)?.();
       },
@@ -861,6 +910,23 @@ function Table({
     const row = table[found.zone].filter((c) => c.faceUp);
     const i = row.findIndex((c) => c.iid === inst.iid);
     return { current, prev: item(row[i - 1]), next: item(row[i + 1]) };
+  })();
+
+  // The gold bar showing where carried cards will land in the hand or on the table: in the gap before the card
+  // at the insertion point, after the last card, or at the start of an empty row.
+  const insertMarker = (() => {
+    if (!drag?.active || !insertAt) return null;
+    const o = laidOutAt(insertAt.zone);
+    if (!o) return null;
+    const cards = table[insertAt.zone].filter((c) => !isHeld(c.iid) && cardLayouts[c.iid]);
+    const cardH = (insertAt.zone === 'hand' ? handWidth : tableCardWidth) / ratio;
+    if (cards.length === 0) return { left: o.x + 14, top: o.y + 8, height: cardH };
+    if (insertAt.index < cards.length) {
+      const r = cardLayouts[cards[insertAt.index].iid];
+      return { left: o.x + r.x - 7, top: o.y + r.y, height: r.h };
+    }
+    const r = cardLayouts[cards[cards.length - 1].iid];
+    return { left: o.x + r.x + r.w + 3, top: o.y + r.y, height: r.h };
   })();
 
   /** Where on the (flat) table the lifted stack was picked up. */
@@ -1086,6 +1152,8 @@ function Table({
           </View>
         </>
       )}
+
+      {insertMarker ? <View style={[styles.insertMarker, insertMarker]} /> : null}
 
       {/* The held stack follows the finger above everything else: its top card, with the edges of the rest. */}
       {drag?.active && liftedFrom ? (
@@ -1337,6 +1405,7 @@ const styles = StyleSheet.create({
     elevation: 14,
   },
   collapsed: { position: 'absolute', opacity: 0 },
+  insertMarker: { position: 'absolute', width: 4, borderRadius: 2, backgroundColor: colors.accent, pointerEvents: 'none' },
   stage: { overflow: 'hidden' },
   // Tabletop look: the piles sit straight on the cloth, and the hand on the wooden rail.
   pilesOnCloth: { backgroundColor: 'transparent' },

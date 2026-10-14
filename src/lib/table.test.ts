@@ -10,6 +10,7 @@ import {
   draw,
   findCard,
   flip,
+  insertCards,
   missingCards,
   moveCard,
   moveCards,
@@ -91,6 +92,22 @@ test('moveCards keeps a held stack together, top card on top of a pile', () => {
   t = moveCards(t, t.discard.map((c) => c.iid), 'table', false);
   assert.deepEqual(t.table.map((c) => c.cardId), ['c1', 'c0', 'c2']);
   assert.ok(t.table.every((c) => !c.faceUp));
+});
+
+test('insertCards drops cards between others, and rearranges a zone in place', () => {
+  let t = draw(createTable(makeDeck(6), noShuffle), 4); // hand: c0 c1 c2 c3
+  // Move c3 to the front of the hand.
+  t = insertCards(t, [t.hand[3].iid], 'hand', 0);
+  assert.deepEqual(t.hand.map((c) => c.cardId), ['c3', 'c0', 'c1', 'c2']);
+  // Move c0 to after c2 (index counts the hand without c0: c3 c1 c2 → after c2 is 3).
+  t = insertCards(t, [t.hand[1].iid], 'hand', 3);
+  assert.deepEqual(t.hand.map((c) => c.cardId), ['c3', 'c1', 'c2', 'c0']);
+  // Two cards from the deck go between c3 and c1, in the order given, face down if asked.
+  t = insertCards(t, [t.deck[1].iid, t.deck[0].iid], 'hand', 1, false);
+  assert.deepEqual(t.hand.map((c) => c.cardId), ['c3', 'c5', 'c4', 'c1', 'c2', 'c0']);
+  assert.equal(t.hand[1].faceUp, false);
+  assert.equal(t.deck.length, 0);
+  assert.equal(cardCount(t), 6);
 });
 
 test('searching the deck lets any card be pulled out', () => {

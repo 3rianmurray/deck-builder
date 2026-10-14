@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, PanResponder, StyleSheet, View } from 'react-native';
 import type { NativeTouchEvent } from 'react-native';
 
@@ -59,12 +59,12 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
   // Neighbours stay hidden whenever the card isn't full size (opening, pinching, closing): shrinking pulls
   // them in from off screen, where they'd look like a mistake.
   const [showNeighbours, setShowNeighbours] = useState(false);
-
-  // After a step the strip has slid a whole card over, putting the new card in the middle. Once the new card
-  // (with its own neighbours) is in place, recentre the strip before anything is drawn, so nothing jumps.
-  useLayoutEffect(() => {
-    anim.pan.setValue({ x: 0, y: 0 });
-  }, [current.key, anim]);
+  // The cards sit on one long strip at fixed spots, `spacing` apart; `slot` is the spot of the card in the
+  // middle. A step slides the strip one spot along and moves `slot` with it. Nothing is ever recentred: the
+  // slide runs on the native animation thread while a recentre would come from here, and the two landing on
+  // different frames is what made the art flicker between the old and new card.
+  const [slot, setSlot] = useState(0);
+  const rest = -slot * spacing;
 
   useEffect(() => {
     Animated.parallel([
@@ -78,7 +78,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
       // A swipe away keeps its neighbours in view as it slides; anything that shrinks hides them first.
       if (to.scale < 1) setShowNeighbours(false);
       return Animated.parallel([
-        Animated.timing(anim.pan, { toValue: { x: to.x, y: to.y }, duration: 180, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+        Animated.timing(anim.pan, { toValue: { x: rest + to.x, y: to.y }, duration: 180, easing: Easing.in(Easing.quad), useNativeDriver: true }),
         Animated.timing(anim.scale, { toValue: to.scale, duration: 180, useNativeDriver: true }),
         Animated.timing(anim.opacity, { toValue: 0, duration: 180, useNativeDriver: true }),
       ]).start(onClose);
@@ -103,7 +103,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
           if (!s.pinching) {
             s.pinching = true;
             s.pinchStart = distance(touches[0], touches[1]);
-            anim.pan.setValue({ x: 0, y: 0 });
+            anim.pan.setValue({ x: rest, y: 0 });
             setShowNeighbours(false);
           }
           const k = s.pinchStart > 0 ? distance(touches[0], touches[1]) / s.pinchStart : 1;
@@ -117,7 +117,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
           s.swiping = true;
           s.axis = Math.abs(g.dx) >= Math.abs(g.dy) ? 'x' : 'y';
         }
-        anim.pan.setValue(s.axis === 'x' ? { x: g.dx, y: 0 } : { x: 0, y: g.dy });
+        anim.pan.setValue(s.axis === 'x' ? { x: rest + g.dx, y: 0 } : { x: rest, y: g.dy });
       },
       onPanResponderRelease: (_, g) => {
         if (s.pinching) {
@@ -130,19 +130,22 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
         const d = s.axis === 'x' ? g.dx : g.dy;
         const v = s.axis === 'x' ? g.vx : g.vy;
         const far = Math.abs(d) > DISMISS_DISTANCE || Math.abs(v) > DISMISS_SPEED;
-        if (!far) return Animated.spring(anim.pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
+        if (!far) return Animated.spring(anim.pan, { toValue: { x: rest, y: 0 }, useNativeDriver: true }).start();
         // A sideways swipe steps to the card that way, like turning pages: swiping left shows the next card
         // (to the right), swiping right the previous one. With no card that way, it puts the zoom away.
         const dir: 1 | -1 = d < 0 ? 1 : -1;
         if (s.axis === 'x' && onStep && (dir === 1 ? hasNext : hasPrev)) {
-          // Slide the strip on until the neighbour is in the middle, then make it the zoomed card (the layout
-          // effect above recentres the strip as it switches).
+          // Slide the strip one spot along, so the neighbour is in the middle, then make it the zoomed card.
+          // The strip stays where it ends up; the new card's spot is simply one further along.
           Animated.timing(anim.pan, {
-            toValue: { x: -dir * spacing, y: 0 },
+            toValue: { x: rest - dir * spacing, y: 0 },
             duration: 200,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
-          }).start(() => onStep(dir));
+          }).start(() => {
+            setSlot((n) => n + dir);
+            onStep(dir);
+          });
           return;
         }
         // Carry on straight along the locked direction until it's off screen.
@@ -150,35 +153,32 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
         close(s.axis === 'x' ? { x: reach, y: 0, scale: 1 } : { x: 0, y: reach, scale: 1 });
       },
     });
-  }, [anim, area.w, area.h, onClose, onStep, hasPrev, hasNext, spacing]);
+  }, [anim, area.w, area.h, onClose, onStep, hasPrev, hasNext, spacing, rest]);
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: anim.opacity }]} {...responder.panHandlers}>
-      <Animated.View
-        style={{
-          transform: [...anim.pan.getTranslateTransform(), { scale: anim.scale }],
-          pointerEvents: 'none',
-        }}>
-        {/*
-          The strip. Each card keeps its own view, keyed by that copy, and only its position changes: after a
-          step, the view that slid in becomes the middle one as it is, already drawn, so its art never has to
-          reload (which flickered between the old and new card for a few frames).
-        */}
-        <View style={{ width, height }}>
+      {/* Growing and shrinking happens around the middle of the screen, whichever card is there... */}
+      <Animated.View style={{ width, height, transform: [{ scale: anim.scale }], pointerEvents: 'none' }}>
+        {/* ...while the strip of cards slides underneath it. */}
+        <Animated.View style={{ width, height, transform: anim.pan.getTranslateTransform() }}>
+          {/*
+            Each card keeps its own view, keyed by that copy, at a fixed spot on the strip: after a step, the
+            card that slid in is already drawn where it ends up, so its art never has to reload.
+          */}
           {[
-            { item: prev, offset: -spacing },
-            { item: current, offset: 0 },
-            { item: next, offset: spacing },
-          ].map(({ item, offset }) =>
+            { item: prev, spot: slot - 1 },
+            { item: current, spot: slot },
+            { item: next, spot: slot + 1 },
+          ].map(({ item, spot }) =>
             item ? (
               <View
                 key={item.key}
-                style={[styles.slot, { left: offset }, offset !== 0 && !showNeighbours && styles.hidden]}>
+                style={[styles.slot, { left: spot * spacing }, spot !== slot && !showNeighbours && styles.hidden]}>
                 <CardView deck={deck} card={item.card} width={width} />
               </View>
             ) : null,
           )}
-        </View>
+        </Animated.View>
       </Animated.View>
     </Animated.View>
   );

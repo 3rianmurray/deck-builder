@@ -18,6 +18,8 @@ import {
   pruneTable,
   resetTable,
   shuffleDiscardIntoDeck,
+  stackGroups,
+  stackOnto,
   takeTopOfDiscard,
 } from './table.ts';
 import type { Deck } from './types.ts';
@@ -108,6 +110,24 @@ test('insertCards drops cards between others, and rearranges a zone in place', (
   assert.equal(t.hand[1].faceUp, false);
   assert.equal(t.deck.length, 0);
   assert.equal(cardCount(t), 6);
+});
+
+test('cards can be stacked on a table card, and leave the stack when moved off', () => {
+  let t = draw(createTable(makeDeck(6), noShuffle), 4); // hand: c0 c1 c2 c3
+  t = insertCards(t, [t.hand[0].iid, t.hand[1].iid], 'table', 0); // table: c0 c1
+  const c0 = t.table[0].iid;
+  // Stack c2 then c3 (held with c3 on top) onto c0.
+  t = stackOnto(t, [t.hand[1].iid, t.hand[0].iid], c0, true);
+  assert.deepEqual(t.table.map((c) => c.cardId), ['c0', 'c2', 'c3', 'c1']);
+  assert.deepEqual(stackGroups(t.table).map((g) => g.map((c) => c.cardId)), [['c0', 'c2', 'c3'], ['c1']]);
+  // Stacking onto any card of a stack puts it on top of that stack.
+  t = stackOnto(t, [t.deck[0].iid], t.table[1].iid, false);
+  assert.deepEqual(stackGroups(t.table)[0].map((c) => c.cardId), ['c0', 'c2', 'c3', 'c4']);
+  assert.equal(t.table[3].faceUp, false);
+  // Taking the top three off one at a time leaves a single card, which is no longer a stack.
+  for (let i = 0; i < 3; i++) t = moveCard(t, stackGroups(t.table)[0].at(-1)!.iid, 'hand');
+  assert.equal(t.table[0].stack, undefined);
+  assert.ok(t.hand.every((c) => c.stack === undefined));
 });
 
 test('searching the deck lets any card be pulled out', () => {

@@ -88,17 +88,70 @@ function defaultFace(zone: Zone): boolean {
   return zone !== 'deck';
 }
 
+// ---- Stacks on the play table ----
+
+/** The play table's cards in groups: each stack together (bottom first), and every other card on its own. */
+export function stackGroups(cards: CardInstance[]): CardInstance[][] {
+  const groups: CardInstance[][] = [];
+  for (const c of cards) {
+    const last = groups[groups.length - 1];
+    if (c.stack && last && last[0].stack === c.stack) last.push(c);
+    else groups.push([c]);
+  }
+  return groups;
+}
+
+/** A copy of a card that has left its stack (or is moving somewhere stacks don't exist). */
+const unstacked = (c: CardInstance): CardInstance => {
+  const { stack: _, ...rest } = c;
+  return rest;
+};
+
+/** A stack down to one card is just a card again. */
+function tidyStacks(state: TableState): TableState {
+  const sizes = new Map<string, number>();
+  for (const c of state.table) if (c.stack) sizes.set(c.stack, (sizes.get(c.stack) ?? 0) + 1);
+  if (![...sizes.values()].some((n) => n < 2)) return state;
+  return { ...state, table: state.table.map((c) => (c.stack && sizes.get(c.stack)! < 2 ? unstacked(c) : c)) };
+}
+
+/**
+ * Puts cards (held top first) on top of the card or stack that `targetIid` belongs to on the play table, all
+ * facing `faceUp`. The held stack's top card ends up on top.
+ */
+export function stackOnto(state: TableState, iids: string[], targetIid: string, faceUp: boolean): TableState {
+  const target = state.table.find((c) => c.iid === targetIid);
+  if (!target || iids.includes(targetIid)) return state;
+  const stack = target.stack ?? target.iid;
+  const moving: CardInstance[] = [];
+  for (const iid of iids.slice().reverse()) {
+    const found = findCard(state, iid);
+    if (found) moving.push({ ...state[found.zone][found.index], faceUp, stack });
+  }
+  const ids = new Set(moving.map((c) => c.iid));
+  const next = { ...state };
+  for (const z of ZONES) next[z] = state[z].filter((c) => !ids.has(c.iid));
+  const table = next.table.map((c) => (c.iid === targetIid ? { ...c, stack } : c));
+  // After the stack's current top card.
+  let at = -1;
+  table.forEach((c, i) => {
+    if (c.stack === stack) at = i;
+  });
+  next.table = [...table.slice(0, at + 1), ...moving, ...table.slice(at + 1)];
+  return tidyStacks(next);
+}
+
 /** `faceUp` overrides the zone's usual facing, e.g. a card dragged from the deck and not yet revealed. */
 export function moveCard(state: TableState, iid: string, to: Zone, position?: Position, faceUp?: boolean): TableState {
   const found = findCard(state, iid);
   if (!found) return state;
   const card = state[found.zone][found.index];
   const next = { ...state, [found.zone]: state[found.zone].filter((c) => c.iid !== iid) };
-  const moved: CardInstance = { ...card, faceUp: faceUp ?? defaultFace(to) };
+  const moved: CardInstance = { ...unstacked(card), faceUp: faceUp ?? defaultFace(to) };
   // Piles grow from the top; hand and table grow to the right.
   const pos = position ?? (to === 'deck' || to === 'discard' ? 'top' : 'bottom');
   next[to] = pos === 'top' ? [moved, ...next[to]] : [...next[to], moved];
-  return next;
+  return tidyStacks(next);
 }
 
 /**
@@ -120,7 +173,7 @@ export function insertCards(state: TableState, iids: string[], to: Zone, index: 
   const moving: CardInstance[] = [];
   for (const iid of iids) {
     const found = findCard(state, iid);
-    if (found) moving.push({ ...state[found.zone][found.index], faceUp: faceUp ?? defaultFace(to) });
+    if (found) moving.push({ ...unstacked(state[found.zone][found.index]), faceUp: faceUp ?? defaultFace(to) });
   }
   if (moving.length === 0) return state;
   const ids = new Set(moving.map((c) => c.iid));
@@ -128,7 +181,7 @@ export function insertCards(state: TableState, iids: string[], to: Zone, index: 
   for (const z of ZONES) next[z] = state[z].filter((c) => !ids.has(c.iid));
   const at = Math.max(0, Math.min(next[to].length, index));
   next[to] = [...next[to].slice(0, at), ...moving, ...next[to].slice(at)];
-  return next;
+  return tidyStacks(next);
 }
 
 export function draw(state: TableState, count = 1): TableState {
@@ -167,7 +220,7 @@ export function flip(state: TableState, iid: string): TableState {
 
 /** Gathers every card back into the deck, face down and shuffled. */
 export function resetTable(state: TableState, rng: Rng = Math.random): TableState {
-  const all = ZONES.flatMap((z) => state[z]).map((c) => ({ ...c, faceUp: false }));
+  const all = ZONES.flatMap((z) => state[z]).map((c) => ({ ...unstacked(c), faceUp: false }));
   return { deck: shuffled(all, rng), hand: [], table: [], discard: [] };
 }
 

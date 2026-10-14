@@ -95,6 +95,11 @@ export interface CardInstance {
   iid: string;
   cardId: string;
   faceUp: boolean;
+  /**
+   * On the play table only: cards sharing this id form a stack. They sit next to each other in the table's
+   * list, bottom first, so the last of them is the top card. Cards elsewhere, or alone, have none.
+   */
+  stack?: string;
 }
 
 /** Index 0 is the top of the deck/discard pile, and the leftmost card in hand/table. */

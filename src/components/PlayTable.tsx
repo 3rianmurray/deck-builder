@@ -24,7 +24,7 @@ import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { matSpot, TableLookContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
 import { CardZoom } from './CardZoom';
-import { CardView, EmptySlot, PileDepth, pileThickness, prefersReducedMotion } from './CardView';
+import { CardView, EmptySlot, PileDepth, pileRise, pileThickness, prefersReducedMotion } from './CardView';
 import { useDecks } from '../lib/DecksContext';
 import * as T from '../lib/table';
 import { fitTilt, tiltTransform, unproject } from '../lib/tilt';
@@ -374,13 +374,17 @@ function Table({
     }
     // The card lifts off the deck, turns face up on the way, and lands on the discard pile; only then is it
     // actually moved there. Meanwhile it counts as gone from the deck and not yet on the discard pile.
-    flight.pos.setValue({ x: from.x + PILE_INSET, y: from.y + PILE_INSET });
+    // A pile's top card rises above its spot by the pile's height: start on the deck's current top card and
+    // land where the discard pile's top card will be once this one is on it.
+    const lift = pileRise(pileWidth, table.deck.length);
+    const land = pileRise(pileWidth, table.discard.length + 1);
+    flight.pos.setValue({ x: from.x + PILE_INSET - lift, y: from.y + PILE_INSET - lift });
     flight.scale.setValue(1);
     setFlying({ iid: top.iid, cardId: top.cardId, faceUp: false });
     setTimeout(() => setFlying((f) => f && { ...f, faceUp: true }), FLIGHT_MS * 0.2);
     Animated.parallel([
       Animated.timing(flight.pos, {
-        toValue: { x: to.x + PILE_INSET, y: to.y + PILE_INSET },
+        toValue: { x: to.x + PILE_INSET - land, y: to.y + PILE_INSET - land },
         duration: FLIGHT_MS,
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: true,

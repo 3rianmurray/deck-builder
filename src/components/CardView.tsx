@@ -140,22 +140,30 @@ export function pileThickness(width: number): number {
 }
 
 /**
- * Gives a pile some depth: the edges of the cards beneath its top card, stepping down and to the right.
- * Always takes up the full thickness, so the pile doesn't shift as it shrinks; `count` only changes how many
- * edges are drawn.
+ * How far a pile of `count` cards rises: its top card sits this far up and to the left of its bottom card.
+ * A pile of one lies flat; it rises steadily up to `FULL_PILE` cards, and no further.
+ */
+export function pileRise(width: number, count: number): number {
+  const thickness = count <= 1 ? 0 : pileThickness(width) * Math.min(1, (count - 1) / (FULL_PILE - 1));
+  return Math.round(thickness / EDGE_STEP) * EDGE_STEP;
+}
+
+/**
+ * Gives a pile some depth. The bottom card sits exactly in the pile's spot, and each card above it steps up
+ * and to the left, so a tall pile rises out of its spot towards the top left. The pile's own box stays the
+ * size of one card, so nothing around it moves as it grows or shrinks.
  */
 export function PileDepth({ deck, width, count, children }: { deck: Deck; width: number; count: number; children: ReactNode }) {
-  const max = pileThickness(width);
-  const thickness = count <= 1 ? 0 : max * Math.min(1, (count - 1) / (FULL_PILE - 1));
-  const edges = Math.round(thickness / EDGE_STEP);
+  const rise = pileRise(width, count);
+  const edges = Math.round(rise / EDGE_STEP);
   const height = width / cardRatio(deck);
   const radius = Math.max(4, width * 0.06);
   const tabletop = useTableLook() === 'tabletop';
   return (
-    <View style={{ width: width + max, height: height + max }}>
+    <View style={{ width, height }}>
       {Array.from({ length: edges }, (_, i) => {
-        // Drawn bottom card first, so each edge sits over the one below it.
-        const offset = (edges - i) * EDGE_STEP;
+        // Drawn bottom card first (at the pile's spot), so each edge sits over the one below it.
+        const offset = -i * EDGE_STEP;
         return (
           <View
             key={i}
@@ -168,7 +176,8 @@ export function PileDepth({ deck, width, count, children }: { deck: Deck; width:
           />
         );
       })}
-      {children}
+      {/* The top card, risen above the rest. */}
+      <View style={{ position: 'absolute', left: -rise, top: -rise }}>{children}</View>
     </View>
   );
 }

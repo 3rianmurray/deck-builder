@@ -10,4 +10,7 @@ export const colors = {
   danger: '#e5605a',
   felt: '#1d3a5c',
   feltDark: '#152b45',
+  /** Tabletop look: the cloth where the light falls on it, and where it's in shadow nearest the player. */
+  feltLight: '#2a5280',
+  feltDeep: '#10233a',
 };

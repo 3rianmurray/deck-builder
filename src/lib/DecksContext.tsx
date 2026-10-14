@@ -8,14 +8,16 @@ import {
   importImage,
   loadDecks,
   loadSessions,
+  loadSettings,
   loadTables,
   saveDecks,
   saveSessions,
+  saveSettings,
   saveTables,
 } from './storage';
 import { moveItems } from './order';
 import { createTable, pruneTable } from './table';
-import type { Card, CardShape, Deck, PlayMode, Session, TableState } from './types';
+import type { Card, CardShape, Deck, PlayMode, Session, Settings, TableLook, TableState } from './types';
 
 interface DecksApi {
   decks: Deck[];
@@ -40,6 +42,8 @@ interface DecksApi {
    */
   getTable: (deckId: string, sessionId?: string) => TableState | undefined;
   setTable: (deckId: string, sessionId: string | undefined, table: TableState) => void;
+  settings: Settings;
+  setTableLook: (look: TableLook) => void;
   sessions: Session[];
   getSession: (id: string) => Session | undefined;
   createSession: (name: string, deckIds: string[]) => Session;
@@ -62,6 +66,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
   const [decks, setDecks] = useState<Deck[]>(() => loadDecks());
   const [tables, setTables] = useState<Record<string, TableState>>(() => loadTables());
   const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
+  const [settings, setSettings] = useState<Settings>(() => loadSettings());
   const loaded = useRef(false);
 
   useEffect(() => {
@@ -73,6 +78,9 @@ export function DecksProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loaded.current) saveSessions(sessions);
   }, [sessions]);
+  useEffect(() => {
+    if (loaded.current) saveSettings(settings);
+  }, [settings]);
   useEffect(() => {
     loaded.current = true;
   }, []);
@@ -170,6 +178,10 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       setTable(deckId, sessionId, table) {
         setTables((all) => ({ ...all, [tableKey(deckId, sessionId)]: table }));
       },
+      settings,
+      setTableLook(tableLook) {
+        setSettings((s) => ({ ...s, tableLook }));
+      },
       sessions,
       getSession: (id) => sessions.find((s) => s.id === id),
       createSession(name, deckIds) {
@@ -190,7 +202,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         setTables((all) => withoutTables(all, (key) => key.startsWith(`${id}:`)));
       },
     };
-  }, [decks, tables, sessions, updateDeck]);
+  }, [decks, tables, sessions, settings, updateDeck]);
 
   return <DecksContext.Provider value={api}>{children}</DecksContext.Provider>;
 }

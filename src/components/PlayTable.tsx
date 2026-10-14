@@ -22,12 +22,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionSheet, type SheetAction } from './ActionSheet';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
+import { matSpot, TableLookContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
 import { CardZoom } from './CardZoom';
 import { CardView, EmptySlot, PileDepth, pileThickness, prefersReducedMotion } from './CardView';
 import { useDecks } from '../lib/DecksContext';
 import * as T from '../lib/table';
 import { cardRatio } from '../lib/types';
-import type { CardInstance, Deck, PlayMode, TableState, Zone } from '../lib/types';
+import type { CardInstance, Deck, PlayMode, TableLook, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
 
 type Sheet =
@@ -189,15 +190,21 @@ export function DeckTable({
       </View>
     );
   }
+  const look = decks.settings.tableLook;
   return (
-    <Table
-      deck={deck}
-      table={table}
-      setTable={setTable}
-      setMode={(mode) => decks.setPlayMode(deck.id, mode)}
-      active={active}
-      onTouchingCard={onTouchingCard}
-    />
+    // Cards and piles read the look from here, to match their shadows to it.
+    <TableLookContext.Provider value={look}>
+      <Table
+        deck={deck}
+        table={table}
+        setTable={setTable}
+        setMode={(mode) => decks.setPlayMode(deck.id, mode)}
+        look={look}
+        setLook={decks.setTableLook}
+        active={active}
+        onTouchingCard={onTouchingCard}
+      />
+    </TableLookContext.Provider>
   );
 }
 
@@ -206,6 +213,8 @@ function Table({
   table,
   setTable,
   setMode,
+  look,
+  setLook,
   active,
   onTouchingCard,
 }: PageProps & {
@@ -213,9 +222,12 @@ function Table({
   table: TableState;
   setTable: Dispatch<SetStateAction<TableState | undefined>>;
   setMode: (mode: PlayMode) => void;
+  look: TableLook;
+  setLook: (look: TableLook) => void;
 }) {
   const mode: PlayMode = deck.playMode ?? 'table';
   const reveal = mode === 'reveal';
+  const tabletop = look === 'tabletop';
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [sheet, setSheet] = useState<Sheet>({ kind: 'table' });
@@ -779,6 +791,10 @@ function Table({
               : { label: 'Switch to reveal mode', opensModal: true, onPress: () => switchMode('reveal') },
             ...(reveal ? [] : [{ label: 'Discard entire hand', onPress: () => apply(T.discardHand) }]),
             { label: 'Shuffle discard pile into deck', onPress: () => apply(T.shuffleDiscardIntoDeck, 'Shuffled into deck') },
+            {
+              label: tabletop ? 'Table style: Tabletop · switch to Classic' : 'Table style: Classic · switch to Tabletop',
+              onPress: () => setLook(tabletop ? 'classic' : 'tabletop'),
+            },
             { label: 'Edit deck', onPress: () => router.push({ pathname: '/deck/[id]', params: { id: deck.id } }) },
             { label: 'Reset table', destructive: true, opensModal: true, onPress: confirmReset },
           ],
@@ -814,7 +830,7 @@ function Table({
 
   const deckPile = (
     <>
-      <View style={[styles.pileSlot, highlight('deck')]}>
+      <View style={[styles.pileSlot, tabletop && matSpot, highlight('deck')]}>
         <PileDepth deck={deck} width={pileWidth} count={deckShowing}>
           {deckTop ? (
             draggable(
@@ -839,7 +855,7 @@ function Table({
 
   const discardPile = (
     <>
-      <View style={[styles.pileSlot, highlight('discard')]}>
+      <View style={[styles.pileSlot, tabletop && matSpot, highlight('discard')]}>
         <PileDepth deck={deck} width={pileWidth} count={discardCount}>
           {topDiscard ? (
             draggable(
@@ -879,6 +895,9 @@ function Table({
         setRootSize({ w, h });
         measureRoot();
       }}>
+      {/* The cloth, behind everything else on the tabletop. */}
+      {tabletop ? <TabletopSurface /> : null}
+
       {active ? (
         <Stack.Screen
           options={{
@@ -949,7 +968,7 @@ function Table({
       ) : (
         <>
           {/* Piles */}
-          <View style={styles.piles} onLayout={measure('piles')}>
+          <View style={[styles.piles, tabletop && styles.pilesOnCloth]} onLayout={measure('piles')}>
             <View style={styles.pile} onLayout={measure('deckPile')}>
               {deckPile}
             </View>
@@ -980,8 +999,9 @@ function Table({
 
           {/* Hand */}
           <View
-            style={[styles.hand, { paddingBottom: insets.bottom + 8 }, highlight('hand')]}
+            style={[styles.hand, tabletop && styles.handOnRail, { paddingBottom: insets.bottom + 8 }, highlight('hand')]}
             onLayout={measure('hand')}>
+            {tabletop ? <WoodRail /> : null}
             <Text style={styles.handLabel}>Hand · {table.hand.length}</Text>
             <ScrollView
               ref={attachHandView}
@@ -1008,6 +1028,7 @@ function Table({
         <Animated.View
           style={[
             styles.lifted,
+            tabletop && tabletopShadow.lifted,
             {
               left: drag.startX - drag.offX - rootOrigin.x,
               top: drag.startY - drag.offY - rootOrigin.y,
@@ -1050,7 +1071,7 @@ function Table({
 
       {flying ? (
         <Animated.View
-          style={[styles.flying, { transform: [...flight.pos.getTranslateTransform(), { scale: flight.scale }] }]}>
+          style={[styles.flying, tabletop && tabletopShadow.lifted, { transform: [...flight.pos.getTranslateTransform(), { scale: flight.scale }] }]}>
           <CardView deck={deck} card={cardsById.get(flying.cardId)} faceUp={flying.faceUp} width={pileWidth} />
         </Animated.View>
       ) : null}
@@ -1241,6 +1262,9 @@ const styles = StyleSheet.create({
     elevation: 14,
   },
   collapsed: { position: 'absolute', opacity: 0 },
+  // Tabletop look: the piles sit straight on the cloth, and the hand on the wooden rail.
+  pilesOnCloth: { backgroundColor: 'transparent' },
+  handOnRail: { backgroundColor: 'transparent', overflow: 'hidden' },
   flying: {
     position: 'absolute',
     left: 0,

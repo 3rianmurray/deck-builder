@@ -8,6 +8,7 @@ import { imageUri } from '../lib/storage';
 import { cardRatio } from '../lib/types';
 import type { Card, Deck } from '../lib/types';
 import { colors } from '../theme';
+import { tabletopShadow, useTableLook } from './Tabletop';
 
 /** Time for each half of a flip: turning edge-on, then turning back with the other face showing. */
 const HALF_FLIP_MS = 120;
@@ -80,9 +81,17 @@ export function CardView({ deck, card: cardProp, faceUp = true, width, onPress, 
   const radius = Math.max(4, width * 0.06);
   const { shown, shownCard: card, transform } = useFlip(faceUp, flipIn, cardProp);
   const showFace = shown && card;
+  // On the tabletop the card casts a real shadow on the cloth. It goes on this outer layer, because the card
+  // itself clips its corners, which would clip the shadow too.
+  const tabletop = useTableLook() === 'tabletop';
 
   return (
-    <Animated.View style={[{ transform }, style]}>
+    <Animated.View
+      style={[
+        { transform },
+        tabletop && [tabletopShadow.resting, { borderRadius: radius, backgroundColor: colors.surfaceRaised }],
+        style,
+      ]}>
       <Pressable
         onPress={onPress}
         onLongPress={onLongPress}
@@ -102,6 +111,8 @@ export function CardView({ deck, card: cardProp, faceUp = true, width, onPress, 
         ) : (
           <DefaultBack radius={radius} />
         )}
+        {/* A faint sheen on the card's edge, where the light catches it. */}
+        {tabletop ? <View style={[StyleSheet.absoluteFill, styles.sheen, { borderRadius: radius }]} /> : null}
       </Pressable>
     </Animated.View>
   );
@@ -138,6 +149,7 @@ export function PileDepth({ deck, width, count, children }: { deck: Deck; width:
   const edges = Math.round(thickness / EDGE_STEP);
   const height = width / cardRatio(deck);
   const radius = Math.max(4, width * 0.06);
+  const tabletop = useTableLook() === 'tabletop';
   return (
     <View style={{ width: width + max, height: height + max }}>
       {Array.from({ length: edges }, (_, i) => {
@@ -146,7 +158,12 @@ export function PileDepth({ deck, width, count, children }: { deck: Deck; width:
         return (
           <View
             key={i}
-            style={[styles.edge, { width, height, borderRadius: radius, left: offset, top: offset }]}
+            style={[
+              styles.edge,
+              { width, height, borderRadius: radius, left: offset, top: offset },
+              // On the tabletop the bottom card casts the pile's shadow onto the cloth.
+              tabletop && i === 0 && tabletopShadow.resting,
+            ]}
           />
         );
       })}
@@ -174,6 +191,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   selected: { borderWidth: 2, borderColor: colors.accent },
+  sheen: {
+    pointerEvents: 'none',
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderTopColor: 'rgba(255,255,255,0.35)',
+    borderLeftColor: 'rgba(255,255,255,0.22)',
+    borderRightColor: 'rgba(0,0,0,0.25)',
+    borderBottomColor: 'rgba(0,0,0,0.35)',
+  },
   back: { backgroundColor: '#5b2a3c', padding: '8%' },
   backInner: {
     flex: 1,

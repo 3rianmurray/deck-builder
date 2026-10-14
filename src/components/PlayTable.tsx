@@ -27,6 +27,7 @@ import { CardZoom } from './CardZoom';
 import { CardView, EmptySlot, PileDepth, pileThickness, prefersReducedMotion } from './CardView';
 import { useDecks } from '../lib/DecksContext';
 import * as T from '../lib/table';
+import { fitTilt, tiltTransform, unproject } from '../lib/tilt';
 import { cardRatio } from '../lib/types';
 import type { CardInstance, Deck, PlayMode, TableLook, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
@@ -78,6 +79,9 @@ type LayoutKey =
   | 'revealDeck'
   | 'revealDiscard';
 
+/** Tabletop look: how far the table leans back, and the camera's distance (smaller is stronger perspective). */
+const TILT_ANGLE = 14;
+const TILT_PERSPECTIVE = 900;
 /** How long a revealed card takes to travel from the deck to the discard pile. */
 const FLIGHT_MS = 450;
 /** Where a pile's top card sits inside its slot (the slot's highlight border plus padding). */
@@ -251,6 +255,20 @@ function Table({
   /** The card blown up to nearly full screen by a pinch, if any. */
   const [zoomed, setZoomed] = useState<string | null>(null);
   const [rootSize, setRootSize] = useState({ w: 0, h: 0 });
+
+  // The tabletop's camera tilt. Everything on the table is laid out flat and drawn tilted, so screen positions
+  // (fingers) are converted back onto the flat table before comparing them with any layout.
+  const tilt = fitTilt(rootSize, tabletop ? TILT_ANGLE : 0, TILT_PERSPECTIVE);
+  /** A window position as a point on the (flat) table, or null before the table has been measured. */
+  const toTable = (pageX: number, pageY: number) =>
+    rootOrigin ? unproject(pageX - rootOrigin.x, pageY - rootOrigin.y, rootSize, tilt) : null;
+  /** How far a finger has moved across the table since it was at (startX, startY) on screen. */
+  const tableDelta = (startX: number, startY: number, now: NativeTouchEvent) => {
+    const a = toTable(startX, startY);
+    const b = toTable(now.pageX, now.pageY);
+    return a && b ? { x: b.x - a.x, y: b.y - a.y } : { x: now.pageX - startX, y: now.pageY - startY };
+  };
+
   /** The card just turned over onto the discard pile, which flips face up as it lands. */
   const [revealed, setRevealed] = useState<string | null>(null);
   // Read the event now: React clears it before a state updater would run.
@@ -421,14 +439,14 @@ function Table({
   } : undefined;
 
   const zoneAt = (pageX: number, pageY: number): Zone | null => {
-    if (!rootOrigin) return null;
-    const x = pageX - rootOrigin.x;
-    const y = pageY - rootOrigin.y;
-    return zoneRects.find(([, r, pad]) => r && inside(r, x, y, pad))?.[0] ?? null;
+    const p = toTable(pageX, pageY);
+    return p ? (zoneRects.find(([, r, pad]) => r && inside(r, p.x, p.y, pad))?.[0] ?? null) : null;
   };
 
-  const onFlipButton = (t: NativeTouchEvent) =>
-    !!rootOrigin && !!flipRect && inside(flipRect, t.pageX - rootOrigin.x, t.pageY - rootOrigin.y, PILE_PAD);
+  const onFlipButton = (t: NativeTouchEvent) => {
+    const p = toTable(t.pageX, t.pageY);
+    return !!p && !!flipRect && inside(flipRect, p.x, p.y, PILE_PAD);
+  };
 
   /**
    * Slides cards into place on the next layout change, e.g. closing the gap a picked-up card leaves. Only
@@ -446,9 +464,9 @@ function Table({
 
   /** The card under a page position, for picking up extra cards mid-drag. */
   const cardAt = (pageX: number, pageY: number): HeldCard | null => {
-    if (!rootOrigin) return null;
-    const x = pageX - rootOrigin.x;
-    const y = pageY - rootOrigin.y;
+    const p = toTable(pageX, pageY);
+    if (!p) return null;
+    const { x, y } = p;
     const laidOut = (zone: 'table' | 'hand', origin: { x: number; y: number }) =>
       table[zone].find((c) => {
         // Held cards are invisible and out of the layout, possibly sitting under a visible one.
@@ -490,7 +508,7 @@ function Table({
   };
 
   const helperOffset = (h: Helper, t: NativeTouchEvent) =>
-    h.startOffset - (h.scrolls === 'hand' ? t.pageX - h.startX : t.pageY - h.startY);
+    h.startOffset - (h.scrolls === 'hand' ? tableDelta(h.startX, h.startY, t).x : tableDelta(h.startX, h.startY, t).y);
 
   /** A second finger lands while cards are held. FLIP turns the stack over at once; anything else waits to see if it's a tap or a swipe. */
   const helperStart = (touches: NativeTouchEvent[]) => {
@@ -581,7 +599,7 @@ function Table({
 
   const followFinger = (finger: NativeTouchEvent) => {
     if (!drag) return;
-    pan.setValue({ x: finger.pageX - drag.startX, y: finger.pageY - drag.startY });
+    pan.setValue(tableDelta(drag.startX, drag.startY, finger));
     const zone = zoneAt(finger.pageX, finger.pageY);
     if (zone !== hover) setHover(zone);
   };
@@ -812,6 +830,8 @@ function Table({
   const discardShowing = nextFree('discard');
   const discardCount = table.discard.filter((c) => !isAway(c.iid)).length;
   const highlight = (zone: Zone) => drag?.active && hover === zone && styles.dropTarget;
+  /** Where on the (flat) table the lifted stack was picked up. */
+  const liftedFrom = drag?.active ? toTable(drag.startX, drag.startY) : null;
 
   /** Opens the search on the deck, or on the discard pile if the deck is empty. */
   const openSearch = () => setSearchZone(table.deck.length ? 'deck' : 'discard');
@@ -911,6 +931,11 @@ function Table({
         />
       ) : null}
 
+      {/*
+        The table itself, laid out flat and drawn leaning back on the tabletop. It exactly covers this view, so
+        layouts measured inside it are in the same (flat) coordinates that `toTable` maps fingers into.
+      */}
+      <View style={[StyleSheet.absoluteFill, tilt.angle ? { transform: tiltTransform(tilt) } : null]}>
       {missing > 0 ? (
         <Pressable style={styles.banner} onPress={() => apply((t) => T.addMissingCards(t, deck), 'Added to deck')}>
           <Text style={styles.bannerText}>
@@ -1024,14 +1049,14 @@ function Table({
       )}
 
       {/* The held stack follows the finger above everything else: its top card, with the edges of the rest. */}
-      {drag?.active && rootOrigin ? (
+      {drag?.active && liftedFrom ? (
         <Animated.View
           style={[
             styles.lifted,
             tabletop && tabletopShadow.lifted,
             {
-              left: drag.startX - drag.offX - rootOrigin.x,
-              top: drag.startY - drag.offY - rootOrigin.y,
+              left: liftedFrom.x - drag.offX,
+              top: liftedFrom.y - drag.offY,
               transform: [...pan.getTranslateTransform(), { scale: 1.08 }],
             },
           ]}>
@@ -1075,6 +1100,8 @@ function Table({
           <CardView deck={deck} card={cardsById.get(flying.cardId)} faceUp={flying.faceUp} width={pileWidth} />
         </Animated.View>
       ) : null}
+
+      </View>
 
       {zoomed && cardsById.get(zoomed) ? (
         <CardZoom deck={deck} card={cardsById.get(zoomed)!} area={rootSize} onClose={() => setZoomed(null)} />

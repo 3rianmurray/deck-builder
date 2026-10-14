@@ -80,7 +80,8 @@ const styles = StyleSheet.create({
     top: '-40%',
     bottom: '-15%',
     transform: [{ perspective: 700 }, { rotateX: '38deg' }],
-    opacity: 0.9,
+    // Just a hint of weave: enough to read as cloth, not enough to look noisy.
+    opacity: 0.3,
   },
   texture: { width: '100%', height: '100%' },
   edge: { position: 'absolute', left: 0, right: 0 },

@@ -149,8 +149,11 @@ interface Helper {
   moved: boolean;
 }
 
-/** How much bigger the held stack is drawn than the cards it came from. */
-const LIFTED_SCALE = 1.08;
+/**
+ * How much bigger the held stack is than the cards it came from. It's drawn at that size (not scaled up from
+ * the smaller card, which blurs the art).
+ */
+const LIFTED_SCALE = 1.5;
 /** How long dropped cards take to glide into their place in the hand or on the table. */
 const LANDING_MS = 220;
 
@@ -662,11 +665,23 @@ function Table({
       // Glide in from where the held stack is now (its top-left corner, as drawn) to wherever the cards end up,
       // even if that's exactly where they came from: otherwise they'd jump back into place.
       if (liftedFrom) {
-        const from = { x: liftedFrom.x - d.offX + lastPan.get().x, y: liftedFrom.y - d.offY + lastPan.get().y };
+        // The stand-in starts exactly as the held card was drawn: at the lifted size, and shrinks as it lands,
+        // so it stays sharp all the way down.
+        const from = {
+          x: liftedFrom.x - d.offX * LIFTED_SCALE + lastPan.get().x,
+          y: liftedFrom.y - d.offY * LIFTED_SCALE + lastPan.get().y,
+        };
         landingAnim.pos.setValue(from);
-        landingAnim.scale.setValue(LIFTED_SCALE);
+        landingAnim.scale.setValue(1);
         landingAnim.lift.setValue(1);
-        setLanding({ zone, iids: ids, cardId: d.stack[0].cardId, faceUp: d.faceUp, width: d.width, before: cardLayouts[ids[0]] });
+        setLanding({
+          zone,
+          iids: ids,
+          cardId: d.stack[0].cardId,
+          faceUp: d.faceUp,
+          width: d.width * LIFTED_SCALE,
+          before: cardLayouts[ids[0]],
+        });
       }
       // A single card put back exactly where it came from stays put, just turned over if it was flipped.
       const was = table[zone].findIndex((c) => c.iid === d.iid);
@@ -1037,6 +1052,9 @@ function Table({
     return { left: o.x + r.x + r.w + 3, top: o.y + r.y, height: r.h };
   })();
 
+  /** The held stack's card size while it's being carried. */
+  const liftedWidth = drag ? drag.width * LIFTED_SCALE : 0;
+
   /** Where on the (flat) table the lifted stack was picked up. */
   const liftedFrom = drag?.active ? toTable(drag.startX, drag.startY) : null;
 
@@ -1293,9 +1311,10 @@ function Table({
             styles.lifted,
             tabletop && tabletopShadow.lifted,
             {
-              left: liftedFrom.x - drag.offX,
-              top: liftedFrom.y - drag.offY,
-              transform: [...pan.getTranslateTransform(), { scale: LIFTED_SCALE }],
+              // Bigger, but still held at the same spot under the finger: the grab point grows with the card.
+              left: liftedFrom.x - drag.offX * LIFTED_SCALE,
+              top: liftedFrom.y - drag.offY * LIFTED_SCALE,
+              transform: pan.getTranslateTransform(),
             },
           ]}>
           {drag.stack
@@ -1306,17 +1325,18 @@ function Table({
                 style={[
                   styles.stackEdge,
                   {
-                    width: drag.width,
-                    height: drag.width / ratio,
-                    borderRadius: Math.max(4, drag.width * 0.06),
-                    left: (i + 1) * 5,
-                    top: (i + 1) * 5,
+                    width: liftedWidth,
+                    height: liftedWidth / ratio,
+                    borderRadius: Math.max(4, liftedWidth * 0.06),
+                    left: (i + 1) * 6,
+                    top: (i + 1) * 6,
                   },
                 ]}
               />
             ))
             .reverse()}
-          <CardView deck={deck} card={cardsById.get(drag.stack[0].cardId)} faceUp={drag.faceUp} width={drag.width} />
+          {/* Drawn at its lifted size (not scaled up from the small card), so the art stays sharp. */}
+          <CardView deck={deck} card={cardsById.get(drag.stack[0].cardId)} faceUp={drag.faceUp} width={liftedWidth} />
           {drag.stack.length > 1 ? (
             <View style={styles.stackBadge}>
               <Text style={styles.stackBadgeText}>{drag.stack.length}</Text>

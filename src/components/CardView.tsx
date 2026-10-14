@@ -83,6 +83,11 @@ interface Props {
    * reloaded. For cards that are drawn large or resized while you watch.
    */
   sharp?: boolean;
+  /**
+   * No shadow at all, e.g. for a card flipping in mid-air: anything behind a card shows round its edges while
+   * it turns edge-on.
+   */
+  flat?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -98,6 +103,7 @@ export function CardView({
   flipIn = false,
   onReady,
   sharp = false,
+  flat = false,
   style,
 }: Props) {
   const height = width / cardRatio(deck);
@@ -119,7 +125,7 @@ export function CardView({
       style={[
         { transform },
         // Sized to the card exactly: unsized, it can stretch wider than the card and show as a grey card behind.
-        tabletop && [tabletopShadow.resting, { width, height, borderRadius: radius, backgroundColor: colors.surfaceRaised }],
+        tabletop && !flat && [tabletopShadow.resting, { width, height, borderRadius: radius, backgroundColor: colors.surfaceRaised }],
         style,
       ]}>
       <Pressable
@@ -130,6 +136,7 @@ export function CardView({
         accessibilityLabel={faceUp && cardProp ? cardProp.name : 'Face-down card'}
         style={({ pressed }) => [
           styles.card,
+          flat && styles.noShadow,
           { width, height, borderRadius: radius },
           selected && styles.selected,
           pressed && { opacity: 0.8 },
@@ -242,6 +249,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   selected: { borderWidth: 2, borderColor: colors.accent },
+  noShadow: { shadowOpacity: 0, elevation: 0 },
   sheen: {
     pointerEvents: 'none',
     borderWidth: StyleSheet.hairlineWidth * 2,

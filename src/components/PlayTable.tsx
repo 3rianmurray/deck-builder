@@ -357,12 +357,7 @@ function Table({
   // `landed`: it has reached the discard pile and the real card is there underneath; the flying one stays on
   // top until the real one's picture is on screen, so swapping them never shows a blank frame.
   const [flying, setFlying] = useState<{ iid: string; cardId: string; faceUp: boolean; landed?: boolean } | null>(null);
-  const [flight] = useState(() => ({
-    pos: new Animated.ValueXY(),
-    scale: new Animated.Value(1),
-    /** How much lifted shadow it casts: none on the piles, most at the top of its arc. */
-    lift: new Animated.Value(0),
-  }));
+  const [flight] = useState(() => ({ pos: new Animated.ValueXY(), scale: new Animated.Value(1) }));
   /** The flying card is gone once the real top card of the discard pile has been drawn under it. */
   const flightDone = (iid: string) => setFlying((f) => (f?.landed && f.iid === iid ? null : f));
   /** The card (by instance, so its neighbours can be found) blown up to nearly full screen, if any. */
@@ -493,7 +488,6 @@ function Table({
     const land = pileRise(pileWidth, table.discard.length + 1);
     flight.pos.setValue({ x: from.x + PILE_INSET - lift, y: from.y + PILE_INSET - lift });
     flight.scale.setValue(1);
-    flight.lift.setValue(0);
     setFlying({ iid: top.iid, cardId: top.cardId, faceUp: false });
     setTimeout(() => setFlying((f) => f && { ...f, faceUp: true }), FLIGHT_MS * 0.2);
     const half = { duration: FLIGHT_MS / 2, useNativeDriver: true };
@@ -504,15 +498,10 @@ function Table({
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: true,
       }),
-      // Rises a little mid-flight, then settles onto the pile; its lifted shadow grows and fades with it, so
-      // by touchdown it casts only the resting shadow the real card has.
+      // Rises a little mid-flight, then settles onto the pile.
       Animated.sequence([
         Animated.timing(flight.scale, { toValue: 1.12, easing: Easing.out(Easing.quad), ...half }),
         Animated.timing(flight.scale, { toValue: 1, easing: Easing.in(Easing.quad), ...half }),
-      ]),
-      Animated.sequence([
-        Animated.timing(flight.lift, { toValue: 1, easing: Easing.out(Easing.quad), ...half }),
-        Animated.timing(flight.lift, { toValue: 0, easing: Easing.in(Easing.quad), ...half }),
       ]),
     ]).start(() => {
       // Put the real card on the pile under the flying one; the flying one goes once that's drawn (or after a
@@ -1722,20 +1711,8 @@ function Table({
 
       {flying ? (
         <Animated.View style={[styles.flying, { transform: [...flight.pos.getTranslateTransform(), { scale: flight.scale }] }]}>
-          {/* Its lifted shadow on a layer of its own, so it can fade in and out without touching the card. */}
-          <Animated.View
-            style={[
-              styles.landingShadow,
-              {
-                width: pileWidth,
-                height: pileWidth / ratio,
-                borderRadius: Math.max(4, pileWidth * 0.06),
-                opacity: flight.lift,
-              },
-              tabletop ? tabletopShadow.lifted : styles.liftedShadowClassic,
-            ]}
-          />
-          <CardView deck={deck} card={cardsById.get(flying.cardId)} faceUp={flying.faceUp} width={pileWidth} />
+          {/* No shadow while it flips: anything behind a turning card shows round its edges as it narrows. */}
+          <CardView deck={deck} card={cardsById.get(flying.cardId)} faceUp={flying.faceUp} width={pileWidth} flat />
         </Animated.View>
       ) : null}
 
@@ -1982,7 +1959,7 @@ const styles = StyleSheet.create({
   // Tabletop look: the piles sit straight on the cloth, and the hand on the wooden rail.
   pilesOnCloth: { backgroundColor: 'transparent' },
   handOnRail: { backgroundColor: 'transparent', overflow: 'hidden' },
-  // The revealed card in flight. Its shadow is a separate layer that fades (see where it's drawn).
+  // The revealed card in flight, drawn without a shadow.
   flying: { position: 'absolute', left: 0, top: 0, pointerEvents: 'none' },
   stackEdge: {
     position: 'absolute',

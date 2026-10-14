@@ -833,7 +833,10 @@ function Table({
   const stackTargetAt = (pageX: number, pageY: number): string | null => {
     const p = toTable(pageX, pageY);
     const g = p && !reveal ? groupAt(p.x, p.y, STACK_TARGET_INSET) : undefined;
-    return g ? (shownOf(g)?.iid ?? null) : null;
+    // The stack a card is being taken off isn't a target: the finger starts out over it, and dropping a card
+    // straight back on would just put it back.
+    if (!g || g.some((c) => isHeld(c.iid))) return null;
+    return shownOf(g)?.iid ?? null;
   };
 
   const followFinger = (finger: NativeTouchEvent) => {
@@ -1257,23 +1260,6 @@ function Table({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landing, landingRect]);
 
-  // The gold bar showing where carried cards will land in the hand or on the table: in the gap before the card
-  // at the insertion point, after the last card, or at the start of an empty row.
-  const insertMarker = (() => {
-    if (!drag?.active || !insertAt) return null;
-    const o = laidOutAt(insertAt.zone);
-    if (!o) return null;
-    const cards = table[insertAt.zone].filter((c) => !isHeld(c.iid) && cardLayouts[c.iid]);
-    const cardH = (insertAt.zone === 'hand' ? handWidth : tableCardWidth) / ratio;
-    if (cards.length === 0) return { left: o.x + 14, top: o.y + 8, height: cardH };
-    if (insertAt.index < cards.length) {
-      const r = cardLayouts[cards[insertAt.index].iid];
-      return { left: o.x + r.x - 7, top: o.y + r.y, height: r.h };
-    }
-    const r = cardLayouts[cards[cards.length - 1].iid];
-    return { left: o.x + r.x + r.w + 3, top: o.y + r.y, height: r.h };
-  })();
-
   /** The held stack's card size while it's being carried. */
   const liftedWidth = drag ? drag.width * LIFTED_SCALE : 0;
 
@@ -1501,7 +1487,6 @@ function Table({
         </>
       )}
 
-      {insertMarker ? <View style={[styles.insertMarker, insertMarker]} /> : null}
 
       {landing ? (
         <Animated.View
@@ -1539,7 +1524,7 @@ function Table({
               left: liftedFrom.x - drag.offX * LIFTED_SCALE,
               top: liftedFrom.y - drag.offY * LIFTED_SCALE,
               // It grows about the grab point, so the spot under the finger stays put while it does.
-              transformOrigin: `${drag.offX * LIFTED_SCALE}px ${drag.offY * LIFTED_SCALE}px`,
+              transformOrigin: [drag.offX * LIFTED_SCALE, drag.offY * LIFTED_SCALE, 0],
               transform: [...pan.getTranslateTransform(), { scale: liftGrow }],
             },
           ]}>
@@ -1825,7 +1810,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 12,
   },
-  insertMarker: { position: 'absolute', width: 4, borderRadius: 2, backgroundColor: colors.accent, pointerEvents: 'none' },
   stage: { overflow: 'hidden' },
   // Tabletop look: the piles sit straight on the cloth, and the hand on the wooden rail.
   pilesOnCloth: { backgroundColor: 'transparent' },

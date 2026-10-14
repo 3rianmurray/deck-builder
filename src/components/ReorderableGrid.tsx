@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { Animated, FlatList, LayoutAnimation, PanResponder, StyleSheet, Text, View } from 'react-native';
+import { Animated, FlatList, LayoutAnimation, StyleSheet, Text, View } from 'react-native';
 import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent } from 'react-native';
 
 import { gridHit, gridSlot } from '../lib/order';
@@ -39,12 +39,12 @@ interface Press {
   picked: number[];
   /** A second finger while items are held: a tap picks up the item under it, a swipe scrolls the grid. */
   helper?: { touchId: string; startX: number; startY: number; startScroll: number; moved: boolean };
-  /**
-   * The touch handler was released by the second finger lifting (iOS can report that as the whole touch
-   * ending) while the holding finger is still down. The grid's own touch events carry on from there.
-   */
-  orphaned: boolean;
 }
+
+/** A scroll by the second finger keeps going after it lifts, slowing by this factor every frame. */
+const COAST_FRICTION = 0.95;
+/** Coasting stops below this speed, in points per millisecond. */
+const COAST_MIN_SPEED = 0.02;
 
 interface Props<T> {
   items: T[];
@@ -142,13 +142,23 @@ export function ReorderableGrid<T>({
   // Where the finger and the scroll are right now. These change every frame during a drag, so they live
   // outside React state: reading them never causes a render.
   const live = useMemo(() => {
-    const now = { x: 0, y: 0, scroll: 0 };
+    const now = { x: 0, y: 0, scroll: 0, momentum: false, helperY: 0, helperT: 0, helperV: 0 };
     return {
       get: () => now,
       setFinger: (x: number, y: number) => Object.assign(now, { x, y }),
       setScroll: (scroll: number) => Object.assign(now, { scroll }),
+      /** Whether the list is still coasting from a flick (a touch then just stops it). */
+      setMomentum: (momentum: boolean) => Object.assign(now, { momentum }),
+      /** Follows the scrolling finger's speed (points per ms, smoothed), for coasting once it lifts. */
+      sampleHelper: (y: number, t: number, reset = false) => {
+        if (!reset && t > now.helperT) now.helperV = 0.6 * ((y - now.helperY) / (t - now.helperT)) + 0.4 * now.helperV;
+        if (reset) now.helperV = 0;
+        Object.assign(now, { helperY: y, helperT: t });
+      },
     };
   }, []);
+  /** The grid's speed while coasting after a second-finger scroll (points per ms), or null when still. */
+  const [coast, setCoast] = useState<number | null>(null);
 
   const lifted = press?.lifted ? press : null;
 
@@ -212,10 +222,35 @@ export function ReorderableGrid<T>({
     return () => clearInterval(timer);
   }, [edge]);
 
+  // Coast after a second-finger scroll: keep scrolling at the finger's last speed, slowing each frame, until
+  // it's slow enough to stop or hits an end. Each step also moves the landing slot under the held items.
+  const coastStep = useRef<(v: number) => boolean>(() => false);
+  useEffect(() => {
+    coastStep.current = (v) => {
+      const before = live.get().scroll;
+      scrollBy(before + v * EDGE_TICK_MS);
+      if (press?.lifted) track();
+      return live.get().scroll !== before;
+    };
+  });
+  useEffect(() => {
+    if (coast === null) return;
+    let v = coast;
+    const timer = setInterval(() => {
+      v *= COAST_FRICTION;
+      if (Math.abs(v) < COAST_MIN_SPEED || !coastStep.current(v)) {
+        clearInterval(timer);
+        setCoast(null);
+      }
+    }, EDGE_TICK_MS);
+    return () => clearInterval(timer);
+  }, [coast]);
+
   const finish = () => {
     setPress(null);
     setTarget(null);
     setEdge(0);
+    setCoast(null);
     // The drag offset isn't reset here: that would jump the lifted item back to where it was picked up just
     // before it disappears. The next press resets it.
   };
@@ -235,7 +270,10 @@ export function ReorderableGrid<T>({
   const helperStart = (changed: NativeTouchEvent[]) => {
     const t = changed.find((c) => c.identifier !== press?.touchId);
     if (!t || press?.helper) return;
+    // A new finger stops any coasting, like catching a moving list.
+    setCoast(null);
     const helper = { touchId: t.identifier, startX: t.pageX, startY: t.pageY, startScroll: live.get().scroll, moved: false };
+    live.sampleHelper(t.pageY, t.timestamp, true);
     setPress((p) => p && { ...p, helper });
     setEdge(0);
   };
@@ -247,6 +285,7 @@ export function ReorderableGrid<T>({
       if (Math.hypot(t.pageX - h.startX, t.pageY - h.startY) < SLOP) return;
       setPress((p) => (p?.helper ? { ...p, helper: { ...p.helper, moved: true } } : p));
     }
+    live.sampleHelper(t.pageY, t.timestamp);
     scrollBy(h.startScroll - (t.pageY - h.startY));
     track();
   };
@@ -255,7 +294,12 @@ export function ReorderableGrid<T>({
     const t = h && changed.find((c) => c.identifier === h.touchId);
     if (!h || !t) return;
     setPress((p) => p && { ...p, helper: undefined });
-    if (h.moved || Math.hypot(t.pageX - h.startX, t.pageY - h.startY) >= SLOP) return;
+    if (h.moved || Math.hypot(t.pageX - h.startX, t.pageY - h.startY) >= SLOP) {
+      // A swipe: let the grid coast on at the finger's speed (scrolling runs opposite to the finger).
+      const v = -live.get().helperV;
+      if (Math.abs(v) >= COAST_MIN_SPEED) setCoast(v);
+      return;
+    }
     const index = itemAt(h.startX, h.startY);
     if (index !== null) setPress((p) => (p && !p.picked.includes(index) ? { ...p, picked: [...p.picked, index] } : p));
   };
@@ -276,62 +320,71 @@ export function ReorderableGrid<T>({
     onPress(items[p.from]);
   };
 
-  /** A release that arrives while the holding finger is still down came from the second finger lifting. */
-  const stillHeld = (e: GestureResponderEvent) => !!press?.lifted && !!holdingFinger(e.nativeEvent.touches);
-  const keepHolding = () => setPress((p) => p && { ...p, orphaned: true, helper: undefined });
+  // The grid follows fingers through plain touch events rather than claiming the touch: claiming it on a
+  // press (to watch for a hold) stops the list's own scrolling from starting there. Until a hold picks
+  // something up the list scrolls freely; after that its scrolling is turned off and these events carry
+  // the drag, any second finger, and the drop.
 
-  // One touch handler for the whole grid (rather than one per item): it works out which item a finger is on
-  // from the grid's geometry.
-  const responder = PanResponder.create({
-    onStartShouldSetPanResponder: (e) =>
-      !press?.lifted && itemAt(e.nativeEvent.pageX, e.nativeEvent.pageY) !== null,
-    // Before the hold completes, let the list take a swipe and scroll.
-    onShouldBlockNativeResponder: () => false,
-    onPanResponderTerminationRequest: () => !press?.lifted,
-    onPanResponderGrant: (e) => {
-      const n = e.nativeEvent;
-      const index = itemAt(n.pageX, n.pageY);
-      if (index === null) return;
-      pan.setValue({ x: 0, y: 0 });
-      live.setFinger(n.pageX, n.pageY);
-      setPress({
-        from: index,
-        touchId: n.identifier,
-        startX: n.pageX,
-        startY: n.pageY,
-        // The cell's views pass touches to the cell itself, so this is the position within the cell.
-        offX: n.locationX,
-        offY: n.locationY,
-        // Only used to tell one press from the next, so the touch's own timestamp will do.
-        pressedAt: n.timestamp,
-        lifted: false,
-        abandoned: false,
-        picked: [index],
-        orphaned: false,
-      });
-    },
-    // Extra fingers landing and lifting while items are held.
-    onPanResponderStart: (e) => {
-      if (press?.lifted && !press.orphaned) helperStart(e.nativeEvent.changedTouches);
-    },
-    onPanResponderEnd: (e) => {
-      if (press?.lifted && !press.orphaned) helperEnd(e.nativeEvent.changedTouches);
-    },
-    onPanResponderMove: (e) => {
-      if (!press || press.orphaned) return;
-      const t = holdingFinger(e.nativeEvent.touches);
-      if (!press.lifted) {
-        if (t && !press.abandoned && Math.hypot(t.pageX - press.startX, t.pageY - press.startY) > SLOP) {
-          setPress((p) => p && { ...p, abandoned: true });
-        }
-        return;
+  /** A finger lands. With nothing held, it may be the start of a tap or a hold on an item. */
+  const touchStart = (e: GestureResponderEvent) => {
+    const n = e.nativeEvent;
+    if (press?.lifted) return helperStart(n.changedTouches);
+    if (press) return;
+    setCoast(null);
+    // Re-measure on every press: the screen may have moved (e.g. the keyboard) since layout.
+    wrapRef.current?.measureInWindow((x, y) => setOrigin({ x, y }));
+    // A touch on a coasting list just stops it; it isn't a tap or hold on whatever passes under it. (The
+    // list may not report stopping, so the flag is cleared here rather than trusted for the next touch too.)
+    if (live.get().momentum) {
+      live.setMomentum(false);
+      return;
+    }
+    if (n.touches.length > 1) return;
+    const index = itemAt(n.pageX, n.pageY);
+    if (index === null) return;
+    pan.setValue({ x: 0, y: 0 });
+    live.setFinger(n.pageX, n.pageY);
+    setPress({
+      from: index,
+      touchId: n.identifier,
+      startX: n.pageX,
+      startY: n.pageY,
+      // The cell's views pass touches to the cell itself, so this is the position within the cell.
+      offX: n.locationX,
+      offY: n.locationY,
+      // Only used to tell one press from the next, so the touch's own timestamp will do.
+      pressedAt: n.timestamp,
+      lifted: false,
+      abandoned: false,
+      picked: [index],
+    });
+  };
+
+  const touchMove = (e: GestureResponderEvent) => {
+    if (!press) return;
+    const t = holdingFinger(e.nativeEvent.touches);
+    if (!press.lifted) {
+      // Moving before the hold completes is a scroll: the list has it.
+      if (t && !press.abandoned && Math.hypot(t.pageX - press.startX, t.pageY - press.startY) > SLOP) {
+        setPress((p) => p && { ...p, abandoned: true });
       }
-      if (t) followFinger(t);
-      helperMove(e.nativeEvent.touches);
-    },
-    onPanResponderRelease: (e) => (stillHeld(e) ? keepHolding() : release()),
-    onPanResponderTerminate: (e) => (stillHeld(e) ? keepHolding() : finish()),
-  });
+      return;
+    }
+    if (t) followFinger(t);
+    helperMove(e.nativeEvent.touches);
+  };
+
+  const touchEnd = (e: GestureResponderEvent) => {
+    if (!press) return;
+    // The holding finger lifting drops what it carries (or, before a hold, counts as a tap); any other
+    // finger lifting is the second finger finishing a tap or swipe.
+    if (holdingFinger(e.nativeEvent.changedTouches)) release();
+    else if (press.lifted) helperEnd(e.nativeEvent.changedTouches);
+  };
+
+  const touchCancel = (e: GestureResponderEvent) => {
+    if (press && holdingFinger(e.nativeEvent.changedTouches)) finish();
+  };
 
   // The grid itself stays put while dragging: reordering its data mid-drag would rebuild its rows. Instead
   // the landing slot is outlined, and each cell only re-renders when its own state changes.
@@ -359,31 +412,14 @@ export function ReorderableGrid<T>({
     <View
       ref={wrapRef}
       style={{ flex: 1 }}
-      {...responder.panHandlers}
       onLayout={(e) => {
         setViewHeight(e.nativeEvent.layout.height);
         wrapRef.current?.measureInWindow((x, y) => setOrigin({ x, y }));
       }}
-      onTouchStart={(e) => {
-        // Re-measure on every press: the screen may have moved (e.g. the keyboard) since layout.
-        if (!press) wrapRef.current?.measureInWindow((x, y) => setOrigin({ x, y }));
-        if (press?.orphaned) helperStart(e.nativeEvent.changedTouches);
-      }}
-      // Once orphaned (see Press.orphaned), the grid's touch events carry the drag and the scrolling finger.
-      onTouchMove={(e) => {
-        if (!press?.orphaned) return;
-        const t = holdingFinger(e.nativeEvent.touches);
-        if (t) followFinger(t);
-        helperMove(e.nativeEvent.touches);
-      }}
-      onTouchEnd={(e) => {
-        if (!press?.orphaned) return;
-        if (holdingFinger(e.nativeEvent.changedTouches)) release();
-        else helperEnd(e.nativeEvent.changedTouches);
-      }}
-      onTouchCancel={(e) => {
-        if (press?.orphaned && holdingFinger(e.nativeEvent.changedTouches)) finish();
-      }}>
+      onTouchStart={touchStart}
+      onTouchMove={touchMove}
+      onTouchEnd={touchEnd}
+      onTouchCancel={touchCancel}>
       <FlatList
         ref={attachList}
         data={items}
@@ -397,6 +433,8 @@ export function ReorderableGrid<T>({
         // Only recorded, never rendered, so following every scroll event is cheap.
         scrollEventThrottle={16}
         onScroll={(e) => live.setScroll(e.nativeEvent.contentOffset.y)}
+        onMomentumScrollBegin={() => live.setMomentum(true)}
+        onMomentumScrollEnd={() => live.setMomentum(false)}
         ListHeaderComponent={headerEl}
         ListFooterComponent={footer}
         renderItem={renderCell}

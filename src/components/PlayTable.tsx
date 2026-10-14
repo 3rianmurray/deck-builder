@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router, Stack } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
   Alert,
@@ -330,8 +330,23 @@ function Table({
   const [pan] = useState(() => new Animated.ValueXY());
   /** The held stack's growth from its own size to the lifted size, as a fraction of the lifted size. */
   const [liftGrow] = useState(() => new Animated.Value(1));
-  /** The stack-target count badge's size as it pops in. */
+  /** The stack-target preview count's size as it pops in. */
   const [badgePop] = useState(() => new Animated.Value(0));
+  /** A stack (by its new top card) whose count should pop because cards were just dropped on it. */
+  const [poppedStack, setPoppedStack] = useState<string | null>(null);
+  const [dropPop] = useState(() => new Animated.Value(1));
+  // Pops start once the count is on screen: started before its view exists, an animation never reaches it.
+  // Layout effects, so the count starts small rather than showing full size for a frame first.
+  useLayoutEffect(() => {
+    if (!stackTarget) return;
+    badgePop.setValue(0);
+    Animated.spring(badgePop, { toValue: 1, speed: 14, bounciness: 14, useNativeDriver: true }).start();
+  }, [stackTarget, badgePop]);
+  useLayoutEffect(() => {
+    if (!poppedStack) return;
+    dropPop.setValue(0);
+    Animated.spring(dropPop, { toValue: 1, speed: 14, bounciness: 14, useNativeDriver: true }).start(() => setPoppedStack(null));
+  }, [poppedStack, dropPop]);
   const [rootOrigin, setRootOrigin] = useState<{ x: number; y: number } | null>(null);
   const rootRef = useRef<View>(null);
   // Measured on layout and again whenever a finger lands: in a session pager this table slides sideways,
@@ -788,6 +803,8 @@ function Table({
       const staying = group ? group.filter((c) => !isHeld(c.iid)).length : 1;
       glideIn('table', pileRise(tableCardWidth, staying + ids.length));
       apply((t) => T.stackOnto(t, ids, onto, d.faceUp));
+      // The held stack's top card becomes the stack's top; its count pops again as the new count.
+      setPoppedStack(ids[0]);
       return;
     }
 
@@ -897,9 +914,6 @@ function Table({
       Animated.spring(pan, { toValue: place.pan, speed: 28, bounciness: 4, useNativeDriver: true }),
       Animated.spring(liftGrow, { toValue: place.scale, speed: 28, bounciness: 4, useNativeDriver: true }),
     ]).start();
-    // The stack's count pops in from its corner: past full size, then back.
-    badgePop.setValue(0);
-    Animated.spring(badgePop, { toValue: 1, speed: 14, bounciness: 14, useNativeDriver: true }).start();
     Haptics.selectionAsync();
   };
 
@@ -1149,10 +1163,14 @@ function Table({
             </View>
           ) : null}
         </PileDepth>
-        {left > 1 ? (
-          <View style={styles.stackCount}>
+        {/*
+          The count. While cards are about to be stacked here, the preview count stands in for it (drawn above
+          the held card); just after they land, it pops, as the new count.
+        */}
+        {left > 1 && shown?.iid !== stackTarget ? (
+          <Animated.View style={[styles.stackCount, top.iid === poppedStack && { transform: [{ scale: dropPop }] }]}>
             <Text style={styles.stackCountText}>{left}</Text>
-          </View>
+          </Animated.View>
         ) : null}
         {targetOutline(shown?.iid)}
       </>,
@@ -1348,10 +1366,14 @@ function Table({
 
   /** The held stack's card size while it's being carried. */
   const liftedWidth = drag ? drag.width * LIFTED_SCALE : 0;
-  /** With a stack target: the bottom-right corner of where the held card will sit on it, for its count badge. */
+  /**
+   * With a stack target: the corner of the stack where its count sits (bottom right of its spot), so the
+   * preview count shows exactly where the stack's own count does.
+   */
   const targetBadgeAt = (() => {
-    const place = drag?.active && stackTarget ? snapPlacement(stackTarget) : null;
-    return place ? { left: place.x + tableCardWidth, top: place.y + tableCardWidth / ratio } : null;
+    const g = drag?.active && stackTarget ? tableGroups.find((grp) => grp.some((c) => c.iid === stackTarget)) : undefined;
+    const r = g && groupRect(g);
+    return r ? { left: r.x + r.w, top: r.y + r.h } : null;
   })();
   /** With a stack target: how many cards that stack will have once the held ones land on it. */
   const targetTotal = (() => {
@@ -1665,8 +1687,8 @@ function Table({
       */}
       {targetTotal !== null && targetBadgeAt ? (
         <View style={[styles.stackingAnchor, targetBadgeAt]}>
-          <Animated.View style={[styles.stackingBadge, { transform: [{ scale: badgePop }] }]}>
-            <Text style={styles.stackingBadgeText}>{targetTotal}</Text>
+          <Animated.View style={[styles.stackCount, { transform: [{ scale: badgePop }] }]}>
+            <Text style={styles.stackCountText}>{targetTotal}</Text>
           </Animated.View>
         </View>
       ) : null}
@@ -1886,24 +1908,6 @@ const styles = StyleSheet.create({
   // A zero-size point at the stack's bottom-right corner; the badge hangs off it, up and to the left, and
   // grows out of that corner.
   stackingAnchor: { position: 'absolute', width: 0, height: 0, pointerEvents: 'none' },
-  stackingBadge: {
-    position: 'absolute',
-    right: -8,
-    bottom: -8,
-    minWidth: 28,
-    height: 28,
-    paddingHorizontal: 7,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    transformOrigin: ['100%', '100%', 0],
-    backgroundColor: colors.accent,
-    shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  stackingBadgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
   stackTargetOutline: {
     position: 'absolute',
     left: -3,
@@ -1918,6 +1922,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: -6,
     bottom: -6,
+    // Pops grow out of the stack's corner.
+    transformOrigin: ['100%', '100%', 0],
     minWidth: 22,
     height: 22,
     borderRadius: 11,

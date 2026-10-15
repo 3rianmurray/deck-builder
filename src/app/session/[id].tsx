@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { DeckTable } from '../../components/PlayTable';
+import { TableTopBar } from '../../components/TableTopBar';
+import type { TableControls } from '../../components/TableTopBar';
+import { TabletopSurface } from '../../components/Tabletop';
 import * as haptics from '../../lib/haptics';
 import { useDecks } from '../../lib/DecksContext';
 import { colors } from '../../theme';
@@ -16,6 +19,8 @@ export default function SessionScreen() {
   const [index, setIndex] = useState(0);
   // The pager holds still while a finger is on a card, so dragging a card sideways doesn't change deck.
   const [touchingCard, setTouchingCard] = useState(false);
+  /** The deck on screen's name, menu and undo, for the top bar. */
+  const [controls, setControls] = useState<TableControls | null>(null);
 
   const tabsRef = useRef<ScrollView>(null);
   // Where each tab sits in the tab row, so the row can scroll the current one into view.
@@ -34,13 +39,16 @@ export default function SessionScreen() {
 
   if (!session || decks.length === 0) {
     return (
-      <View style={[styles.felt, styles.center]}>
+      <View style={styles.felt}>
+        <TableTopBar controls={null} />
+        <View style={[styles.felt, styles.center]}>
         <Text style={styles.muted}>{session ? 'This session has no decks left.' : 'This session no longer exists.'}</Text>
         {session ? (
           <Pressable onPress={() => router.push({ pathname: '/session/edit', params: { id: session.id } })} hitSlop={12}>
             <Text style={styles.link}>Choose decks</Text>
           </Pressable>
         ) : null}
+        </View>
       </View>
     );
   }
@@ -53,7 +61,10 @@ export default function SessionScreen() {
 
   return (
     <View style={styles.felt}>
-      <View style={styles.tabsBar}>
+      {/* The cloth runs under the top bar and the tabs too, as one surface. */}
+      <TabletopSurface />
+      <TableTopBar controls={controls} />
+      <View>
         <ScrollView ref={tabsRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
           {decks.map((d, i) => (
             <Pressable
@@ -94,7 +105,13 @@ export default function SessionScreen() {
         }}>
         {decks.map((d, i) => (
           <View key={d.id} style={{ width }}>
-            <DeckTable deckId={d.id} sessionId={session.id} active={i === current} onTouchingCard={setTouchingCard} />
+            <DeckTable
+              deckId={d.id}
+              sessionId={session.id}
+              active={i === current}
+              onTouchingCard={setTouchingCard}
+              onControls={setControls}
+            />
           </View>
         ))}
       </ScrollView>
@@ -107,9 +124,17 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center', gap: 12 },
   muted: { color: colors.textMuted },
   link: { color: colors.accent, fontSize: 16, fontWeight: '600' },
-  tabsBar: { backgroundColor: colors.feltDark, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(0,0,0,0.4)' },
-  tabs: { paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
-  tab: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.1)', maxWidth: 180 },
+  tabs: { paddingHorizontal: 12, paddingBottom: 8, gap: 8 },
+  tab: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+    // The same dark glass as the top bar's buttons.
+    backgroundColor: 'rgba(8,18,26,0.55)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.22)',
+    maxWidth: 180,
+  },
   tabActive: { backgroundColor: colors.accent },
   tabText: { color: colors.text, fontSize: 14, fontWeight: '600' },
 });

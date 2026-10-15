@@ -1,4 +1,4 @@
-import { router, Stack } from 'expo-router';
+import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
@@ -21,7 +21,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionSheet, type SheetAction, type SheetTile } from './ActionSheet';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
-import { matSpot, OnTabletopContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
+import { matSpot, OnTabletopContext, tabletopShadow, WoodRail } from './Tabletop';
+import type { TableControls } from './TableTopBar';
 import { CardZoom, type ZoomItem } from './CardZoom';
 import { ReorderableGrid } from './ReorderableGrid';
 import type { GridHold } from './ReorderableGrid';
@@ -323,10 +324,12 @@ interface PressOptions {
 const STACK_HANDLE = 40;
 
 interface PageProps {
-  /** Whether this table is the one on screen. Only the active table sets the screen header. */
+  /** Whether this table is the one on screen. Only the active table reports to the screen's top bar. */
   active?: boolean;
   /** Told when a finger lands on a card (true) and when that touch ends (false), so a session pager can hold still. */
   onTouchingCard?: (touching: boolean) => void;
+  /** Told (while active) what the screen's top bar can offer for this table: its name, its menu, and undo. */
+  onControls?: (controls: TableControls) => void;
 }
 
 /**
@@ -338,6 +341,7 @@ export function DeckTable({
   sessionId,
   active = true,
   onTouchingCard,
+  onControls,
 }: PageProps & { deckId: string; sessionId?: string }) {
   const decks = useDecks();
   const deck = decks.getDeck(deckId);
@@ -365,6 +369,7 @@ export function DeckTable({
         setMode={(mode) => decks.setPlayMode(deck.id, mode)}
         active={active}
         onTouchingCard={onTouchingCard}
+        onControls={onControls}
       />
     </OnTabletopContext.Provider>
   );
@@ -377,6 +382,7 @@ function Table({
   setMode,
   active,
   onTouchingCard,
+  onControls,
 }: PageProps & {
   deck: Deck;
   table: TableState;
@@ -2241,48 +2247,32 @@ function Table({
     </>
   );
 
+  // The screen's top bar shows this table's name, opens its menu and undoes, while it's the one on screen. It's
+  // given stand-ins that always call this table's latest undo and menu, and is told again when the name or
+  // whether there's anything to undo changes.
+  const latestControls = useRef({ undo, openMenu: () => open({ kind: 'table' }) });
+  useEffect(() => {
+    latestControls.current = { undo, openMenu: () => open({ kind: 'table' }) };
+  });
+  const [controlStandIns] = useState(() => ({
+    undo: () => latestControls.current.undo(),
+    openMenu: () => latestControls.current.openMenu(),
+  }));
+  useEffect(() => {
+    if (active) onControls?.({ title: deck.name, canUndo, ...controlStandIns });
+  }, [active, deck.name, canUndo, onControls, controlStandIns]);
+
   return (
     <View
       ref={rootRef}
-      style={styles.felt}
+      // See-through: the screen draws the cloth behind both this and its top bar, as one surface.
+      style={styles.tableRoot}
       {...rootTouches}
       onLayout={(e) => {
         const { width: w, height: h } = e.nativeEvent.layout;
         setRootSize({ w, h });
         measureRoot();
       }}>
-      {/* The cloth, behind everything else on the tabletop. */}
-      <TabletopSurface />
-
-      {active ? (
-        <Stack.Screen
-          options={{
-            title: deck.name,
-            headerRight: () => (
-              <View style={styles.headerButtons}>
-                <Pressable
-                  onPress={undo}
-                  disabled={!canUndo}
-                  hitSlop={12}
-                  accessibilityRole="button"
-                  accessibilityLabel="Undo"
-                  accessibilityState={{ disabled: !canUndo }}
-                  style={({ pressed }) => ({ opacity: !canUndo ? 0.3 : pressed ? 0.6 : 1 })}>
-                  <SymbolView
-                    name={{ ios: 'arrow.uturn.backward', android: 'undo', web: 'undo' }}
-                    size={20}
-                    weight="semibold"
-                    tintColor={colors.accent}
-                  />
-                </Pressable>
-                <Pressable onPress={() => open({ kind: 'table' })} hitSlop={12} accessibilityLabel="Table options">
-                  <Text style={styles.headerButton}>•••</Text>
-                </Pressable>
-              </View>
-            ),
-          }}
-        />
-      ) : null}
 
       {/*
         The table itself, laid out flat and drawn leaning back on the tabletop. It exactly covers this view, so
@@ -2392,16 +2382,18 @@ function Table({
 
           {/* Hand */}
           <View
-            style={[styles.hand, styles.handOnRail, { paddingBottom: insets.bottom + 8 }, highlight('hand')]}
+            style={[styles.hand, { paddingBottom: insets.bottom + 4 }, highlight('hand')]}
             onLayout={measure('hand')}>
             <WoodRail />
-            <Text style={styles.handLabel}>Hand · {table.hand.length}</Text>
+            {/* A small tab on the rail, over the groove the cards sit in. */}
+            <Text style={styles.handTab}>Hand · {table.hand.length}</Text>
             <ScrollView
               ref={attachHandView}
               onContentSizeChange={(w) => setContentSize((s) => ({ ...s, hand: w }))}
               horizontal
               scrollEnabled={!drag?.active && !drag?.pinch}
               showsHorizontalScrollIndicator={false}
+              style={styles.handGroove}
               contentContainerStyle={styles.handCards}
               onLayout={measure('handScroll')}
               onScrollEndDrag={(e) => trackScroll('hand', e.nativeEvent.contentOffset.x)}
@@ -3105,6 +3097,7 @@ function SearchPanel({
 
 const styles = StyleSheet.create({
   felt: { flex: 1, backgroundColor: colors.felt },
+  tableRoot: { flex: 1 },
   center: { alignItems: 'center', justifyContent: 'center' },
   muted: { color: colors.textMuted },
   headerButton: { color: colors.accent, fontSize: 17, fontWeight: '600' },
@@ -3140,9 +3133,32 @@ const styles = StyleSheet.create({
   },
   dropTarget: { borderColor: colors.accent, borderWidth: 2, backgroundColor: 'rgba(224,179,84,0.12)' },
   hint: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', width: '100%', marginTop: 24 },
-  hand: { backgroundColor: 'rgba(0,0,0,0.35)', paddingTop: 8, borderWidth: 2, borderColor: 'transparent' },
-  handLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: '600', paddingHorizontal: 16, marginBottom: 6 },
-  handCards: { paddingHorizontal: 16, gap: 8 },
+  // The wooden rail along the bottom, holding the hand: a small label tab, then a recessed groove inset from
+  // the sides (and above the home indicator) that the cards sit and scroll in, so none run off the screen.
+  hand: { paddingTop: 10, borderWidth: 2, borderColor: 'transparent', overflow: 'hidden' },
+  handTab: {
+    alignSelf: 'flex-start',
+    marginLeft: 22,
+    paddingHorizontal: 9,
+    paddingTop: 2,
+    paddingBottom: 3,
+    borderTopLeftRadius: 7,
+    borderTopRightRadius: 7,
+    backgroundColor: colors.accent,
+    color: colors.accentText,
+    fontSize: 11,
+    fontWeight: '700',
+    overflow: 'hidden',
+  },
+  handGroove: {
+    marginHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.45)',
+    borderBottomColor: 'rgba(255,220,180,0.12)',
+  },
+  handCards: { paddingHorizontal: 10, paddingVertical: 9, gap: 8 },
   lifted: {
     position: 'absolute',
     pointerEvents: 'none',
@@ -3207,7 +3223,6 @@ const styles = StyleSheet.create({
   stage: { overflow: 'hidden' },
   // The piles sit straight on the cloth, and the hand on the wooden rail.
   pilesOnCloth: { backgroundColor: 'transparent' },
-  handOnRail: { backgroundColor: 'transparent', overflow: 'hidden' },
   // The revealed card in flight, drawn without a shadow.
   flying: { position: 'absolute', left: 0, top: 0, pointerEvents: 'none' },
   stackEdge: {

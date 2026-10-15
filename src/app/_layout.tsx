@@ -21,15 +21,15 @@ export default function RootLayout() {
         <Stack.Screen name="deck/[id]" options={{ title: 'Edit Deck' }} />
         {/*
           Swipe-back is off while playing: since iOS 26 it works from anywhere on screen, so dragging a card sideways
-          would leave the table. The header's back button still works.
+          would leave the table. The table draws its own top bar (with a back button) over the felt, so no header.
         */}
         <Stack.Screen
           name="play/[id]"
-          options={{ title: 'Table', headerStyle: { backgroundColor: colors.feltDark }, gestureEnabled: false }}
+          options={{ headerShown: false, gestureEnabled: false }}
         />
         <Stack.Screen
           name="session/[id]"
-          options={{ title: 'Session', headerStyle: { backgroundColor: colors.feltDark }, gestureEnabled: false }}
+          options={{ headerShown: false, gestureEnabled: false }}
         />
         <Stack.Screen name="session/edit" options={{ title: 'Session' }} />
       </Stack>

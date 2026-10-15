@@ -13,6 +13,8 @@ export interface SheetAction {
   destructive?: boolean;
   /** Set when the action opens another modal; iOS can only present it once this sheet has dismissed. */
   opensModal?: boolean;
+  /** The sheet stays open, e.g. for an action that shows something over it (see `overlay`). */
+  keepsOpen?: boolean;
 }
 
 /** An action shown as a small labelled icon tile, in a grid above the other actions. */
@@ -28,6 +30,8 @@ interface Props {
   title?: string;
   /** Optional content shown above the actions, e.g. a large card preview. */
   header?: ReactNode;
+  /** Shown over the sheet, filling the screen, e.g. a card full size; the sheet stays open underneath. */
+  overlay?: ReactNode;
   /** Actions shown as a grid of icon tiles, three to a row, above `actions`. */
   tiles?: SheetTile[];
   actions: SheetAction[];
@@ -59,7 +63,7 @@ export function ActionSheet(props: Props) {
     return { keep: (p: Props) => Object.assign(box, { last: p }), get: () => box.last };
   }, []);
   if (visible) shown.keep(props);
-  const { title, header, tiles, actions } = visible ? props : (shown.get() ?? props);
+  const { title, header, tiles, actions, overlay } = visible ? props : (shown.get() ?? props);
   // The modal stays up after `visible` goes false until the sheet has slid away.
   const [mounted, setMounted] = useState(visible);
   if (visible && !mounted) setMounted(true);
@@ -76,6 +80,7 @@ export function ActionSheet(props: Props) {
   }, [visible, measured, progress]);
 
   const run = (a: SheetAction) => {
+    if (a.keepsOpen) return a.onPress();
     if (a.opensModal && Platform.OS === 'ios') {
       pending.current = a.onPress;
       onClose();
@@ -153,6 +158,7 @@ export function ActionSheet(props: Props) {
           </ScrollView>
         </Animated.View>
       </KeyboardAvoidingView>
+      {overlay}
     </Modal>
   );
 }

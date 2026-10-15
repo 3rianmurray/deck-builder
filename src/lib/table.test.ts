@@ -10,11 +10,14 @@ import {
   draw,
   findCard,
   flip,
+  gridSpots,
   insertCards,
   missingCards,
   moveCard,
   moveCards,
   orderedTable,
+  pinSpots,
+  placeOnTable,
   pruneTable,
   resetTable,
   shuffleDiscardIntoDeck,
@@ -128,6 +131,51 @@ test('cards can be stacked on a table card, and leave the stack when moved off',
   for (let i = 0; i < 3; i++) t = moveCard(t, stackGroups(t.table)[0].at(-1)!.iid, 'hand');
   assert.equal(t.table[0].stack, undefined);
   assert.ok(t.hand.every((c) => c.stack === undefined));
+});
+
+test('cards can be placed in any spot of the table grid, leaving gaps', () => {
+  let t = draw(createTable(makeDeck(6), noShuffle), 4); // hand: c0 c1 c2 c3
+  t = placeOnTable(t, [t.hand[0].iid], { row: 2, col: 1 }, 3);
+  t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 2 }, 3);
+  assert.deepEqual(gridSpots(t.table, 3), [{ row: 0, col: 2 }, { row: 2, col: 1 }]);
+  // Kept in reading order, so stepping through the table goes along the rows.
+  assert.deepEqual(t.table.map((c) => c.cardId), ['c1', 'c0']);
+  // Several cards go into the spot and the free ones after it, wrapping onto the next row.
+  t = placeOnTable(t, [t.hand[0].iid, t.hand[1].iid], { row: 0, col: 1 }, 3);
+  assert.deepEqual(
+    t.table.map((c) => [c.cardId, c.spot]),
+    [['c2', { row: 0, col: 1 }], ['c1', { row: 0, col: 2 }], ['c3', { row: 1, col: 0 }], ['c0', { row: 2, col: 1 }]],
+  );
+});
+
+test('cards without a spot fill the first free ones, and pinning keeps them there', () => {
+  let t = draw(createTable(makeDeck(4), noShuffle), 3);
+  t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 1 }, 3); // c0 at (0,1)
+  t = moveCard(t, t.hand[0].iid, 'table'); // c1, no spot yet
+  assert.equal(t.table[1].spot, undefined);
+  assert.deepEqual(gridSpots(t.table, 3)[1], { row: 0, col: 0 });
+  t = pinSpots(t, 3);
+  assert.deepEqual(t.table.map((c) => [c.cardId, c.spot]), [['c1', { row: 0, col: 0 }], ['c0', { row: 0, col: 1 }]]);
+  assert.equal(pinSpots(t, 3), t);
+  // Taking c0 away leaves c1 where it is, and c0 loses its spot.
+  t = moveCard(t, t.table[1].iid, 'hand');
+  assert.deepEqual(t.table[0].spot, { row: 0, col: 0 });
+  assert.ok(t.hand.every((c) => c.spot === undefined));
+});
+
+test('a narrower grid moves cards that no longer fit into free spots', () => {
+  let t = draw(createTable(makeDeck(2), noShuffle), 2);
+  t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 0 }, 4);
+  t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 3 }, 4);
+  assert.deepEqual(gridSpots(t.table, 3), [{ row: 0, col: 0 }, { row: 0, col: 1 }]);
+});
+
+test('stacking puts cards in the stack\'s spot', () => {
+  let t = draw(createTable(makeDeck(3), noShuffle), 2);
+  t = placeOnTable(t, [t.hand[0].iid], { row: 1, col: 2 }, 3);
+  t = stackOnto(t, [t.hand[0].iid], t.table[0].iid, true);
+  assert.ok(t.table.every((c) => c.spot?.row === 1 && c.spot?.col === 2));
+  assert.deepEqual(gridSpots(t.table, 3), [{ row: 1, col: 2 }]);
 });
 
 test('searching the deck lets any card be pulled out', () => {

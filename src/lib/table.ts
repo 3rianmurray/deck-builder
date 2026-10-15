@@ -1,7 +1,7 @@
 // Pure functions for the play table. Every function returns a new state and never mutates its input.
 import { newId } from './id.ts';
 import { copiesOf } from './types.ts';
-import type { CardInstance, Deck, TableState, Zone } from './types.ts';
+import type { CardInstance, Deck, Spot, TableState, Zone } from './types.ts';
 
 export const ZONES: Zone[] = ['deck', 'hand', 'table', 'discard'];
 
@@ -101,9 +101,9 @@ export function stackGroups(cards: CardInstance[]): CardInstance[][] {
   return groups;
 }
 
-/** A copy of a card that has left its stack (or is moving somewhere stacks don't exist). */
+/** A copy of a card that has left its stack and its spot on the table (it's moving, maybe off the table). */
 const unstacked = (c: CardInstance): CardInstance => {
-  const { stack: _, ...rest } = c;
+  const { stack: _, spot: __, ...rest } = c;
   return rest;
 };
 
@@ -126,7 +126,7 @@ export function stackOnto(state: TableState, iids: string[], targetIid: string, 
   const moving: CardInstance[] = [];
   for (const iid of iids.slice().reverse()) {
     const found = findCard(state, iid);
-    if (found) moving.push({ ...state[found.zone][found.index], faceUp, stack });
+    if (found) moving.push({ ...state[found.zone][found.index], faceUp, stack, spot: target.spot });
   }
   const ids = new Set(moving.map((c) => c.iid));
   const next = { ...state };
@@ -139,6 +139,80 @@ export function stackOnto(state: TableState, iids: string[], targetIid: string, 
   });
   next.table = [...table.slice(0, at + 1), ...moving, ...table.slice(at + 1)];
   return tidyStacks(next);
+}
+
+// ---- The play table's grid ----
+// Cards and stacks lie in a grid of spots and can go in any spot, leaving gaps. The grid is as wide as fits on
+// screen (`cols`), and as tall as it needs to be.
+
+const spotKey = (s: Spot) => `${s.row}:${s.col}`;
+/** Reading order: along each row, top row first. */
+const bySpot = (a: Spot, b: Spot) => a.row - b.row || a.col - b.col;
+
+/** The first spot in reading order, from `from` on, that isn't taken. */
+function firstFree(taken: Set<string>, cols: number, from: Spot = { row: 0, col: 0 }): Spot {
+  for (let i = from.row * cols + Math.min(from.col, cols - 1); ; i++) {
+    const s = { row: Math.floor(i / cols), col: i % cols };
+    if (!taken.has(spotKey(s))) return s;
+  }
+}
+
+/**
+ * Where each of the table's groups (see `stackGroups`) lies in a grid `cols` wide: in its own spot if it has
+ * one that fits the grid and nothing earlier is in, otherwise in the first free spot.
+ */
+export function gridSpots(cards: CardInstance[], cols: number): Spot[] {
+  const groups = stackGroups(cards);
+  const taken = new Set<string>();
+  const spots: (Spot | null)[] = groups.map((g) => {
+    const s = g[0].spot;
+    if (!s || s.col >= cols || taken.has(spotKey(s))) return null;
+    taken.add(spotKey(s));
+    return s;
+  });
+  return spots.map((s) => {
+    if (s) return s;
+    const free = firstFree(taken, cols);
+    taken.add(spotKey(free));
+    return free;
+  });
+}
+
+/**
+ * Writes every group's spot (from `gridSpots`) onto its cards, so cards without one keep where they were put,
+ * and sorts the table into reading order. Returns the state unchanged if there was nothing to do.
+ */
+export function pinSpots(state: TableState, cols: number): TableState {
+  const groups = stackGroups(state.table);
+  const spots = gridSpots(state.table, cols);
+  const sorted = groups.map((g, i) => ({ g, s: spots[i] })).sort((a, b) => bySpot(a.s, b.s));
+  const unchanged = sorted.every(({ g, s }, i) => g[0] === groups[i][0] && g.every((c) => c.spot?.row === s.row && c.spot?.col === s.col));
+  if (unchanged) return state;
+  return { ...state, table: sorted.flatMap(({ g, s }) => g.map((c) => ({ ...c, spot: s }))) };
+}
+
+/**
+ * Lays cards (listed in the order they should go) on the table starting at `spot`, each in the next free spot
+ * after it, in a grid `cols` wide. They face `faceUp`, or face up.
+ */
+export function placeOnTable(state: TableState, iids: string[], spot: Spot, cols: number, faceUp?: boolean): TableState {
+  const moving: CardInstance[] = [];
+  for (const iid of iids) {
+    const found = findCard(state, iid);
+    if (found) moving.push({ ...unstacked(state[found.zone][found.index]), faceUp: faceUp ?? true });
+  }
+  if (moving.length === 0) return state;
+  const ids = new Set(moving.map((c) => c.iid));
+  let next: TableState = { ...state };
+  for (const z of ZONES) next[z] = state[z].filter((c) => !ids.has(c.iid));
+  next = pinSpots(tidyStacks(next), cols);
+  const taken = new Set(gridSpots(next.table, cols).map(spotKey));
+  const placed = moving.map((c) => {
+    const s = firstFree(taken, cols, spot);
+    taken.add(spotKey(s));
+    return { ...c, spot: s };
+  });
+  return pinSpots({ ...next, table: [...next.table, ...placed] }, cols);
 }
 
 /** `faceUp` overrides the zone's usual facing, e.g. a card dragged from the deck and not yet revealed. */

@@ -17,7 +17,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent } from 'react-native';
+import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet, type SheetAction } from './ActionSheet';
@@ -30,7 +30,7 @@ import { useDecks } from '../lib/DecksContext';
 import * as T from '../lib/table';
 import { fitTilt, tiltTransform, unproject } from '../lib/tilt';
 import { cardRatio } from '../lib/types';
-import type { CardInstance, Deck, PlayMode, TableState, Zone } from '../lib/types';
+import type { CardInstance, Deck, PlayMode, Spot, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
 
 type Sheet =
@@ -91,6 +91,11 @@ const PILE_INSET = 4;
 const REVEAL_CHROME = 100;
 /** Width of reveal mode's column of icon buttons, including the gap beside it. */
 const REVEAL_RAIL = 72;
+/** The play table's grid: space round its edge, and the least space between cards. */
+const GRID_PAD = 14;
+const GRID_GAP = 10;
+/** The play area's highlight border, on each side. */
+const PLAY_BORDER = 2;
 /** A card being pressed or dragged. Positions are page coordinates of the finger. */
 interface Drag {
   iid: string;
@@ -187,10 +192,17 @@ interface Landing {
   settled?: boolean;
 }
 
-/** A position between the cards in the hand or on the table, counting the cards there that aren't being carried. */
-interface InsertAt {
-  zone: 'hand' | 'table';
-  index: number;
+/**
+ * Where carried cards would go: a position between the cards in the hand (counting the cards there that
+ * aren't being carried), or a free spot in the table's grid.
+ */
+type InsertAt = { zone: 'hand'; index: number } | { zone: 'table'; spot: Spot };
+
+const sameSpot = (a: Spot | undefined, b: Spot | undefined) => a?.row === b?.row && a?.col === b?.col;
+function sameInsert(a: InsertAt | null, b: InsertAt | null): boolean {
+  if (!a || !b) return a === b;
+  if (a.zone === 'hand') return b.zone === 'hand' && a.index === b.index;
+  return b.zone === 'table' && sameSpot(a.spot, b.spot);
 }
 
 interface HeldCard {
@@ -413,6 +425,15 @@ function Table({
       Math.min(Math.min(96, width * 0.2) * wide, ((width - 32 - 24 - 110) / 2 - 8) / 1.08);
   const handWidth = Math.min(110, width * 0.24) * wide;
   const tableCardWidth = Math.min(90, width * 0.2) * wide;
+  // The play table's grid: as many columns as fit across, spread evenly. Rows go on down as far as needed.
+  const cellH = tableCardWidth / ratio;
+  const gridWidth = (layout.play?.w ?? 0) - PLAY_BORDER * 2 - GRID_PAD * 2;
+  const gridReady = !reveal && gridWidth > tableCardWidth;
+  const cols = gridReady ? Math.max(1, Math.floor((gridWidth + GRID_GAP) / (tableCardWidth + GRID_GAP))) : 1;
+  const colStep = cols > 1 ? (gridWidth - tableCardWidth) / (cols - 1) : 0;
+  const rowStep = cellH + GRID_GAP;
+  /** Where a grid spot's card goes, within the play area's content. */
+  const spotPlace = (s: Spot) => ({ position: 'absolute' as const, left: GRID_PAD + s.col * colStep, top: GRID_PAD + s.row * rowStep });
   const cardsById = new Map(deck.cards.map((c) => [c.id, c]));
   const missing = T.missingCards(table, deck).length;
 
@@ -581,6 +602,13 @@ function Table({
   // one card, in the view of its top card (its last), which is the view that's measured; while cards are being
   // carried off it, the next one down shows.
   const tableGroups = T.stackGroups(table.table);
+  /** Each group's spot in the grid, in the same order as `tableGroups`. */
+  const groupSpots = T.gridSpots(table.table, cols);
+  // Cards played without a spot (from a menu, or saved before the grid) are given the first free one, and
+  // keep it: otherwise they'd shuffle up whenever a card before them left. Only once the grid's width is known.
+  useEffect(() => {
+    if (gridReady) setTable((t) => t && T.pinSpots(t, cols));
+  }, [table.table, cols, gridReady, setTable]);
   const groupTop = (g: CardInstance[]) => g[g.length - 1];
   /** A group's top card that's still on the table (not being carried), if any. */
   const shownOf = (g: CardInstance[]) => [...g].reverse().find((c) => !isHeld(c.iid));
@@ -808,16 +836,28 @@ function Table({
       return;
     }
 
-    // In the hand or on the table the cards go where the finger is, between the cards there.
-    if ((zone === 'hand' || zone === 'table') && at?.zone === zone) {
+    // On the table they go in the free spot by the finger (any further cards in the free spots after it).
+    if (zone === 'table' && at?.zone === 'table') {
+      // A single card dropped back into its own row lands in its blank space, which is already in place.
+      const own = d.stack.length === 1 && leftBlankIn('table');
+      glideIn('table', 0, own);
+      // Put back in the spot it came from, it stays put, just turned over if it was flipped.
+      const home = tableGroups.findIndex((g) => g[0].iid === d.iid);
+      if (own && home !== -1 && sameSpot(groupSpots[home], at.spot)) {
+        if (d.faceUp !== d.startFaceUp) apply((t) => T.flip(t, d.iid));
+        return;
+      }
+      apply((t) => T.placeOnTable(t, ids, at.spot, cols, d.faceUp));
+      return;
+    }
+
+    // In the hand the cards go where the finger is, between the cards there.
+    if (zone === 'hand' && at?.zone === zone) {
       // A single card dropped back into its own row lands in its blank space, which is already in place.
       glideIn(zone, 0, d.stack.length === 1 && leftBlankIn(zone));
-      // A single card put back exactly where it came from stays put, just turned over if it was flipped. Not a
-      // card taken off a stack, though: as the stack's top it sits at the stack's end, so dropping it just after
-      // the stack looks like "the same place", but it's meant to come off the stack and sit beside it.
-      const was = table[zone].findIndex((c) => c.iid === d.iid);
-      const wasStacked = !!table[zone][was]?.stack;
-      if (d.stack.length === 1 && zone === d.from && at.index === was && !wasStacked) {
+      // A single card put back exactly where it came from stays put, just turned over if it was flipped.
+      const was = table.hand.findIndex((c) => c.iid === d.iid);
+      if (d.stack.length === 1 && d.from === 'hand' && at.index === was) {
         if (d.faceUp !== d.startFaceUp) apply((t) => T.flip(t, d.iid));
         return;
       }
@@ -842,30 +882,53 @@ function Table({
       : handRect && layout.handScroll && { x: handRect.x + layout.handScroll.x - scroll.hand, y: handRect.y + layout.handScroll.y };
 
   /**
-   * Where dropped cards would go in the hand or on the table: after every card that comes before the finger.
-   * In the hand that's every card to its left; on the table it reads like a page, so also every card in a row
-   * above it. Cards being carried don't count, since they're leaving.
+   * Where dropped cards would go in the hand: after every card to the left of the finger. Cards being carried
+   * don't count, since they're leaving.
    */
-  const insertionAt = (zone: 'hand' | 'table', pageX: number, pageY: number): number | null => {
-    const o = laidOutAt(zone);
+  const handInsertionAt = (pageX: number, pageY: number): number | null => {
+    const o = laidOutAt('hand');
     const p = toTable(pageX, pageY);
     if (!o || !p) return null;
-    if (zone === 'hand') {
-      return table.hand.filter((c) => {
-        const r = !isHeld(c.iid) && cardLayouts[c.iid];
-        return r && o.x + r.x + r.w / 2 < p.x;
-      }).length;
+    return table.hand.filter((c) => {
+      const r = !isHeld(c.iid) && cardLayouts[c.iid];
+      return r && o.x + r.x + r.w / 2 < p.x;
+    }).length;
+  };
+
+  /**
+   * The grid spot dropped cards would go in on the table: the one under the finger, or if a card is already
+   * there, the nearest free one. Spots of cards being carried away count as free.
+   */
+  const spotAt = (pageX: number, pageY: number): Spot | null => {
+    const o = laidOutAt('table');
+    const p = toTable(pageX, pageY);
+    if (!o || !p || !gridReady) return null;
+    // The finger, measured from the middle of the first spot.
+    const x = p.x - o.x - GRID_PAD - tableCardWidth / 2;
+    const y = p.y - o.y - GRID_PAD - cellH / 2;
+    const taken = new Set(
+      tableGroups.flatMap((g, i) => (g.some((c) => !isHeld(c.iid)) ? [`${groupSpots[i].row}:${groupSpots[i].col}`] : [])),
+    );
+    const under = {
+      row: Math.max(0, Math.round(y / rowStep)),
+      col: Math.min(cols - 1, Math.max(0, colStep ? Math.round(x / colStep) : 0)),
+    };
+    if (!taken.has(`${under.row}:${under.col}`)) return under;
+    // The row below the last card is always free, so this always finds one.
+    const lastRow = Math.max(under.row, ...groupSpots.map((s) => s.row)) + 1;
+    let best: Spot = { row: lastRow, col: 0 };
+    let bestDistance = Infinity;
+    for (let row = 0; row <= lastRow; row++) {
+      for (let col = 0; col < cols; col++) {
+        if (taken.has(`${row}:${col}`)) continue;
+        const distance = Math.hypot(col * colStep - x, row * rowStep - y);
+        if (distance < bestDistance) {
+          best = { row, col };
+          bestDistance = distance;
+        }
+      }
     }
-    // On the table each stack is one spot, so count whole stacks (less any cards being carried off them).
-    let index = 0;
-    for (const g of tableGroups) {
-      const r = groupRect(g);
-      const left = g.filter((c) => !isHeld(c.iid)).length;
-      if (!r || left === 0) continue;
-      const before = r.y + r.h <= p.y || (p.y >= r.y && p.y < r.y + r.h && r.x + r.w / 2 < p.x);
-      if (before) index += left;
-    }
-    return index;
+    return best;
   };
 
   /**
@@ -939,11 +1002,17 @@ function Table({
     if (!snap.get().on && !snap.get().returning) pan.setValue(delta);
     const zone = zoneAt(finger.pageX, finger.pageY);
     if (zone !== hover) setHover(zone);
-    // Over the middle of a table card it's a stack; anywhere else in the hand or on the table, a gap.
+    // Over the middle of a table card it's a stack; anywhere else on the table, a free spot; in the hand, a gap.
     const onto = zone === 'table' ? stackTargetAt(finger.pageX, finger.pageY) : null;
-    const index = !onto && (zone === 'hand' || zone === 'table') ? insertionAt(zone, finger.pageX, finger.pageY) : null;
-    const next = zone && index !== null ? { zone: zone as 'hand' | 'table', index } : null;
-    const moved = next?.zone !== insertAt?.zone || next?.index !== insertAt?.index;
+    let next: InsertAt | null = null;
+    if (zone === 'hand') {
+      const index = handInsertionAt(finger.pageX, finger.pageY);
+      if (index !== null) next = { zone, index };
+    } else if (zone === 'table' && !onto) {
+      const spot = spotAt(finger.pageX, finger.pageY);
+      if (spot) next = { zone, spot };
+    }
+    const moved = !sameInsert(next, insertAt);
     // The blank space moves (or opens, or closes): the cards around it slide over rather than jump.
     if (moved || onto !== stackTarget) animateLayout();
     if (onto !== stackTarget) {
@@ -1093,6 +1162,7 @@ function Table({
     children: ReactNode,
     onLayout?: (e: LayoutChangeEvent) => void,
     collapsed?: boolean,
+    place?: ViewStyle,
   ) => (
     <View
       key={inst.iid}
@@ -1103,7 +1173,7 @@ function Table({
       accessibilityRole="button"
       accessibilityLabel={inst.faceUp ? cardsById.get(inst.cardId)?.name : 'Face-down card'}
       onAccessibilityTap={opts.onPress}
-      style={[{ pointerEvents: 'box-only' }, collapsed && styles.collapsed]}>
+      style={[{ pointerEvents: 'box-only' }, place, collapsed && styles.collapsed]}>
       {children}
     </View>
   );
@@ -1116,7 +1186,7 @@ function Table({
   const targetOutline = (iid: string | undefined) =>
     iid && iid === stackTarget ? <View style={[styles.stackTargetOutline, { borderRadius: Math.max(4, tableCardWidth * 0.06) + 3 }]} /> : null;
 
-  const renderCard = (inst: CardInstance, w: number, from: Zone) =>
+  const renderCard = (inst: CardInstance, w: number, from: Zone, place?: ViewStyle) =>
     draggable(
       inst,
       from,
@@ -1136,6 +1206,7 @@ function Table({
       // The card being dragged keeps its spot, as the blank space that moves to where it will land; any other
       // cards carried with it step out of the row, and their neighbours close up.
       isHeld(inst.iid) && inst.iid !== drag?.iid,
+      place,
     );
 
   /**
@@ -1144,8 +1215,8 @@ function Table({
    * and tapping opens the top card's menu. Once every card is being carried off it, it steps out of the row
    * like a single card does.
    */
-  const renderStack = (g: CardInstance[]) => {
-    if (g.length === 1) return renderCard(g[0], tableCardWidth, 'table');
+  const renderStack = (g: CardInstance[], place: ViewStyle) => {
+    if (g.length === 1) return renderCard(g[0], tableCardWidth, 'table', place);
     const top = groupTop(g);
     // As drawn: a card lifted off the stack stays on it until its lifted copy is showing.
     const shown = [...g].reverse().find((c) => !carriedAway(c.iid));
@@ -1176,13 +1247,14 @@ function Table({
       </>,
       measureCard(top.iid),
       g.every((c) => isHeld(c.iid)),
+      place,
     );
   };
 
-  // ---- Rows while dragging, home-screen style ----
-  // The card being dragged leaves a blank space where it was. Over its own row, that space moves to wherever
-  // the card would land and the cards around it slide over to make room; over the other row, a fresh space
-  // opens there instead, and the one it left stays put until it's dropped.
+  // ---- The hand while dragging, home-screen style ----
+  // The card being dragged leaves a blank space where it was. Over the hand, that space moves to wherever the
+  // card would land and the cards around it slide over to make room; a card from elsewhere opens a fresh
+  // space there instead.
 
   type RowItem<T> = { kind: 'item'; item: T } | { kind: 'gap' };
 
@@ -1205,26 +1277,18 @@ function Table({
     return [...arrange(staying, own, home, at), ...extras];
   };
 
-  const tableRow = (): RowItem<CardInstance[]>[] => {
-    if (!drag?.active) return tableGroups.map((item) => ({ kind: 'item', item }));
-    // Only a single card dragged from the table leaves a blank; taking the top off a stack leaves the stack.
-    const own = drag.from === 'table' ? tableGroups.find((g) => g.length === 1 && g[0].iid === drag.iid) : undefined;
-    const staying = tableGroups.filter((g) => g !== own && g.some((c) => !isHeld(c.iid)));
-    const extras = tableGroups.filter((g) => g !== own && !g.some((c) => !isHeld(c.iid))).map((item) => ({ kind: 'item' as const, item }));
-    // Insertion points count cards; turn one into a position among the (stacked) spots.
-    const spotFor = (cards: number) => {
-      let n = 0;
-      for (let i = 0; i < staying.length; i++) {
-        if (n >= cards) return i;
-        n += staying[i].filter((c) => !isHeld(c.iid)).length;
-      }
-      return staying.length;
-    };
-    const ownIndex = own ? table.table.findIndex((c) => c.iid === own[0].iid) : -1;
-    const home = own ? spotFor(table.table.filter((c, i) => !isHeld(c.iid) && i < ownIndex).length) : 0;
-    const at = insertAt?.zone === 'table' && !stackTarget ? spotFor(insertAt.index) : null;
-    return [...arrange(staying, own, home, at), ...extras];
-  };
+  // ---- The table's grid while dragging ----
+  // Every card and stack keeps its spot. A single card dragged from the table leaves a blank that moves to the
+  // spot it would land in (taking the top off a stack leaves the stack); an outline shows where cards will go.
+
+  /** The spot carried cards would land in on the table, if that's where they're headed. */
+  const dropSpot = drag?.active && insertAt?.zone === 'table' && !stackTarget ? insertAt.spot : null;
+  /** Where each table group is drawn: in its spot, or for the dragged card's blank, where it would land. */
+  const drawnSpot = (g: CardInstance[], i: number) =>
+    dropSpot && g.length === 1 && g[0].iid === drag?.iid ? dropSpot : groupSpots[i];
+  /** The grid's height: down to the row below the last card, so there's always a free row to drop into. */
+  const gridRows = Math.max(0, ...groupSpots.map((s) => s.row + 1), (dropSpot?.row ?? -1) + 1) + 1;
+  const gridHeight = GRID_PAD * 2 + gridRows * rowStep - GRID_GAP;
 
   /** A blank space the size of a card in a row, where carried cards would land. */
   const gap = (w: number) => <View key="gap" style={{ width: w, height: w / ratio }} />;
@@ -1563,18 +1627,24 @@ function Table({
             ref={attachPlayView}
             onContentSizeChange={(_, h) => setContentSize((s) => ({ ...s, play: h }))}
             style={[styles.playArea, highlight('table')]}
-            contentContainerStyle={styles.playAreaContent}
+            contentContainerStyle={[styles.playAreaContent, { minHeight: gridHeight }]}
             scrollEnabled={!drag?.active && !drag?.pinch}
             alwaysBounceVertical={false}
             onLayout={measure('play')}
             // Scrolling is off while cards are held, so the offset only needs updating when a scroll settles.
             onScrollEndDrag={(e) => trackScroll('play', e.nativeEvent.contentOffset.y)}
             onMomentumScrollEnd={(e) => trackScroll('play', e.nativeEvent.contentOffset.y)}>
-            {table.table.length ? (
-              tableRow().map((r) => (r.kind === 'gap' ? gap(tableCardWidth) : renderStack(r.item)))
-            ) : (
-              <Text style={styles.hint}>Drag a card here to play it.</Text>
-            )}
+            {table.table.length || dropSpot ? null : <Text style={styles.hint}>Drag a card anywhere here to play it.</Text>}
+            {gridReady ? tableGroups.map((g, i) => renderStack(g, spotPlace(drawnSpot(g, i)))) : null}
+            {dropSpot ? (
+              <View
+                style={[
+                  styles.dropSpot,
+                  spotPlace(dropSpot),
+                  { width: tableCardWidth, height: cellH, borderRadius: Math.max(4, tableCardWidth * 0.06) },
+                ]}
+              />
+            ) : null}
           </ScrollView>
 
           {/* Hand */}
@@ -1873,7 +1943,16 @@ const styles = StyleSheet.create({
   revealPiles: { flex: 1, alignItems: 'center', justifyContent: 'space-evenly' },
   revealRail: { width: REVEAL_RAIL, alignItems: 'flex-end', justifyContent: 'center', gap: 18 },
   playArea: { flex: 1, borderWidth: 2, borderColor: 'transparent' },
-  playAreaContent: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 14, flexGrow: 1 },
+  // The cards are placed in the grid by hand (see `spotPlace`).
+  playAreaContent: { flexGrow: 1 },
+  // Where carried cards will land on the table.
+  dropSpot: {
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(255,255,255,0.45)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    pointerEvents: 'none',
+  },
   dropTarget: { borderColor: colors.accent, borderWidth: 2, backgroundColor: 'rgba(224,179,84,0.12)' },
   hint: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', width: '100%', marginTop: 24 },
   hand: { backgroundColor: 'rgba(0,0,0,0.35)', paddingTop: 8, borderWidth: 2, borderColor: 'transparent' },

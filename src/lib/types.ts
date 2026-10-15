@@ -92,6 +92,17 @@ export interface CardInstance {
    * list, bottom first, so the last of them is the top card. Cards elsewhere, or alone, have none.
    */
   stack?: string;
+  /**
+   * On the play table only: the grid spot it lies in. Every card of a stack shares its stack's spot. Cards
+   * without one (e.g. played from a menu, or saved before the table had a grid) get the first free spot.
+   */
+  spot?: Spot;
+}
+
+/** A spot in the play table's grid, counted from the top left. */
+export interface Spot {
+  row: number;
+  col: number;
 }
 
 /** Index 0 is the top of the deck/discard pile, and the leftmost card in hand/table. */

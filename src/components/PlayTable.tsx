@@ -24,6 +24,7 @@ import { IconButton } from './IconButton';
 import { matSpot, OnTabletopContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
 import { CardZoom, type ZoomItem } from './CardZoom';
 import { ReorderableGrid } from './ReorderableGrid';
+import type { GridHold } from './ReorderableGrid';
 import { Riffle, riffleHeight } from './Riffle';
 import { CardView, EmptySlot, PileDepth, pileRise, pileThickness, prefersReducedMotion } from './CardView';
 import { leanAt, leanOffset, useViewTilt } from './viewpoint';
@@ -599,14 +600,16 @@ function Table({
    * over the table, as if picked up there, to drop anywhere. The search gets out of the way, and closes once
    * they've been dropped. They're held face up, as they were seen in the search.
    */
-  const takeOutOfSearch = (zone: 'deck' | 'discard', iids: string[], finger: NativeTouchEvent) => {
+  const takeOutOfSearch = (zone: 'deck' | 'discard', iids: string[], finger: Finger, grip: Grip) => {
     const held = iids.flatMap((iid) => table[zone].filter((c) => c.iid === iid));
     if (!held.length) return;
     pan.setValue({ x: 0, y: 0 });
     lastPan.set({ x: 0, y: 0 });
     snap.set({ on: false, returning: false, leftSource: false });
-    liftGrow.setValue(1);
     const w = tableCardWidth;
+    // Starts at the size it was held at in the search, and grows (or shrinks) to the held size here once it's
+    // on screen (see `drag.shown`).
+    liftGrow.setValue(grip.width / (w * LIFTED_SCALE));
     setDrag({
       iid: held[0].iid,
       cardId: held[0].cardId,
@@ -616,9 +619,9 @@ function Table({
       touchId: finger.identifier,
       startX: finger.pageX,
       startY: finger.pageY,
-      // Held by the middle.
-      offX: w / 2,
-      offY: w / ratio / 2,
+      // Held at the same point on the card as in the search.
+      offX: (grip.offX / grip.width) * w * 1.08,
+      offY: (grip.offY / grip.width) * w * 1.08,
       pressedAt: Date.now(),
       zoomable: false,
       active: true,
@@ -2372,7 +2375,6 @@ function Table({
           leaving={searchLeaving}
           deck={deck}
           table={table}
-          onShuffle={() => shuffleDeck()}
           onReorder={(zone, picked, to) => apply((t) => T.reorderPile(t, zone, picked, to))}
           onTakeOut={takeOutOfSearch}
           moveActions={moveActions}
@@ -2530,6 +2532,20 @@ const SEARCHABLE: { zone: 'deck' | 'discard'; label: string }[] = [
   { zone: 'discard', label: 'Discard' },
 ];
 
+/** A finger on the screen, as read from a touch event (which isn't kept). */
+interface Finger {
+  identifier: string;
+  pageX: number;
+  pageY: number;
+}
+
+/** Where a finger holds a card, and how wide the card is drawn there. */
+interface Grip {
+  offX: number;
+  offY: number;
+  width: number;
+}
+
 /** How long the search takes to slide up over the table, and away again. */
 const SEARCH_IN_MS = 240;
 const SEARCH_OUT_MS = 180;
@@ -2541,15 +2557,14 @@ const SEARCH_OUT_MS = 180;
  * - Tap a card for its options.
  * - Hold a card to pick it up and drag it to another place in the pile; tap more with a second finger to
  *   carry several.
- * - Drag held cards onto the strip at the bottom to take them out: the search gets out of the way and they
- *   carry on as a normal drag over the table, to drop anywhere (see `onTakeOut`).
+ * - While holding cards, tap Close with another finger to take them out: the search gets out of the way and
+ *   they carry on as a normal drag over the table, to drop anywhere (see `onTakeOut`).
  */
 function SearchPanel({
   zone,
   leaving,
   deck,
   table,
-  onShuffle,
   onReorder,
   onTakeOut,
   moveActions,
@@ -2563,11 +2578,12 @@ function SearchPanel({
   leaving: boolean;
   deck: Deck;
   table: TableState;
-  /** Shuffles the deck, with its riffle. */
-  onShuffle: () => void;
   onReorder: (zone: 'deck' | 'discard', picked: number[], to: number) => void;
-  /** Held cards (top first) dragged out of the search, with the finger still on them. */
-  onTakeOut: (zone: 'deck' | 'discard', iids: string[], finger: NativeTouchEvent) => void;
+  /**
+   * Held cards (top first) taken out of the search, with the finger still on them, held at `grip`: where on the
+   * first card the finger is, and how wide it's drawn.
+   */
+  onTakeOut: (zone: 'deck' | 'discard', iids: string[], finger: Finger, grip: Grip) => void;
   moveActions: (iid: string, from: Zone) => SheetAction[];
   onSwitch: (zone: 'deck' | 'discard') => void;
   onClose: () => void;
@@ -2586,6 +2602,28 @@ function SearchPanel({
   const [open] = useState(() => new Animated.Value(0));
   const [fade] = useState(() => new Animated.Value(1));
   const visible = zone !== null;
+  /** Cards held in the grid, if any: tapping Close then takes them out rather than leaving them. */
+  const [holding, setHolding] = useState<GridHold | null>(null);
+  const closeRef = useRef<View>(null);
+
+  // A second finger lifting off Close while the first holds cards: take them out, with the first finger still
+  // on them. (Watched here, above both, since the two fingers are on different parts of the search.)
+  const touchEnd = (e: GestureResponderEvent) => {
+    const held = holding;
+    if (!held || !pile) return;
+    const tap = e.nativeEvent.changedTouches.find((t) => t.identifier !== held.touchId);
+    const holder = e.nativeEvent.touches.find((t) => t.identifier === held.touchId);
+    if (!tap || !holder) return;
+    // Read now: the event isn't kept.
+    const at = { x: tap.pageX, y: tap.pageY };
+    const finger = { identifier: holder.identifier, pageX: holder.pageX, pageY: holder.pageY };
+    closeRef.current?.measureInWindow((x, y, w, h) => {
+      if (at.x < x || at.x > x + w || at.y < y || at.y > y + h) return;
+      held.letGo();
+      setHolding(null);
+      onTakeOut(pile, held.picked.map((i) => table[pile][i].iid), finger, { offX: held.offX, offY: held.offY, width: cardWidth * 1.08 });
+    });
+  };
 
   useEffect(() => {
     if (visible) {
@@ -2613,6 +2651,7 @@ function SearchPanel({
   return (
     <Animated.View
       onLayout={(e) => setHeight(e.nativeEvent.layout.height)}
+      onTouchEnd={touchEnd}
       style={[
         StyleSheet.absoluteFill,
         styles.searchScreen,
@@ -2635,12 +2674,10 @@ function SearchPanel({
             </Pressable>
           ))}
         </View>
-        <Pressable onPress={onClose} hitSlop={12}>
-          <Text style={styles.headerButton}>Done</Text>
-        </Pressable>
       </View>
       <Text style={styles.searchHint}>
-        Top card first. Tap a card for options. Hold one to drag it to a new place, or onto the table.
+        Top card first. Tap a card for options, or hold one to drag it to a new place. Holding cards? Tap Close to
+        take them to the table.
       </Text>
       {pile && cards.length ? (
         <ReorderableGrid
@@ -2664,26 +2701,15 @@ function SearchPanel({
             setSheetOpen(true);
           }}
           onMove={(picked, to) => onReorder(pile, picked, to)}
-          takeOut={{
-            label: 'Drag here to take them out',
-            onTakeOut: (picked, finger) => onTakeOut(pile, picked.map((i) => cards[i].iid), finger),
-          }}
+          onHold={setHolding}
         />
       ) : (
         <Text style={styles.hint}>No cards here.</Text>
       )}
-      {pile === 'deck' ? (
-        <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 12 }}>
-          <Button
-            label="Shuffle & close"
-            variant="primary"
-            onPress={() => {
-              onShuffle();
-              onClose();
-            }}
-          />
-        </View>
-      ) : null}
+      <View ref={closeRef} style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 12 }}>
+        {/* A tap while holding cards is handled above (it takes them out), so here it just closes. */}
+        <Button label="Close" onPress={() => !holding && onClose()} />
+      </View>
 
       <ActionSheet
         visible={sheetOpen}

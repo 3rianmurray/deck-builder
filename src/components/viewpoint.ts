@@ -23,9 +23,9 @@ export interface Lean {
 /** A pile leans by at most this many of its thicknesses in each direction. */
 export const MAX_LEAN = 1.5;
 /** How much tilting the phone moves the eye: 1 g of sideways tilt (on its side) is this many thicknesses. */
-const TILT_GAIN = 0.7;
+const TILT_GAIN = 1;
 /** The most the tilt can add to (or take from) a pile's lean, in thicknesses: a subtle shift, not a swing. */
-const MAX_TILT = 0.35;
+const MAX_TILT = 0.5;
 /** How quickly the eye settles back to wherever the phone is being held, per reading (about every 33ms). */
 const SETTLE = 0.006;
 /** Smoothing of each reading, so the piles don't jitter with the sensor's noise. */

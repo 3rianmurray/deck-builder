@@ -308,11 +308,11 @@ export function PileDepth({
   );
 }
 
-/** A dashed placeholder the size of one of the deck's cards. */
-export function EmptySlot({ deck, width, label }: { deck: Deck; width: number; label: string }) {
+/** A dashed placeholder the size of one of the deck's cards, with an optional hint inside. */
+export function EmptySlot({ deck, width, label }: { deck: Deck; width: number; label?: string }) {
   return (
     <View style={[styles.empty, { width, height: width / cardRatio(deck), borderRadius: Math.max(4, width * 0.06) }]}>
-      <Text style={styles.emptyText}>{label}</Text>
+      {label ? <Text style={styles.emptyText}>{label}</Text> : null}
     </View>
   );
 }

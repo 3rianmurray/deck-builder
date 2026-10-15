@@ -2191,15 +2191,15 @@ function Table({
                   <CardView deck={deck} faceUp={false} width={pileWidth} />
                 </Animated.View>
               ) : (
-                <EmptySlot deck={deck} width={pileWidth} label="Deck empty" />
+                <EmptySlot deck={deck} width={pileWidth} />
               ),
             )
           ) : canReshuffle ? (
             <Pressable onPress={reshuffle} accessibilityRole="button" style={({ pressed }) => pressed && { opacity: 0.7 }}>
-              <EmptySlot deck={deck} width={pileWidth} label="Deck empty · Tap to shuffle the discard back in" />
+              <EmptySlot deck={deck} width={pileWidth} />
             </Pressable>
           ) : (
-            <EmptySlot deck={deck} width={pileWidth} label="Deck empty" />
+            <EmptySlot deck={deck} width={pileWidth} />
           )}
           {shuffling !== null ? <Riffle key={shuffling} deck={deck} width={pileWidth} onDone={() => setShuffling(null)} /> : null}
         </PileDepth>
@@ -2229,11 +2229,11 @@ function Table({
                   onReady={() => flightDone(discardShowing.iid)}
                 />
               ) : (
-                <EmptySlot deck={deck} width={pileWidth} label={reveal ? 'Revealed cards' : 'Discard'} />
+                <EmptySlot deck={deck} width={pileWidth} />
               ),
             )
           ) : (
-            <EmptySlot deck={deck} width={pileWidth} label={reveal ? 'Revealed cards' : 'Discard'} />
+            <EmptySlot deck={deck} width={pileWidth} />
           )}
         </PileDepth>
       </View>

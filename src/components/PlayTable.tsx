@@ -34,7 +34,7 @@ import * as haptics from '../lib/haptics';
 import * as T from '../lib/table';
 import { fitTilt, tiltTransform, unproject } from '../lib/tilt';
 import { cardRatio } from '../lib/types';
-import type { CardInstance, Deck, PlayMode, Spot, TableState, Zone } from '../lib/types';
+import type { Card, CardInstance, Deck, PlayMode, Spot, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
 
 type Sheet =
@@ -231,6 +231,18 @@ interface HeldCard {
   from: Zone;
 }
 
+/** A card picked up mid-drag, on its way to the held stack (see `pickups` in Table). */
+interface Pickup {
+  card: HeldCard;
+  /** Where it was drawn when picked up, on the flat table: top-left corner and width. */
+  from: { x: number; y: number; w: number };
+  /** Which way up it lay there; it turns to the held stack's way on the way over. */
+  faceUp: boolean;
+}
+
+/** How long a card picked up mid-drag takes to fly onto the held stack. */
+const PICKUP_MS = 260;
+
 interface PressOptions {
   onPress?: () => void;
   onLongPress?: () => void;
@@ -314,6 +326,11 @@ function Table({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [searchZone, setSearchZone] = useState<Zone | null>(null);
   const [toast, setToast] = useState<{ msg: string } | null>(null);
+  /**
+   * Cards a second finger has just picked up, flying from where they lay onto the held stack. They're in the
+   * held stack already; it just doesn't show them (or count them) until they land.
+   */
+  const [pickups, setPickups] = useState<Pickup[]>([]);
   /** How the table was before each of the last few actions, oldest first, for undo. Kept while it's open. */
   const [history, setHistory] = useState<TableState[]>([]);
   /** A riffle playing over the deck, by when it started (see `shuffleDeck`). */
@@ -811,6 +828,28 @@ function Table({
     return found && zone ? { iid: found.iid, cardId: found.cardId, from: zone } : null;
   };
 
+  /** Where a card is drawn on the (flat) table right now, as its top-left corner and width: risen, on a pile. */
+  const drawnAt = (h: HeldCard): { x: number; y: number; w: number } | null => {
+    if (h.from === 'hand') {
+      const r = cardLayouts[h.iid];
+      if (!r || !handRect || !layout.handScroll) return null;
+      return { x: handRect.x + layout.handScroll.x - scroll.hand + r.x, y: handRect.y + layout.handScroll.y + r.y, w: r.w };
+    }
+    if (h.from === 'table') {
+      const i = tableGroups.findIndex((g) => g.some((c) => c.iid === h.iid));
+      const r = i === -1 ? undefined : groupRect(tableGroups[i]);
+      if (!r) return null;
+      const left = tableGroups[i].filter((c) => !isHeld(c.iid)).length;
+      const rise = leanOffset(spotLean(groupSpots[i]), pileRise(tableCardWidth, left));
+      return { x: r.x + rise.x, y: r.y + rise.y, w: r.w };
+    }
+    const r = zoneRects.find(([z]) => z === h.from)?.[1];
+    if (!r) return null;
+    const left = table[h.from].filter((c) => !isAway(c.iid)).length;
+    const rise = leanOffset(pileLean(h.from), pileRise(pileWidth, left));
+    return { x: r.x + PILE_INSET + rise.x, y: r.y + PILE_INSET + rise.y, w: pileWidth };
+  };
+
   /** The furthest a scroll view can scroll, so a second finger can't push it past its ends. */
   const maxScroll = (key: 'play' | 'hand') =>
     key === 'play'
@@ -870,15 +909,24 @@ function Table({
       return;
     }
     const card = cardAt(h.startX, h.startY);
-    if (card) animateLayout();
-    if (card) haptics.lift();
-    if (card) setDrag((d) => (d && !d.stack.some((c) => c.iid === card.iid) ? { ...d, stack: [card, ...d.stack] } : d));
+    if (!card || drag?.stack.some((c) => c.iid === card.iid)) return;
+    animateLayout();
+    haptics.lift();
+    // It flies from where it lies onto the held stack, measured before it's taken (and its spot closes up).
+    const from = drawnAt(card);
+    const original = T.findCard(table, card.iid);
+    if (from && original && !prefersReducedMotion()) {
+      setPickups((p) => [...p, { card, from, faceUp: table[original.zone][original.index].faceUp }]);
+    }
+    setDrag((d) => (d && !d.stack.some((c) => c.iid === card.iid) ? { ...d, stack: [card, ...d.stack] } : d));
   };
 
   const endDrag = () => {
     // Cards dropped (or put back) slide into their new places.
     if (drag?.active) animateLayout();
     setDrag(null);
+    // Any cards still flying to the held stack just go with it (they're already in it).
+    setPickups([]);
     setHover(null);
     setInsertAt(null);
     setStackTarget(null);
@@ -1690,6 +1738,8 @@ function Table({
 
   /** The held stack's card size while it's being carried. */
   const liftedWidth = drag ? drag.width * LIFTED_SCALE : 0;
+  /** The held stack as drawn: without cards still flying onto it, which join it (and its count) as they land. */
+  const heldShown = drag ? drag.stack.filter((h) => !pickups.some((p) => p.card.iid === h.iid)) : [];
   /**
    * With a stack target: the corner of the stack where its count sits (bottom right of its spot), so the
    * preview count shows exactly where the stack's own count does.
@@ -2006,7 +2056,7 @@ function Table({
               transform: [...pan.getTranslateTransform(), { scale: liftGrow }],
             },
           ]}>
-          {drag.stack
+          {heldShown
             .slice(1, 3)
             .map((h, i) => (
               <View
@@ -2027,19 +2077,37 @@ function Table({
           {/* Drawn at its lifted size (not scaled up from the small card), so the art stays sharp. */}
           <CardView
             deck={deck}
-            card={cardsById.get(drag.stack[0].cardId)}
-            faceUp={heldFaceUp(drag, drag.stack[0])}
+            card={cardsById.get(heldShown[0].cardId)}
+            faceUp={heldFaceUp(drag, heldShown[0])}
             width={liftedWidth}
             sharp
             onReady={markShown}
           />
-          {drag.stack.length > 1 ? (
+          {heldShown.length > 1 ? (
             <View style={styles.stackBadge}>
-              <Text style={styles.stackBadgeText}>{drag.stack.length}</Text>
+              <Text style={styles.stackBadgeText}>{heldShown.length}</Text>
             </View>
           ) : null}
         </Animated.View>
       ) : null}
+
+      {/* Cards just picked up by a second finger, flying onto the held stack. */}
+      {drag?.active && liftedFrom
+        ? pickups.map((p) => (
+            <PickupFlight
+              key={p.card.iid}
+              deck={deck}
+              card={cardsById.get(p.card.cardId)}
+              from={p.from}
+              fromFaceUp={p.faceUp}
+              faceUp={heldFaceUp(drag, p.card)}
+              to={{ x: liftedFrom.x - drag.offX * LIFTED_SCALE, y: liftedFrom.y - drag.offY * LIFTED_SCALE }}
+              pan={pan}
+              width={liftedWidth}
+              onLanded={() => setPickups((all) => all.filter((q) => q.card.iid !== p.card.iid))}
+            />
+          ))
+        : null}
 
       {/*
         Over a stack target: how big the stack will be once the held cards land on it. It belongs to the stack,
@@ -2104,6 +2172,67 @@ function Table({
         onClose={() => setSearchZone(null)}
       />
     </View>
+  );
+}
+
+/**
+ * A card picked up mid-drag flying from where it lay onto the held stack: it grows from its own size to the
+ * held size, turning to the held stack's way up if it lay the other way, and aims at the held stack as it
+ * follows the finger (its resting corner `to`, moved by `pan`), so it lands on it even if the finger moves.
+ */
+function PickupFlight({
+  deck,
+  card,
+  from,
+  fromFaceUp,
+  faceUp,
+  to,
+  pan,
+  width,
+  onLanded,
+}: {
+  deck: Deck;
+  card: Card | undefined;
+  from: { x: number; y: number; w: number };
+  fromFaceUp: boolean;
+  faceUp: boolean;
+  to: { x: number; y: number };
+  pan: Animated.ValueXY;
+  width: number;
+  onLanded: () => void;
+}) {
+  const [t] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    // Started once mounted: the native driver needs its view to exist first.
+    Animated.timing(t, { toValue: 1, duration: PICKUP_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }).start(
+      ({ finished }) => finished && onLanded(),
+    );
+    // Flies once; a card picked up again is a new flight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Part of the way from where it lay to the held stack, wherever that is now.
+  const toward = (start: number, end: number, moved: Animated.Value) =>
+    Animated.multiply(t, Animated.add(moved, end - start));
+  const startScale = from.w / width;
+  return (
+    <Animated.View
+      style={[
+        styles.pickup,
+        tabletopShadow.lifted,
+        {
+          left: from.x,
+          top: from.y,
+          // Grows from its top-left corner, which travels to the held stack's.
+          transformOrigin: [0, 0, 0],
+          transform: [
+            { translateX: toward(from.x, to.x, pan.x) },
+            { translateY: toward(from.y, to.y, pan.y) },
+            { scale: t.interpolate({ inputRange: [0, 1], outputRange: [startScale, 1] }) },
+          ],
+        },
+      ]}>
+      <CardView deck={deck} card={card} faceUp={faceUp} flipIn={fromFaceUp !== faceUp} width={width} sharp />
+    </Animated.View>
   );
 }
 
@@ -2317,6 +2446,7 @@ const styles = StyleSheet.create({
   },
   stackCountText: { color: colors.text, fontSize: 12, fontWeight: '700' },
   landing: { position: 'absolute', left: 0, top: 0, pointerEvents: 'none' },
+  pickup: { position: 'absolute', pointerEvents: 'none' },
   landingShadow: { position: 'absolute', left: 0, top: 0, backgroundColor: colors.surfaceRaised },
   // Matches a pile's edges (PileDepth), for a landing stack's stand-in.
   pileEdge: { backgroundColor: '#d8d3c8', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.45)' },

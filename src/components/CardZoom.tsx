@@ -70,7 +70,8 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
     Animated.parallel([
       Animated.spring(anim.scale, { toValue: 1, friction: 7, tension: 80, useNativeDriver: true }),
       Animated.timing(anim.opacity, { toValue: 1, duration: 140, useNativeDriver: true }),
-    ]).start(() => setShowNeighbours(true));
+    // Only if it actually got there: closing mid-open stops it, and the neighbours mustn't show while it shrinks.
+    ]).start(({ finished }) => finished && setShowNeighbours(true));
   }, [anim]);
 
   const responder = useMemo(() => {
@@ -123,7 +124,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
         if (s.pinching) {
           // Released after pinching: closed if it was squeezed far enough, otherwise back to full size.
           if (s.pinchScale <= PINCH_CLOSE) return close({ x: 0, y: 0, scale: 0.3 });
-          return Animated.spring(anim.scale, { toValue: 1, useNativeDriver: true }).start(() => setShowNeighbours(true));
+          return Animated.spring(anim.scale, { toValue: 1, useNativeDriver: true }).start(({ finished }) => finished && setShowNeighbours(true));
         }
         if (!s.swiping) return close({ x: 0, y: 0, scale: 0.6 }); // a tap
         // Only the locked direction counts, so a slightly crooked swipe still reads as straight.

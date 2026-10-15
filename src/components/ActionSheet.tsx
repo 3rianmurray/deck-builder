@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { SymbolView } from 'expo-symbols';
 import type { SymbolViewProps } from 'expo-symbols';
-import { Animated, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '../theme';
@@ -42,17 +42,30 @@ const OUT_MS = 200;
  * A bottom sheet of actions. Each action closes the sheet when pressed. The dimmed backdrop fades in and out
  * over the screen while the sheet itself slides up from the bottom (and back down).
  */
-export function ActionSheet({ visible, title, header, tiles, actions, onClose }: Props) {
+export function ActionSheet(props: Props) {
+  const { visible, onClose } = props;
   const insets = useSafeAreaInsets();
   const pending = useRef<(() => void) | null>(null);
   // 0 is closed, 1 open: the backdrop's opacity, and how far up the sheet has slid.
   const [progress] = useState(() => new Animated.Value(0));
-  const [sheetHeight, setSheetHeight] = useState(600);
+  // Starts below the screen, until the sheet has been measured (it slides in only once it has).
+  const { height: screenHeight } = useWindowDimensions();
+  const [sheetHeight, setSheetHeight] = useState(screenHeight);
+  const [measured, setMeasured] = useState(false);
+  // What the sheet shows, kept from when it was last open: while it slides away, whatever it was showing may
+  // already be gone (the card just moved, the group just deleted), and it should leave as it was.
+  const shown = useMemo(() => {
+    const box: { last: Props | null } = { last: null };
+    return { keep: (p: Props) => Object.assign(box, { last: p }), get: () => box.last };
+  }, []);
+  if (visible) shown.keep(props);
+  const { title, header, tiles, actions } = visible ? props : (shown.get() ?? props);
   // The modal stays up after `visible` goes false until the sheet has slid away.
   const [mounted, setMounted] = useState(visible);
   if (visible && !mounted) setMounted(true);
 
   useEffect(() => {
+    if (visible && !measured) return;
     if (visible) {
       Animated.timing(progress, { toValue: 1, duration: IN_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     } else {
@@ -60,7 +73,7 @@ export function ActionSheet({ visible, title, header, tiles, actions, onClose }:
         ({ finished }) => finished && setMounted(false),
       );
     }
-  }, [visible, progress]);
+  }, [visible, measured, progress]);
 
   const run = (a: SheetAction) => {
     if (a.opensModal && Platform.OS === 'ios') {
@@ -91,7 +104,12 @@ export function ActionSheet({ visible, title, header, tiles, actions, onClose }:
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
         </Animated.View>
         <Animated.View
-          onLayout={(e) => setSheetHeight(e.nativeEvent.layout.height)}
+          onLayout={(e) => {
+            // Not while it slides away: its height changing then would make the slide jump.
+            if (!visible) return;
+            setSheetHeight(e.nativeEvent.layout.height);
+            setMeasured(true);
+          }}
           style={[
             styles.sheet,
             { paddingBottom: insets.bottom + 8 },

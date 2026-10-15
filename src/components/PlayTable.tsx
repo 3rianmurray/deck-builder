@@ -265,6 +265,17 @@ interface Flight {
   toFaceUp: boolean;
   /** When it sets off, after the flights before it, so several cards go one after another. */
   delay: number;
+  /** Where it's going. */
+  zone: Zone;
+  /** Which change sent it, so a card sent off again (say, by an undo) starts a fresh flight. */
+  batch: number;
+  /**
+   * It has landed and the real card is showing underneath; the flying copy stays over it a moment longer, until
+   * the real card's picture is surely drawn, so there's no blank frame at the hand-over.
+   */
+  landed?: boolean;
+  /** The last of its batch: its landing is felt (see `moveCards`). */
+  thud?: boolean;
 }
 
 /** How long each card takes to fly to its new place. */
@@ -372,8 +383,13 @@ function Table({
   const [pickups, setPickups] = useState<Pickup[]>([]);
   /** Cards flying to their new places (see `moveCards`). Each is hidden there until it lands. */
   const [flights, setFlights] = useState<Flight[]>([]);
-  /** A riffle waiting for cards to fly back to the deck before it plays. */
-  const riffleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** A riffle waiting for cards flying back to the deck to land before it plays. */
+  const [riffleWaiting, setRiffleWaiting] = useState(false);
+  /** Numbers each batch of flights (see planFlights). */
+  const flightBatch = useMemo(() => {
+    const box = { n: 0 };
+    return { next: () => Object.assign(box, { n: box.n + 1 }).n };
+  }, []);
   /** How the table was before each of the last few actions, oldest first, for undo. Kept while it's open. */
   const [history, setHistory] = useState<TableState[]>([]);
   /** A riffle playing over the deck, by when it started (see `shuffleDeck`). */
@@ -459,7 +475,14 @@ function Table({
   /** A card on its way from the deck to the discard pile after a reveal. */
   // `landed`: it has reached the discard pile and the real card is there underneath; the flying one stays on
   // top until the real one's picture is on screen, so swapping them never shows a blank frame.
-  const [flying, setFlying] = useState<{ iid: string; cardId: string; faceUp: boolean; landed?: boolean } | null>(null);
+  const [flying, setFlying] = useState<{
+    iid: string;
+    cardId: string;
+    faceUp: boolean;
+    /** Where it lands, on the flat table. */
+    to?: { x: number; y: number };
+    landed?: boolean;
+  } | null>(null);
   const [flight] = useState(() => ({ pos: new Animated.ValueXY(), scale: new Animated.Value(1) }));
   /** The flying card is gone once the real top card of the discard pile has been drawn under it. */
   const flightDone = (iid: string) => setFlying((f) => (f?.landed && f.iid === iid ? null : f));
@@ -558,7 +581,7 @@ function Table({
     return -1;
   })();
   /** Not while cards are in motion: held, flying from the deck, or still gliding into place. */
-  const canUndo = undoTo !== -1 && !drag?.active && !flying && !landing;
+  const canUndo = undoTo !== -1 && !drag?.active && !flying && !landing && !flights.length;
 
   /** Puts the table back as it was before the last thing done to it. */
   const undo = () => {
@@ -568,10 +591,10 @@ function Table({
     animateLayout();
     setTable(previous);
     // Cards fly back to where they were.
-    if (!prefersReducedMotion()) setFlights(planFlights(table, previous));
+    if (!prefersReducedMotion()) launch(planFlights(table, previous));
     // Anything still playing for what's being undone stops: a riffle (or one about to start), and the deck's
     // pile with it.
-    clearTimeout(riffleTimer.current);
+    setRiffleWaiting(false);
     setShuffling(null);
     deckHeight.stopAnimation();
     deckHeight.setValue(1);
@@ -591,14 +614,9 @@ function Table({
       haptics.success();
       return;
     }
-    // Any cards coming back to the deck fly there first; then it's riffled.
-    const arrive = moveCards(fn);
-    clearTimeout(riffleTimer.current);
-    riffleTimer.current = setTimeout(() => {
-      // A new id each time, so shuffling again mid-riffle starts it over.
-      setShuffling(Date.now());
-      riffleHeight(deckHeight).start();
-    }, arrive);
+    // Any cards coming back to the deck fly there first; then it's riffled (see `riffleWaiting`).
+    moveCards(fn);
+    setRiffleWaiting(true);
   };
 
   /**
@@ -660,9 +678,27 @@ function Table({
     setSearchZone(null);
   }
 
+  // The riffle plays once every card flying back to the deck has landed (at once, if none are). Started while
+  // rendering, React's pattern for state that follows other state; a new number each time, so shuffling again
+  // mid-riffle starts it over.
+  if (riffleWaiting && !flights.some((f) => f.zone === 'deck' && !f.landed)) {
+    setRiffleWaiting(false);
+    setShuffling((n) => (n ?? 0) + 1);
+  }
+  // The deck's pile drops away and builds back up with each riffle.
+  useEffect(() => {
+    if (shuffling !== null) riffleHeight(deckHeight).start();
+  }, [shuffling, deckHeight]);
+
+  /**
+   * The deck is being shuffled, or cards are still flying onto it: it can't be drawn from or revealed until it's
+   * settled, or a card could leave from the wrong place (or one still on its way).
+   */
+  const deckBusy = shuffling !== null || riffleWaiting || flights.some((f) => f.zone === 'deck' && !f.landed);
+
   /** Deals the deck's top card into the hand. */
   const drawOne = () => {
-    if (!table.deck.length) return;
+    if (!table.deck.length || deckBusy) return;
     moveCards((t) => T.draw(t, 1));
     haptics.deal();
   };
@@ -695,8 +731,7 @@ function Table({
     const stack = wholeStack && group && group.length > 1 ? group.map((c) => c.iid).reverse() : null;
     // Felt as the cards are put down where they're going.
     const go = (fn: (t: TableState) => TableState, msg?: string) => () => {
-      moveCards(fn, msg);
-      haptics.drop();
+      moveCards(fn, msg, true);
     };
     const moveTo = (zone: Zone, position?: T.Position) => (t: TableState) => {
       if (!stack) return T.moveCard(t, iid, zone, position);
@@ -736,7 +771,7 @@ function Table({
   /** Turns the top card of the deck face up onto the discard pile. */
   const revealNext = () => {
     const top = table.deck[0];
-    if (!top || flying) return;
+    if (!top || flying || deckBusy) return;
     // Felt as it comes off the deck, and again as it lands on the discard pile.
     haptics.deal();
     const move = () => apply((t) => T.moveCard(t, top.iid, 'discard'));
@@ -756,30 +791,39 @@ function Table({
     const land = leanOffset(pileLean('discard'), pileRise(pileWidth, table.discard.length + 1));
     flight.pos.setValue({ x: from.x + PILE_INSET + lift.x, y: from.y + PILE_INSET + lift.y });
     flight.scale.setValue(1);
-    setFlying({ iid: top.iid, cardId: top.cardId, faceUp: false });
-    setTimeout(() => setFlying((f) => f && { ...f, faceUp: true }), FLIGHT_MS * 0.2);
+    // It sets off once its view is on screen (see below).
+    setFlying({ iid: top.iid, cardId: top.cardId, faceUp: false, to: { x: to.x + PILE_INSET + land.x, y: to.y + PILE_INSET + land.y } });
+  };
+
+  // A revealed card's flight, started once its view is there: the native driver can't move a view that doesn't
+  // exist yet. Its timers are cleared if the table goes away mid-flight.
+  const flyingId = flying && !flying.landed ? flying.iid : null;
+  useLayoutEffect(() => {
+    if (!flyingId || !flying?.to) return;
+    const iid = flyingId;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    timers.push(setTimeout(() => setFlying((f) => (f?.iid === iid ? { ...f, faceUp: true } : f)), FLIGHT_MS * 0.2));
     const half = { duration: FLIGHT_MS / 2, useNativeDriver: true };
     Animated.parallel([
-      Animated.timing(flight.pos, {
-        toValue: { x: to.x + PILE_INSET + land.x, y: to.y + PILE_INSET + land.y },
-        duration: FLIGHT_MS,
-        easing: Easing.inOut(Easing.cubic),
-        useNativeDriver: true,
-      }),
+      Animated.timing(flight.pos, { toValue: flying.to, duration: FLIGHT_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
       // Rises a little mid-flight, then settles onto the pile.
       Animated.sequence([
         Animated.timing(flight.scale, { toValue: 1.12, easing: Easing.out(Easing.quad), ...half }),
         Animated.timing(flight.scale, { toValue: 1, easing: Easing.in(Easing.quad), ...half }),
       ]),
-    ]).start(() => {
+    ]).start(({ finished }) => {
+      if (!finished) return;
       haptics.drop();
       // Put the real card on the pile under the flying one; the flying one goes once that's drawn (or after a
       // moment, if its picture is slow to report).
-      move();
-      setFlying((f) => f && { ...f, landed: true });
-      setTimeout(() => flightDone(top.iid), 150);
+      apply((t) => T.moveCard(t, iid, 'discard'));
+      setFlying((f) => (f?.iid === iid ? { ...f, landed: true } : f));
+      setTimeout(() => flightDone(iid), 150);
     });
-  };
+    return () => timers.forEach(clearTimeout);
+    // Once per revealed card.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flyingId]);
 
   const switchMode = (next: PlayMode) => {
     setMode(next);
@@ -887,7 +931,7 @@ function Table({
   const carriedAway = (iid: string) => isHeld(iid) && !!drag?.shown;
   /** Held in a drag, or mid-flight after a reveal: either way, not shown on its pile. */
   /** Flying to its new place after a change (see `moveCards`): it's there, but not shown there until it lands. */
-  const arriving = (iid: string) => flights.some((f) => f.iid === iid);
+  const arriving = (iid: string) => flights.some((f) => f.iid === iid && !f.landed);
   const isAway = (iid: string) => isHeld(iid) || flying?.iid === iid || arriving(iid);
   /** As `isAway`, for drawing: a just-lifted card stays on its pile until its lifted copy is showing. */
   const drawnAway = (iid: string) => carriedAway(iid) || (flying?.iid === iid && !flying.landed) || arriving(iid);
@@ -993,7 +1037,9 @@ function Table({
    * Which cards fly for a change from `before` to `after`, and from where. Cards inside a pile can't be seen,
    * so only the first few off a pile fly (from its top card); the rest just move.
    */
-  const planFlights = (before: TableState, after: TableState): Flight[] => {
+  const planFlights = (before: TableState, after: TableState, thud = false): Flight[] => {
+    // Each batch gets its own number (from the first flight in it), to key its flights by.
+    const batch = flightBatch.next();
     const planned: Flight[] = [];
     const fromPile: Record<string, number> = {};
     for (const zone of ['deck', 'hand', 'table', 'discard'] as Zone[]) {
@@ -1014,27 +1060,32 @@ function Table({
           fromFaceUp: before[was.zone][was.index].faceUp,
           toFaceUp: c.faceUp,
           delay: 0,
+          zone,
+          batch,
         });
         if (planned.length === MAX_FLIGHTS) break;
       }
     }
-    return planned.map((f, i) => ({ ...f, delay: i * FLIGHT_STAGGER_MS }));
+    return planned.map((f, i) => ({ ...f, delay: i * FLIGHT_STAGGER_MS, thud: thud && i === planned.length - 1 }));
   };
 
+  /** Sends cards on their way, alongside any still in the air (a card sent off again starts over). */
+  const launch = (planned: Flight[]) =>
+    setFlights((all) => [...all.filter((f) => !planned.some((p) => p.iid === f.iid)), ...planned]);
+
   /**
-   * Changes the table (as `apply` does), flying each card that changes place to where it ends up. Returns how
-   * long the flights take, so what comes next (a riffle) can wait for them.
+   * Changes the table (as `apply` does), flying each card that changes place to where it ends up. With `thud`,
+   * the cards being put down is felt: as the last one lands (or straight away, if none fly).
    */
-  const moveCards = (fn: (t: TableState) => TableState, msg?: string): number => {
+  const moveCards = (fn: (t: TableState) => TableState, msg?: string, thud = false) => {
     // Worked out once, so a shuffle comes out the same for the flights as for the table.
     const next = fn(table);
     // Cards making room (or closing up) in the hand slide over.
     animateLayout();
     apply(() => next, msg);
-    if (prefersReducedMotion()) return 0;
-    const planned = planFlights(table, next);
-    setFlights(planned);
-    return planned.length ? (planned.length - 1) * FLIGHT_STAGGER_MS + FLIGHT_MOVE_MS : 0;
+    const planned = prefersReducedMotion() ? [] : planFlights(table, next, thud);
+    if (planned.length) launch(planned);
+    else if (thud) haptics.drop();
   };
 
   /** Where a card that has just moved is drawn now, on the flat table, once it's laid out there. */
@@ -1069,12 +1120,12 @@ function Table({
         const waiting = flights.filter((f) => !f.to);
         Promise.all(waiting.map((f) => measureLanding(f.iid))).then((tos) => {
           if (cancelled) return;
-          const landed = new Map(waiting.map((f, i) => [f.iid, tos[i]]));
+          const measured = new Map(waiting.map((f, i) => [f.iid, tos[i]]));
           // Any that can't be found (gone, or off screen) just appear where they are.
           setFlights((all) =>
             all.flatMap((f) => {
-              if (f.to || !landed.has(f.iid)) return [f];
-              const to = landed.get(f.iid);
+              if (f.to || !measured.has(f.iid)) return [f];
+              const to = measured.get(f.iid);
               return to ? [{ ...f, to }] : [];
             }),
           );
@@ -1896,8 +1947,7 @@ function Table({
       case 'place': {
         const { iids, spot, faceUp } = sheet;
         const put = (fn: (t: TableState) => TableState) => () => {
-          moveCards(fn);
-          haptics.drop();
+          moveCards(fn, undefined, true);
         };
         return {
           title: `Put down ${iids.length} cards`,
@@ -1920,8 +1970,7 @@ function Table({
                   {
                     label: 'Discard entire hand',
                     onPress: () => {
-                      moveCards(T.discardHand);
-                      haptics.drop();
+                      moveCards(T.discardHand, undefined, true);
                     },
                   },
                 ]),
@@ -1984,11 +2033,15 @@ function Table({
         Animated.timing(landingAnim.scale, { toValue: w / landing.width, duration: LANDING_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         // Settling onto the cloth: by the end only the card's own resting shadow is left, as on the real card.
         Animated.timing(landingAnim.lift, { toValue: 0, duration: LANDING_MS, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      ]).start(() => {
+      ]).start(({ finished }) => {
+        // Stopped part-way (the glide was re-aimed): the new glide finishes the job.
+        if (!finished) return;
         // Hand over without a gap: show the real card first, and only take the stand-in away a couple of frames
-        // later, once the real card is surely on screen right underneath it.
-        setLanding((l) => l && { ...l, revealed: true });
-        requestAnimationFrame(() => requestAnimationFrame(() => setLanding(null)));
+        // later, once the real card is surely on screen right underneath it. Only this landing: another drop may
+        // have started one of its own in the meantime.
+        const mine = landing.iids;
+        setLanding((l) => (l?.iids === mine ? { ...l, revealed: true } : l));
+        requestAnimationFrame(() => requestAnimationFrame(() => setLanding((l) => (l?.iids === mine ? null : l))));
       });
     };
     const glide = () => {
@@ -2305,7 +2358,8 @@ function Table({
                 width: landing.width,
                 height: landing.width / ratio,
                 borderRadius: Math.max(4, landing.width * 0.06),
-                opacity: landingAnim.lift,
+                // Not for a card turning over as it lands: this slab would show round it as it narrows.
+                opacity: landing.turns ? 0 : landingAnim.lift,
               },
               tabletopShadow.lifted,
             ]}
@@ -2318,12 +2372,16 @@ function Table({
       {/* Cards flying to their new places after a change (see `moveCards`). */}
       {flights.map((f) => (
         <CardFlight
-          key={f.iid}
+          key={`${f.iid}:${f.batch}`}
           flight={f}
           deck={deck}
           card={cardsById.get(f.cardId)}
           size={Math.max(handWidth, pileWidth, tableCardWidth)}
-          onLanded={() => setFlights((all) => all.filter((g) => g.iid !== f.iid))}
+          onLanded={() => {
+            if (f.thud) haptics.drop();
+            setFlights((all) => all.map((g) => (g.iid === f.iid && g.batch === f.batch ? { ...g, landed: true } : g)));
+          }}
+          onGone={() => setFlights((all) => all.filter((g) => !(g.iid === f.iid && g.batch === f.batch)))}
         />
       ))}
 
@@ -2553,12 +2611,16 @@ function CardFlight({
   card,
   size,
   onLanded,
+  onGone,
 }: {
   flight: Flight;
   deck: Deck;
   card: Card | undefined;
   size: number;
+  /** It's there: the real card can show underneath. */
   onLanded: () => void;
+  /** The real card has surely been drawn by now: the copy can go. */
+  onGone: () => void;
 }) {
   const { from, to, delay } = flight;
   const [t] = useState(() => new Animated.Value(0));
@@ -2575,6 +2637,14 @@ function CardFlight({
     // Flies once, as soon as it knows where to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!to]);
+  // Once landed it stays a moment over the real card, which may have just appeared there and take a frame or
+  // two to draw its picture.
+  useEffect(() => {
+    if (!flight.landed) return;
+    const timer = setTimeout(onGone, 150);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flight.landed]);
   const end = to ?? from;
   return (
     <Animated.View
@@ -2663,14 +2733,15 @@ function SearchPanel({
   /** It has finished sliding away. */
   onClosed: () => void;
 }) {
-  const { width } = useWindowDimensions();
+  const { width, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [selected, setSelected] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   // The pile last shown, kept while the search slides away.
   const [shownZone, setShownZone] = useState(zone);
   if (zone && zone !== shownZone) setShownZone(zone);
-  const [height, setHeight] = useState(800);
+  // Below the screen until measured, so it never peeks in at the wrong place on its first frame.
+  const [height, setHeight] = useState(screenHeight);
   // 0 is closed, 1 open: how far it has slid up. Fading (when cards are taken out) is separate.
   const [open] = useState(() => new Animated.Value(0));
   const [fade] = useState(() => new Animated.Value(1));

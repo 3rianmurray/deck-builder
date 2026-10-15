@@ -2,7 +2,7 @@ import { SymbolView } from 'expo-symbols';
 import type { SymbolViewProps } from 'expo-symbols';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent, StyleProp, ViewStyle } from 'react-native';
 
 import * as haptics from '../lib/haptics';
@@ -38,6 +38,9 @@ interface Props {
  */
 export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 12, style, children }: Props) {
   const [width, setWidth] = useState(0);
+  const { width: screenWidth } = useWindowDimensions();
+  // Before the row is measured: the screen less the list's usual padding.
+  const fallbackWidth = screenWidth - 32;
   const scrollRef = useRef<ScrollView>(null);
   // Scroll positions: the Duplicate button (if any) sits off to the left, so closed is scrolled past it.
   const left = onDuplicate ? REVEAL : 0;
@@ -49,6 +52,8 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
     scrollRef.current?.scrollTo({ x: target, animated: true });
   }, [target]);
 
+  // Settles once the row has come to rest: after its snap, or straight away if let go without a flick (then
+  // there's no snap to wait for). Settling on release, before the snap, could fight a flick the other way.
   const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
     const side: SwipeSide | null = onDuplicate && x < left / 2 ? 'left' : x > left + REVEAL / 2 ? 'right' : null;
@@ -70,7 +75,9 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
 
   return (
     <View style={style} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-      {width ? (
+      {/* Always the scroll view, even before it's measured (then as wide as the screen allows), so the row
+          isn't rebuilt once it is, which would make its picture blink. */}
+      {(
         <ScrollView
           ref={scrollRef}
           horizontal
@@ -79,14 +86,14 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
           contentOffset={{ x: offsetFor(open), y: 0 }}
           snapToOffsets={onDuplicate ? [0, left, left + REVEAL] : [0, REVEAL]}
           decelerationRate="fast"
-          onScrollEndDrag={settle}
+          onScrollEndDrag={(e) => !e.nativeEvent.velocity?.x && settle(e)}
           onMomentumScrollEnd={settle}>
           {onDuplicate
             ? action('Duplicate', { ios: 'plus.square.on.square', android: 'content_copy', web: 'content_copy' }, colors.accent, onDuplicate, {
                 marginRight: GAP,
               })
             : null}
-          <View style={{ width }}>
+          <View style={{ width: width || fallbackWidth }}>
             {children}
             {open ? (
               <Pressable style={StyleSheet.absoluteFill} onPress={() => onOpenChange(null)} accessibilityLabel="Close" />
@@ -94,8 +101,6 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
           </View>
           {action('Delete', { ios: 'trash', android: 'delete', web: 'delete' }, colors.danger, onDelete, { marginLeft: GAP })}
         </ScrollView>
-      ) : (
-        children
       )}
     </View>
   );

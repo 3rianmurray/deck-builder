@@ -59,12 +59,16 @@ function useFlip<C>(faceUp: boolean, flipIn: boolean, card: C) {
     });
   }, [faceUp, shown, turn]);
 
-  const transform = [
-    { perspective: 800 },
-    { rotateY: turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] }) },
-    // A slight lift sells the 3D turn.
-    { scale: turn.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }) },
-  ];
+  // Built once: rebuilt each render, a re-render mid-turn could draw it flat for a frame.
+  const transform = useMemo(
+    () => [
+      { perspective: 800 },
+      { rotateY: turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] }) },
+      // A slight lift sells the 3D turn.
+      { scale: turn.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }) },
+    ],
+    [turn],
+  );
   // Mid-flip: from starting to turn until it's lying flat again.
   const turning = !settled || settling;
   return { shown, shownCard, transform, turning };
@@ -118,6 +122,13 @@ export function CardView({
   const radius = Math.max(4, width * 0.06);
   const { shown, shownCard: card, transform, turning } = useFlip(faceUp, flipIn, cardProp);
   const showFace = shown && card;
+  // While it turns, the face it's turning to is already there underneath, hidden, so its picture has loaded by
+  // the time it shows at the halfway point (rather than a grey card while it loads). Each side keeps its own
+  // view, so a side doesn't reload when it goes from hidden to shown.
+  const faceCard = shown ? card : cardProp;
+  const faceVisible = !!showFace;
+  const faceMounted = !!faceCard && (faceVisible || (turning && faceUp));
+  const backMounted = !faceVisible || (turning && !faceUp);
   const hasPicture = !!showFace || !!deck.backImage;
   useEffect(() => {
     if (!hasPicture) onReady?.();
@@ -133,7 +144,8 @@ export function CardView({
   // against the views beside it, and the half turning away goes behind them (the edges of a held stack, a
   // shadow layer), showing grey where the card should be. Clipping only while it turns keeps its shadow whole
   // the rest of the time. The layer is always there, so starting a turn never rebuilds the card.
-  const room = Math.ceil(Math.max(6, width * 0.06));
+  // Room for the lift, the perspective bulge of the near edge as it turns, and a little shadow.
+  const room = Math.ceil(Math.max(10, height * 0.15));
   return (
     <View style={{ margin: -room, padding: room, overflow: turning ? 'hidden' : 'visible' }}>
     <Animated.View
@@ -156,25 +168,32 @@ export function CardView({
           selected && styles.selected,
           pressed && { opacity: 0.8 },
         ]}>
-        {showFace ? (
-          <Image
-            source={{ uri: imageUri(card.image) }}
-            style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
-            contentFit="cover"
-            onDisplay={onReady}
-            allowDownscaling={!sharp}
-          />
-        ) : deck.backImage ? (
-          <Image
-            source={{ uri: imageUri(deck.backImage) }}
-            style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
-            contentFit="cover"
-            onDisplay={onReady}
-            allowDownscaling={!sharp}
-          />
-        ) : (
-          <DefaultBack radius={radius} />
-        )}
+        {backMounted ? (
+          <View key="back" style={[StyleSheet.absoluteFill, faceVisible && styles.hiddenSide]}>
+            {deck.backImage ? (
+              <Image
+                source={{ uri: imageUri(deck.backImage) }}
+                style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
+                contentFit="cover"
+                onDisplay={faceVisible ? undefined : onReady}
+                allowDownscaling={!sharp}
+              />
+            ) : (
+              <DefaultBack radius={radius} />
+            )}
+          </View>
+        ) : null}
+        {faceMounted && faceCard ? (
+          <View key="face" style={[StyleSheet.absoluteFill, !faceVisible && styles.hiddenSide]}>
+            <Image
+              source={{ uri: imageUri(faceCard.image) }}
+              style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
+              contentFit="cover"
+              onDisplay={faceVisible ? onReady : undefined}
+              allowDownscaling={!sharp}
+            />
+          </View>
+        ) : null}
         {/* A faint sheen on the card's edge, where the light catches it. */}
         {tabletop ? <View style={[StyleSheet.absoluteFill, styles.sheen, { borderRadius: radius }]} /> : null}
       </Pressable>
@@ -308,6 +327,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   selected: { borderWidth: 2, borderColor: colors.accent },
+  // The side not showing, loaded and ready underneath while the card turns.
+  hiddenSide: { opacity: 0 },
   noShadow: { shadowOpacity: 0, elevation: 0 },
   sheen: {
     pointerEvents: 'none',

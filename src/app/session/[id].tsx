@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { DeckTable } from '../../components/PlayTable';
+import * as haptics from '../../lib/haptics';
 import { useDecks } from '../../lib/DecksContext';
 import { colors } from '../../theme';
 
@@ -45,6 +46,7 @@ export default function SessionScreen() {
   }
 
   const goTo = (i: number) => {
+    if (i !== index) haptics.tick();
     setIndex(i);
     pager.current?.scrollTo({ x: i * width, animated: true });
   };
@@ -84,7 +86,12 @@ export default function SessionScreen() {
         pagingEnabled
         scrollEnabled={!touchingCard}
         showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / width))}>
+        onMomentumScrollEnd={(e) => {
+          const i = Math.round(e.nativeEvent.contentOffset.x / width);
+          // A tick on arriving at another deck.
+          if (i !== index) haptics.tick();
+          setIndex(i);
+        }}>
         {decks.map((d, i) => (
           <View key={d.id} style={{ width }}>
             <DeckTable deckId={d.id} sessionId={session.id} active={i === current} onTouchingCard={setTouchingCard} />

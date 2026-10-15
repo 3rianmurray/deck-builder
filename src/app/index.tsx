@@ -10,6 +10,7 @@ import { LIFT_HOLD_MS, ReorderableList } from '../components/ReorderableList';
 import { SwipeRow } from '../components/SwipeRow';
 import type { SwipeSide } from '../components/SwipeRow';
 import { useDecks } from '../lib/DecksContext';
+import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
 import { deckSize } from '../lib/types';
@@ -55,20 +56,24 @@ export default function HomeScreen() {
 
   const copyDeck = (id: string) => {
     closeRows();
-    duplicateDeck(id);
+    if (duplicateDeck(id)) haptics.success();
   };
 
   // Decks and sessions take things with them, so ask first. A group's decks are kept, so it just goes.
-  const confirmDeleteDeck = (id: string, name: string) =>
+  const confirmDeleteDeck = (id: string, name: string) => {
+    haptics.warn();
     Alert.alert(`Delete "${name}"?`, 'This removes the deck and all of its card images from this device.', [
       { text: 'Cancel', style: 'cancel', onPress: closeRows },
       { text: 'Delete', style: 'destructive', onPress: () => deleteDeck(id) },
     ]);
-  const confirmDeleteSession = (id: string, name: string) =>
+  };
+  const confirmDeleteSession = (id: string, name: string) => {
+    haptics.warn();
     Alert.alert(`Delete "${name}"?`, 'The decks themselves are kept.', [
       { text: 'Cancel', style: 'cancel', onPress: closeRows },
       { text: 'Delete', style: 'destructive', onPress: () => deleteSession(id) },
     ]);
+  };
 
   const rows = buildRows(decks, groups);
   const menuGroup = groups.find((g) => g.id === groupMenu);
@@ -102,7 +107,10 @@ export default function HomeScreen() {
       const count = decks.filter((d) => d.groupId === group.id).length;
       const groupRow = (
         <Pressable
-          onPress={() => toggleGroup(group.id)}
+          onPress={() => {
+            toggleGroup(group.id);
+            haptics.tick();
+          }}
           // Matches the list's hold-to-lift, so letting go after lifting doesn't also toggle the group.
           onLongPress={() => {}}
           delayLongPress={LIFT_HOLD_MS}

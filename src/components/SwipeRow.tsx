@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent, StyleProp, ViewStyle } from 'react-native';
 
+import * as haptics from '../lib/haptics';
 import { colors } from '../theme';
 
 const ACTION_WIDTH = 72;
@@ -51,7 +52,10 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
   const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
     const side: SwipeSide | null = onDuplicate && x < left / 2 ? 'left' : x > left + REVEAL / 2 ? 'right' : null;
-    if (side !== open) onOpenChange(side);
+    if (side === open) return;
+    // A tick as a button clicks into view.
+    if (side) haptics.tick();
+    onOpenChange(side);
   };
 
   const action = (label: string, icon: SymbolViewProps['name'], color: string, onPress: () => void, gap: ViewStyle) => (

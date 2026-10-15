@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { Animated, FlatList, LayoutAnimation, StyleSheet, Text, View } from 'react-native';
 import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent } from 'react-native';
 
+import * as haptics from '../lib/haptics';
 import { gridHit, gridSlot } from '../lib/order';
 import { colors } from '../theme';
 
@@ -183,7 +184,11 @@ export function ReorderableGrid<T>({
   const track = () => {
     const { x, y } = live.get();
     const slot = slotAt(x, y);
-    if (slot !== target) setTarget(slot);
+    if (slot !== target) {
+      setTarget(slot);
+      // A tick each time the landing spot moves on.
+      if (target !== null) haptics.tick();
+    }
     const rel = y - origin.y;
     const next = press?.helper ? 0 : rel < EDGE ? -1 : rel > viewHeight - bottomInset - EDGE ? 1 : 0;
     if (next !== edge) setEdge(next);
@@ -203,6 +208,7 @@ export function ReorderableGrid<T>({
     const timer = setTimeout(() => {
       slideIntoPlace();
       setPress((p) => p && { ...p, lifted: true });
+      haptics.lift();
     }, HOLD_MS);
     return () => clearTimeout(timer);
   }, [holdKey]);
@@ -301,7 +307,10 @@ export function ReorderableGrid<T>({
       return;
     }
     const index = itemAt(h.startX, h.startY);
-    if (index !== null) setPress((p) => (p && !p.picked.includes(index) ? { ...p, picked: [...p.picked, index] } : p));
+    if (index !== null) {
+      setPress((p) => (p && !p.picked.includes(index) ? { ...p, picked: [...p.picked, index] } : p));
+      haptics.lift();
+    }
   };
 
   /** The holding finger lifted: put the carried items in the slot under it, or treat a short press as a tap. */
@@ -314,6 +323,7 @@ export function ReorderableGrid<T>({
       if (to !== null && !(p.picked.length === 1 && to === p.from)) {
         slideIntoPlace();
         onMove(p.picked, to);
+        haptics.drop();
       }
       return;
     }

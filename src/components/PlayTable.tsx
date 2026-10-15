@@ -1,4 +1,3 @@
-import * as Haptics from 'expo-haptics';
 import { router, Stack } from 'expo-router';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
@@ -25,10 +24,12 @@ import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { matSpot, OnTabletopContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
 import { CardZoom, type ZoomItem } from './CardZoom';
+import { Riffle } from './Riffle';
 import { CardView, EmptySlot, PileDepth, pileRise, pileThickness, prefersReducedMotion } from './CardView';
 import { leanAt, leanOffset, useViewTilt } from './viewpoint';
 import type { Lean } from './viewpoint';
 import { useDecks } from '../lib/DecksContext';
+import * as haptics from '../lib/haptics';
 import * as T from '../lib/table';
 import { fitTilt, tiltTransform, unproject } from '../lib/tilt';
 import { cardRatio } from '../lib/types';
@@ -308,6 +309,8 @@ function Table({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [searchZone, setSearchZone] = useState<Zone | null>(null);
   const [toast, setToast] = useState<{ msg: string } | null>(null);
+  /** A riffle playing over the deck, by when it started (see `shuffleDeck`). */
+  const [shuffling, setShuffling] = useState<number | null>(null);
 
   // Drag and drop. Layouts are relative to the screen's root view, which sits at `rootOrigin` in the window.
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -473,6 +476,24 @@ function Table({
     if (msg) flash(msg);
   };
 
+  /**
+   * Shuffles the deck (or does something else that ends with it shuffled, e.g. shuffling the discard pile back
+   * in) and plays a riffle over it. With motion turned down there's just a tap to feel it happen.
+   */
+  const shuffleDeck = (fn: (t: TableState) => TableState = (t) => T.shuffleZone(t, 'deck'), msg = 'Shuffled') => {
+    apply(fn, msg);
+    if (prefersReducedMotion()) haptics.success();
+    // A new id each time, so shuffling again mid-riffle starts it over.
+    else setShuffling(Date.now());
+  };
+
+  /** Deals the deck's top card into the hand. */
+  const drawOne = () => {
+    if (!table.deck.length) return;
+    apply((t) => T.draw(t, 1));
+    haptics.deal();
+  };
+
   const open = (s: Sheet) => {
     setSheet(s);
     setSheetOpen(true);
@@ -480,15 +501,24 @@ function Table({
 
   const confirmReset = () =>
     Alert.alert('Reset the table?', 'Every card goes back into the deck, face down.', [
-      { text: 'Shuffled', onPress: () => apply(T.resetTable, 'Shuffled') },
-      { text: 'In deck order', onPress: () => apply(() => T.orderedTable(deck), 'Back in deck order') },
+      { text: 'Shuffled', onPress: () => shuffleDeck(T.resetTable, 'Shuffled') },
+      {
+        text: 'In deck order',
+        onPress: () => {
+          apply(() => T.orderedTable(deck), 'Back in deck order');
+          haptics.success();
+        },
+      },
       { text: 'Cancel', style: 'cancel' },
     ]);
 
   const moveActions = (iid: string, from: Zone): SheetAction[] => {
     const to = (zone: Zone, label: string, position?: T.Position): SheetAction => ({
       label,
-      onPress: () => apply((t) => T.moveCard(t, iid, zone, position)),
+      onPress: () => {
+        apply((t) => T.moveCard(t, iid, zone, position));
+        haptics.drop();
+      },
     });
     const actions: SheetAction[] = [];
     if (!reveal) {
@@ -506,6 +536,8 @@ function Table({
   const revealNext = () => {
     const top = table.deck[0];
     if (!top || flying) return;
+    // Felt as it comes off the deck, and again as it lands on the discard pile.
+    haptics.deal();
     const move = () => apply((t) => T.moveCard(t, top.iid, 'discard'));
     const from = zoneRects.find(([z]) => z === 'deck')?.[1];
     const to = zoneRects.find(([z]) => z === 'discard')?.[1];
@@ -539,6 +571,7 @@ function Table({
         Animated.timing(flight.scale, { toValue: 1, easing: Easing.in(Easing.quad), ...half }),
       ]),
     ]).start(() => {
+      haptics.drop();
       // Put the real card on the pile under the flying one; the flying one goes once that's drawn (or after a
       // moment, if its picture is slow to report).
       move();
@@ -556,20 +589,26 @@ function Table({
     if (!group || group.length < 2) return [];
     const ids = group.map((c) => c.iid).reverse(); // top first
     const n = ids.length;
+    // Felt as the stack is put down where it's going.
+    const put = (fn: (t: TableState) => TableState) => () => {
+      apply(fn);
+      haptics.drop();
+    };
     return [
-      ...(reveal ? [] : [{ label: `Put stack in hand (${n} cards)`, onPress: () => apply((t) => T.moveCards(t, ids, 'hand')) }]),
-      { label: `Discard stack (${n} cards)`, onPress: () => apply((t) => T.moveCards(t, ids, 'discard')) },
-      { label: 'Put stack on top of deck', onPress: () => apply((t) => T.moveCards(t, ids, 'deck')) },
+      ...(reveal ? [] : [{ label: `Put stack in hand (${n} cards)`, onPress: put((t) => T.moveCards(t, ids, 'hand')) }]),
+      { label: `Discard stack (${n} cards)`, onPress: put((t) => T.moveCards(t, ids, 'discard')) },
+      { label: 'Put stack on top of deck', onPress: put((t) => T.moveCards(t, ids, 'deck')) },
       {
         label: 'Put stack on bottom of deck',
-        onPress: () => apply((t) => ids.reduce((s, id) => T.moveCard(s, id, 'deck', 'bottom'), t)),
+        onPress: put((t) => ids.reduce((s, id) => T.moveCard(s, id, 'deck', 'bottom'), t)),
       },
-      { label: 'Turn stack over', onPress: () => apply((t) => T.turnStackOver(t, iid, cols)) },
+      { label: 'Turn stack over', onPress: put((t) => T.turnStackOver(t, iid, cols)) },
     ];
   };
 
   const switchMode = (next: PlayMode) => {
     setMode(next);
+    haptics.tick();
     const outside = table.hand.length + table.table.length;
     if (next !== 'reveal' || outside === 0) return;
     // Reveal mode only shows the deck and discard pile, so offer to clear cards that would be hidden.
@@ -747,6 +786,7 @@ function Table({
     const t = touches.find((c) => c.identifier !== drag?.touchId);
     if (!t) return;
     if (onFlipButton(t)) {
+      haptics.tick();
       setDrag((d) => d && { ...d, faceUp: !d.faceUp, stack: d.stack.slice().reverse() });
       return;
     }
@@ -786,6 +826,7 @@ function Table({
     }
     const card = cardAt(h.startX, h.startY);
     if (card) animateLayout();
+    if (card) haptics.lift();
     if (card) setDrag((d) => (d && !d.stack.some((c) => c.iid === card.iid) ? { ...d, stack: [card, ...d.stack] } : d));
   };
 
@@ -816,6 +857,7 @@ function Table({
       // pager stays held, now on behalf of the zoom; see below.)
       setDrag(null);
       setZoomed(holdIid);
+      haptics.liftHeavy();
     }, HOLD_TO_ZOOM_MS);
     return () => clearTimeout(timer);
   }, [holdKey, holdIid]);
@@ -855,6 +897,8 @@ function Table({
 
   const drop = (d: Drag, zone: Zone | null, at: InsertAt | null, onto: string | null) => {
     const ids = d.stack.map((h) => h.iid);
+    // Felt as the cards are put down somewhere (letting go nowhere just puts them back).
+    if (zone) haptics.drop();
 
     // Glide in from where the held stack is now (its top-left corner, as drawn) to wherever the cards end up,
     // even if that's exactly where they came from: otherwise they'd jump back into place. The stand-in starts
@@ -1073,7 +1117,7 @@ function Table({
       Animated.spring(pan, { toValue: place.pan, speed: 28, bounciness: 4, useNativeDriver: true }),
       Animated.spring(liftGrow, { toValue: place.scale, speed: 28, bounciness: 4, useNativeDriver: true }),
     ]).start();
-    Haptics.selectionAsync();
+    haptics.tick();
   };
 
   /** Springs the held stack back up to the finger after leaving a stack target. */
@@ -1087,7 +1131,7 @@ function Table({
       snap.set({ returning: false });
       if (!snap.get().on) pan.setValue(lastPan.get());
     });
-    Haptics.selectionAsync();
+    haptics.tick();
   };
 
   const followFinger = (finger: NativeTouchEvent) => {
@@ -1219,6 +1263,7 @@ function Table({
           if (spread && spread >= PINCH_OPEN && inst.faceUp) {
             endDrag();
             setZoomed(inst.iid);
+            haptics.tick();
           }
           return;
         }
@@ -1231,6 +1276,9 @@ function Table({
           if (Math.hypot(dx, dy) < DRAG_SLOP || Date.now() - drag.pressedAt < LIFT_DELAY_MS) return;
           const lift = !drag.verticalOnly || Math.abs(dy) > Math.abs(dx);
           if (lift) {
+            // Felt as it comes off the table: a whole stack a little heavier than one card.
+            if (drag.wholeStack) haptics.liftHeavy();
+            else haptics.lift();
             animateLayout();
             // Grow from the card's own size up to the lifted size, rather than popping straight to it.
             // Starts at the card's own size; it grows once its lifted copy is on screen (see `drag.shown`).
@@ -1466,7 +1514,7 @@ function Table({
             { label: 'Search discard pile', opensModal: true, onPress: () => setSearchZone('discard') },
             {
               label: 'Shuffle discard pile into deck',
-              onPress: () => apply(T.shuffleDiscardIntoDeck, 'Shuffled into deck'),
+              onPress: () => shuffleDeck(T.shuffleDiscardIntoDeck, 'Shuffled into deck'),
             },
           ],
         };
@@ -1477,8 +1525,18 @@ function Table({
             reveal
               ? { label: 'Switch to table mode', onPress: () => switchMode('table') }
               : { label: 'Switch to reveal mode', opensModal: true, onPress: () => switchMode('reveal') },
-            ...(reveal ? [] : [{ label: 'Discard entire hand', onPress: () => apply(T.discardHand) }]),
-            { label: 'Shuffle discard pile into deck', onPress: () => apply(T.shuffleDiscardIntoDeck, 'Shuffled into deck') },
+            ...(reveal
+              ? []
+              : [
+                  {
+                    label: 'Discard entire hand',
+                    onPress: () => {
+                      apply(T.discardHand);
+                      haptics.drop();
+                    },
+                  },
+                ]),
+            { label: 'Shuffle discard pile into deck', onPress: () => shuffleDeck(T.shuffleDiscardIntoDeck, 'Shuffled into deck') },
             { label: 'Edit deck', onPress: () => router.push({ pathname: '/deck/[id]', params: { id: deck.id } }) },
             { label: 'Reset table', destructive: true, opensModal: true, onPress: confirmReset },
           ],
@@ -1587,15 +1645,15 @@ function Table({
 
   const pileButtons = (
     <>
-      <Button label="Draw" variant="primary" onPress={() => apply((t) => T.draw(t, 1))} disabled={!table.deck.length} />
-      <Button label="Shuffle" onPress={() => apply((t) => T.shuffleZone(t, 'deck'), 'Shuffled')} disabled={table.deck.length < 2} />
+      <Button label="Draw" variant="primary" onPress={drawOne} disabled={!table.deck.length} />
+      <Button label="Shuffle" onPress={() => shuffleDeck()} disabled={table.deck.length < 2} />
       <Button label="Search" onPress={openSearch} disabled={!table.deck.length && !table.discard.length} />
     </>
   );
 
   // Reveal mode's way to start over once every card has been turned up.
   const canReshuffle = reveal && table.deck.length === 0 && table.discard.length > 0;
-  const reshuffle = () => apply(T.shuffleDiscardIntoDeck, 'Shuffled into deck');
+  const reshuffle = () => shuffleDeck(T.shuffleDiscardIntoDeck, 'Shuffled into deck');
 
   const deckPile = (
     <>
@@ -1606,8 +1664,15 @@ function Table({
               deckTop,
               'deck',
               pileWidth,
-              { onPress: reveal ? revealNext : () => apply((t) => T.draw(t, 1)), onLongPress: () => setSearchZone('deck') },
-              deckShowing > 0 ? <CardView deck={deck} faceUp={false} width={pileWidth} /> : <EmptySlot deck={deck} width={pileWidth} label="Deck empty" />,
+              { onPress: reveal ? revealNext : drawOne, onLongPress: () => setSearchZone('deck') },
+              deckShowing > 0 ? (
+                // Out of sight while the riffle plays over it, so the shuffle doesn't show a third half.
+                <View style={shuffling !== null && styles.hiddenCard}>
+                  <CardView deck={deck} faceUp={false} width={pileWidth} />
+                </View>
+              ) : (
+                <EmptySlot deck={deck} width={pileWidth} label="Deck empty" />
+              ),
             )
           ) : canReshuffle ? (
             <Pressable onPress={reshuffle} accessibilityRole="button" style={({ pressed }) => pressed && { opacity: 0.7 }}>
@@ -1616,6 +1681,7 @@ function Table({
           ) : (
             <EmptySlot deck={deck} width={pileWidth} label="Deck empty" />
           )}
+          {shuffling !== null ? <Riffle key={shuffling} deck={deck} width={pileWidth} onDone={() => setShuffling(null)} /> : null}
         </PileDepth>
       </View>
       <Text style={styles.pileLabel}>Deck · {deckShowing}</Text>
@@ -1693,7 +1759,7 @@ function Table({
       <View style={[StyleSheet.absoluteFill, styles.stage]}>
       <View ref={stageRef} style={[StyleSheet.absoluteFill, tilt.angle ? { transform: tiltTransform(tilt) } : null]}>
       {missing > 0 ? (
-        <Pressable style={styles.banner} onPress={() => apply((t) => T.addMissingCards(t, deck), 'Added to deck')}>
+        <Pressable style={styles.banner} onPress={() => shuffleDeck((t) => T.addMissingCards(t, deck), 'Added to deck')}>
           <Text style={styles.bannerText}>
             {missing} new {missing === 1 ? 'card' : 'cards'} in this deck · Tap to shuffle in
           </Text>
@@ -1706,7 +1772,7 @@ function Table({
             <>
               {/* Deck above discard on the left; a column of icon buttons on the right. */}
               <View style={styles.revealPiles} onLayout={measure('revealPiles')}>
-                <View style={styles.pile} onLayout={measure('revealDeck')}>
+                <View style={[styles.pile, shuffling !== null && styles.above]} onLayout={measure('revealDeck')}>
                   {deckPile}
                 </View>
                 <View style={styles.pile} onLayout={measure('revealDiscard')}>
@@ -1733,7 +1799,7 @@ function Table({
                 <IconButton
                   icon={{ ios: 'shuffle', android: 'shuffle', web: 'shuffle' }}
                   label="Shuffle the deck"
-                  onPress={() => apply((t) => T.shuffleZone(t, 'deck'), 'Shuffled')}
+                  onPress={() => shuffleDeck()}
                   disabled={table.deck.length < 2}
                 />
                 <IconButton
@@ -1750,7 +1816,7 @@ function Table({
         <>
           {/* Piles */}
           <View style={[styles.piles, styles.pilesOnCloth]} onLayout={measure('piles')}>
-            <View style={styles.pile} onLayout={measure('deckPile')}>
+            <View style={[styles.pile, shuffling !== null && styles.above]} onLayout={measure('deckPile')}>
               {deckPile}
             </View>
             <View style={styles.pileButtons}>{pileButtons}</View>
@@ -1923,7 +1989,10 @@ function Table({
           area={rootSize}
           prev={zoomView.prev}
           next={zoomView.next}
-          onStep={(dir) => setZoomed(dir === 1 ? zoomView.next!.key : zoomView.prev!.key)}
+          onStep={(dir) => {
+            setZoomed(dir === 1 ? zoomView.next!.key : zoomView.prev!.key);
+            haptics.tick();
+          }}
           onClose={() => setZoomed(null)}
         />
       ) : null}
@@ -1941,6 +2010,7 @@ function Table({
         deck={deck}
         table={table}
         apply={apply}
+        onShuffle={() => shuffleDeck()}
         moveActions={moveActions}
         onSwitch={setSearchZone}
         onClose={() => setSearchZone(null)}
@@ -1960,6 +2030,7 @@ function SearchModal({
   deck,
   table,
   apply,
+  onShuffle,
   moveActions,
   onSwitch,
   onClose,
@@ -1968,6 +2039,8 @@ function SearchModal({
   deck: Deck;
   table: TableState;
   apply: (fn: (t: TableState) => TableState, msg?: string) => void;
+  /** Shuffles the deck, with its riffle. */
+  onShuffle: () => void;
   moveActions: (iid: string, from: Zone) => SheetAction[];
   onSwitch: (zone: Zone) => void;
   onClose: () => void;
@@ -2033,7 +2106,7 @@ function SearchModal({
               label="Shuffle & close"
               variant="primary"
               onPress={() => {
-                apply((t) => T.shuffleZone(t, 'deck'), 'Shuffled');
+                onShuffle();
                 onClose();
               }}
             />
@@ -2074,6 +2147,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.feltDark,
   },
   pile: { alignItems: 'center', gap: 6 },
+  // The deck while it's being shuffled: its halves swing out over the buttons and the other pile.
+  above: { zIndex: 2 },
   pileSlot: { borderRadius: 10, borderWidth: 2, borderColor: 'transparent', padding: 2 },
   pileLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: '600' },
   pileButtons: { flex: 1, gap: 8, paddingHorizontal: 12, justifyContent: 'center' },

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Animated, LayoutAnimation, ScrollView, StyleSheet, View } from 'react-native';
 import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent, StyleProp, ViewStyle } from 'react-native';
 
+import * as haptics from '../lib/haptics';
 import { colors } from '../theme';
 
 /** Holding a row still this long picks it up. Rows' own long-press delay should match, to swallow the tap. */
@@ -106,7 +107,11 @@ export function ReorderableList<R>({
   const track = () => {
     const { fingerY } = live.get();
     const next = insertionAt(fingerY);
-    if (next !== at) setAt(next);
+    if (next !== at) {
+      setAt(next);
+      // A tick each time the drop line moves to a new place.
+      if (at !== null) haptics.tick();
+    }
     const rel = fingerY - origin.y;
     const dir = rel < EDGE ? -1 : rel > origin.h - bottomInset - EDGE ? 1 : 0;
     if (dir !== edge) setEdge(dir);
@@ -121,6 +126,7 @@ export function ReorderableList<R>({
     const timer = setTimeout(() => {
       LayoutAnimation.configureNext({ duration: 180, update: { type: LayoutAnimation.Types.easeInEaseOut } });
       setPress((p) => p && { ...p, lifted: true });
+      haptics.lift();
     }, LIFT_HOLD_MS);
     return () => clearTimeout(timer);
   }, [holdKey]);
@@ -199,6 +205,7 @@ export function ReorderableList<R>({
     if (p.lifted && drop !== null && drop !== p.index && drop !== p.index + 1) {
       LayoutAnimation.configureNext({ duration: 220, update: { type: LayoutAnimation.Types.easeInEaseOut } });
       onDrop(rows[p.index], drop);
+      haptics.drop();
     }
   };
 

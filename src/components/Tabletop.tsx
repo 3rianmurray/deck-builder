@@ -3,14 +3,13 @@ import { createContext, useContext } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import type { ViewStyle } from 'react-native';
 
-import type { TableLook } from '../lib/types';
 import { colors } from '../theme';
 
 const FELT_TEXTURE = require('../../assets/textures/felt.png');
 
-/** Which look the play screen is using, so cards can match it (e.g. deeper shadows on the tabletop). */
-export const TableLookContext = createContext<TableLook>('classic');
-export const useTableLook = () => useContext(TableLookContext);
+/** Whether a card is on the play screen's table, where it casts a shadow on the cloth (not, say, in the deck editor). */
+export const OnTabletopContext = createContext(false);
+export const useOnTabletop = () => useContext(OnTabletopContext);
 
 /** Shadows for cards on the tabletop, as if lit from above and slightly behind the player. */
 export const tabletopShadow = {

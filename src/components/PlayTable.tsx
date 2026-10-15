@@ -23,14 +23,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionSheet, type SheetAction } from './ActionSheet';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
-import { matSpot, TableLookContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
+import { matSpot, OnTabletopContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
 import { CardZoom, type ZoomItem } from './CardZoom';
 import { CardView, EmptySlot, PileDepth, pileRise, pileThickness, prefersReducedMotion } from './CardView';
 import { useDecks } from '../lib/DecksContext';
 import * as T from '../lib/table';
 import { fitTilt, tiltTransform, unproject } from '../lib/tilt';
 import { cardRatio } from '../lib/types';
-import type { CardInstance, Deck, PlayMode, TableLook, TableState, Zone } from '../lib/types';
+import type { CardInstance, Deck, PlayMode, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
 
 type Sheet =
@@ -238,21 +238,18 @@ export function DeckTable({
       </View>
     );
   }
-  const look = decks.settings.tableLook;
   return (
-    // Cards and piles read the look from here, to match their shadows to it.
-    <TableLookContext.Provider value={look}>
+    // Cards and piles read this to cast their shadows on the cloth.
+    <OnTabletopContext.Provider value>
       <Table
         deck={deck}
         table={table}
         setTable={setTable}
         setMode={(mode) => decks.setPlayMode(deck.id, mode)}
-        look={look}
-        setLook={decks.setTableLook}
         active={active}
         onTouchingCard={onTouchingCard}
       />
-    </TableLookContext.Provider>
+    </OnTabletopContext.Provider>
   );
 }
 
@@ -261,8 +258,6 @@ function Table({
   table,
   setTable,
   setMode,
-  look,
-  setLook,
   active,
   onTouchingCard,
 }: PageProps & {
@@ -270,12 +265,9 @@ function Table({
   table: TableState;
   setTable: Dispatch<SetStateAction<TableState | undefined>>;
   setMode: (mode: PlayMode) => void;
-  look: TableLook;
-  setLook: (look: TableLook) => void;
 }) {
   const mode: PlayMode = deck.playMode ?? 'table';
   const reveal = mode === 'reveal';
-  const tabletop = look === 'tabletop';
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [sheet, setSheet] = useState<Sheet>({ kind: 'table' });
@@ -366,7 +358,7 @@ function Table({
 
   // The tabletop's camera tilt. Everything on the table is laid out flat and drawn tilted, so screen positions
   // (fingers) are converted back onto the flat table before comparing them with any layout.
-  const tilt = fitTilt(rootSize, tabletop ? TILT_ANGLE : 0, TILT_PERSPECTIVE);
+  const tilt = fitTilt(rootSize, TILT_ANGLE, TILT_PERSPECTIVE);
   /** A window position as a point on the (flat) table, or null before the table has been measured. */
   const toTable = (pageX: number, pageY: number) =>
     rootOrigin ? unproject(pageX - rootOrigin.x, pageY - rootOrigin.y, rootSize, tilt) : null;
@@ -1285,10 +1277,6 @@ function Table({
               : { label: 'Switch to reveal mode', opensModal: true, onPress: () => switchMode('reveal') },
             ...(reveal ? [] : [{ label: 'Discard entire hand', onPress: () => apply(T.discardHand) }]),
             { label: 'Shuffle discard pile into deck', onPress: () => apply(T.shuffleDiscardIntoDeck, 'Shuffled into deck') },
-            {
-              label: tabletop ? 'Table style: Tabletop · switch to Classic' : 'Table style: Classic · switch to Tabletop',
-              onPress: () => setLook(tabletop ? 'classic' : 'tabletop'),
-            },
             { label: 'Edit deck', onPress: () => router.push({ pathname: '/deck/[id]', params: { id: deck.id } }) },
             { label: 'Reset table', destructive: true, opensModal: true, onPress: confirmReset },
           ],
@@ -1409,7 +1397,7 @@ function Table({
 
   const deckPile = (
     <>
-      <View style={[styles.pileSlot, tabletop && matSpot, highlight('deck')]}>
+      <View style={[styles.pileSlot, matSpot, highlight('deck')]}>
         <PileDepth deck={deck} width={pileWidth} count={deckShowing}>
           {deckTop ? (
             draggable(
@@ -1434,7 +1422,7 @@ function Table({
 
   const discardPile = (
     <>
-      <View style={[styles.pileSlot, tabletop && matSpot, highlight('discard')]}>
+      <View style={[styles.pileSlot, matSpot, highlight('discard')]}>
         <PileDepth deck={deck} width={pileWidth} count={discardCount}>
           {topDiscard ? (
             draggable(
@@ -1476,7 +1464,7 @@ function Table({
         measureRoot();
       }}>
       {/* The cloth, behind everything else on the tabletop. */}
-      {tabletop ? <TabletopSurface /> : null}
+      <TabletopSurface />
 
       {active ? (
         <Stack.Screen
@@ -1559,7 +1547,7 @@ function Table({
       ) : (
         <>
           {/* Piles */}
-          <View style={[styles.piles, tabletop && styles.pilesOnCloth]} onLayout={measure('piles')}>
+          <View style={[styles.piles, styles.pilesOnCloth]} onLayout={measure('piles')}>
             <View style={styles.pile} onLayout={measure('deckPile')}>
               {deckPile}
             </View>
@@ -1590,9 +1578,9 @@ function Table({
 
           {/* Hand */}
           <View
-            style={[styles.hand, tabletop && styles.handOnRail, { paddingBottom: insets.bottom + 8 }, highlight('hand')]}
+            style={[styles.hand, styles.handOnRail, { paddingBottom: insets.bottom + 8 }, highlight('hand')]}
             onLayout={measure('hand')}>
-            {tabletop ? <WoodRail /> : null}
+            <WoodRail />
             <Text style={styles.handLabel}>Hand · {table.hand.length}</Text>
             <ScrollView
               ref={attachHandView}
@@ -1631,7 +1619,7 @@ function Table({
                 borderRadius: Math.max(4, landing.width * 0.06),
                 opacity: landingAnim.lift,
               },
-              tabletop ? tabletopShadow.lifted : styles.liftedShadowClassic,
+              tabletopShadow.lifted,
             ]}
           />
           <CardView deck={deck} card={cardsById.get(landing.cardId)} faceUp={landing.faceUp} width={landing.width} sharp />
@@ -1643,7 +1631,7 @@ function Table({
         <Animated.View
           style={[
             styles.lifted,
-            tabletop && tabletopShadow.lifted,
+            tabletopShadow.lifted,
             // Invisible until its picture is on screen, so it never shows up blank.
             !drag.shown && styles.hiddenCard,
             {
@@ -1947,16 +1935,8 @@ const styles = StyleSheet.create({
   stackCountText: { color: colors.text, fontSize: 12, fontWeight: '700' },
   landing: { position: 'absolute', left: 0, top: 0, pointerEvents: 'none' },
   landingShadow: { position: 'absolute', left: 0, top: 0, backgroundColor: colors.surfaceRaised },
-  // The classic look's lifted shadow (as on the held stack), for the landing card to fade out.
-  liftedShadowClassic: {
-    shadowColor: '#000',
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 12,
-  },
   stage: { overflow: 'hidden' },
-  // Tabletop look: the piles sit straight on the cloth, and the hand on the wooden rail.
+  // The piles sit straight on the cloth, and the hand on the wooden rail.
   pilesOnCloth: { backgroundColor: 'transparent' },
   handOnRail: { backgroundColor: 'transparent', overflow: 'hidden' },
   // The revealed card in flight, drawn without a shadow.

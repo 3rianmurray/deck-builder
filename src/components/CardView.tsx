@@ -8,7 +8,7 @@ import { imageUri } from '../lib/storage';
 import { cardRatio } from '../lib/types';
 import type { Card, Deck } from '../lib/types';
 import { colors } from '../theme';
-import { tabletopShadow, useTableLook } from './Tabletop';
+import { tabletopShadow, useOnTabletop } from './Tabletop';
 
 /** Time for each half of a flip: turning edge-on, then turning back with the other face showing. */
 const HALF_FLIP_MS = 120;
@@ -118,7 +118,7 @@ export function CardView({
   }, []);
   // On the tabletop the card casts a real shadow on the cloth. It goes on this outer layer, because the card
   // itself clips its corners, which would clip the shadow too.
-  const tabletop = useTableLook() === 'tabletop';
+  const tabletop = useOnTabletop();
 
   return (
     <Animated.View
@@ -206,7 +206,7 @@ export function PileDepth({ deck, width, count, children }: { deck: Deck; width:
   const edges = Math.round(rise / EDGE_STEP);
   const height = width / cardRatio(deck);
   const radius = Math.max(4, width * 0.06);
-  const tabletop = useTableLook() === 'tabletop';
+  const tabletop = useOnTabletop();
   return (
     <View style={{ width, height }}>
       {Array.from({ length: edges }, (_, i) => {

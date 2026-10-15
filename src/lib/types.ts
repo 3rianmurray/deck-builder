@@ -68,14 +68,6 @@ export interface Deck {
   updatedAt: number;
 }
 
-/** How the play screen is drawn: `classic` flat colours, or `tabletop` with a textured, lit cloth and deeper shadows. */
-export type TableLook = 'classic' | 'tabletop';
-
-/** App-wide preferences. */
-export interface Settings {
-  tableLook: TableLook;
-}
-
 /** A set of decks played together, e.g. a game's spawn, item and event decks. Swipe between them while playing. */
 export interface Session {
   id: string;

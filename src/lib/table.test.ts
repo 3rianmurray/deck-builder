@@ -28,7 +28,7 @@ import {
   takeTopOfDiscard,
   turnStackOver,
 } from './table.ts';
-import type { Deck } from './types.ts';
+import type { Deck, TableState } from './types.ts';
 
 function makeDeck(n: number): Deck {
   return {
@@ -220,6 +220,28 @@ test('the deck can be rearranged from the search, several cards at once', () => 
   const moved = reorderPile(t, 'deck', [3, 1], 0);
   assert.deepEqual(moved.deck.map((c) => c.cardId), ['c3', 'c1', 'c0', 'c2', 'c4']);
   assert.equal(cardCount(moved), 5);
+});
+
+test('trashed cards are kept out of play, can come back, and return to the deck on reset', () => {
+  let t = draw(createTable(makeDeck(4), noShuffle), 2); // hand: c0 c1
+  t = moveCards(t, [t.hand[0].iid, t.hand[1].iid], 'trash');
+  // Like a pile: the first listed (the top of a held stack) ends up on top.
+  assert.deepEqual(t.trash.map((c) => c.cardId), ['c0', 'c1']);
+  assert.equal(t.hand.length, 0);
+  assert.deepEqual(missingCards(t, makeDeck(4)), []);
+  t = moveCard(t, t.trash[1].iid, 'hand');
+  assert.deepEqual(t.hand.map((c) => c.cardId), ['c1']);
+  t = resetTable(t);
+  assert.equal(t.deck.length, 4);
+  assert.equal(t.trash.length, 0);
+});
+
+test('tables saved before the trash existed still load', () => {
+  const deck = makeDeck(2);
+  const { trash: _, ...old } = createTable(deck, noShuffle);
+  const loaded = pruneTable(old as TableState, deck);
+  assert.deepEqual(loaded.trash, []);
+  assert.equal(cardCount(loaded), 2);
 });
 
 test('searching the deck lets any card be pulled out', () => {

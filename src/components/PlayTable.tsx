@@ -101,6 +101,8 @@ const REVEAL_CHROME = 100;
 const REVEAL_RAIL = 72;
 /** How far down the table the eye sits, for which way piles lean (0 is the top, 1 the bottom). */
 const VIEW_DOWN = 0.78;
+/** Size of the trash can that appears while dragging. */
+const TRASH_SIZE = 56;
 /** The play table's grid: space round its edge, and the least space between cards. */
 const GRID_PAD = 14;
 const GRID_GAP = 10;
@@ -352,7 +354,7 @@ function Table({
   const insets = useSafeAreaInsets();
   const [sheet, setSheet] = useState<Sheet>({ kind: 'table' });
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [searchZone, setSearchZone] = useState<'deck' | 'discard' | null>(null);
+  const [searchZone, setSearchZone] = useState<SearchPile | null>(null);
   // The search stays up while it slides away after closing.
   const [searchMounted, setSearchMounted] = useState(false);
   if (searchZone && !searchMounted) setSearchMounted(true);
@@ -600,7 +602,7 @@ function Table({
    * over the table, as if picked up there, to drop anywhere. The search gets out of the way, and closes once
    * they've been dropped. They're held face up, as they were seen in the search.
    */
-  const takeOutOfSearch = (zone: 'deck' | 'discard', iids: string[], finger: Finger, grip: Grip) => {
+  const takeOutOfSearch = (zone: SearchPile, iids: string[], finger: Finger, grip: Grip) => {
     const held = iids.flatMap((iid) => table[zone].filter((c) => c.iid === iid));
     if (!held.length) return;
     pan.setValue({ x: 0, y: 0 });
@@ -696,6 +698,17 @@ function Table({
     if (from !== 'discard') actions.push(to('discard', 'Discard'));
     actions.push(to('deck', from === 'deck' ? 'Move to top of deck' : 'Put on top of deck', 'top'));
     actions.push(to('deck', from === 'deck' ? 'Move to bottom of deck' : 'Put on bottom of deck', 'bottom'));
+    // Out of the game, but it can be found in the search's Trash and brought back.
+    if (from !== 'trash') {
+      actions.push({
+        label: 'Trash',
+        destructive: true,
+        onPress: () => {
+          moveCards((t) => T.moveCard(t, iid, 'trash'), 'Moved to the trash');
+          haptics.drop();
+        },
+      });
+    }
     return actions;
   };
 
@@ -770,6 +783,7 @@ function Table({
         onPress: put((t) => ids.reduce((s, id) => T.moveCard(s, id, 'deck', 'bottom'), t)),
       },
       { label: 'Turn stack over', onPress: put((t) => T.turnStackOver(t, iid, cols)) },
+      { label: `Trash stack (${n} cards)`, destructive: true, onPress: put((t) => T.moveCards(t, ids, 'trash')) },
     ];
   };
 
@@ -841,9 +855,21 @@ function Table({
     ...FLIP_SIZE,
   } : undefined;
 
+  /**
+   * The trash can that appears while cards are being dragged, in the bottom-right corner of the play area (or of
+   * the screen, in reveal mode). Cards dropped on it go to the trash.
+   */
+  const trashRect: Rect | undefined = playRect
+    ? { x: playRect.x + playRect.w - TRASH_SIZE - 14, y: playRect.y + playRect.h - TRASH_SIZE - 16, w: TRASH_SIZE, h: TRASH_SIZE }
+    : reveal && rootSize.w
+      ? { x: rootSize.w - TRASH_SIZE - 16, y: rootSize.h - insets.bottom - TRASH_SIZE - 16, w: TRASH_SIZE, h: TRASH_SIZE }
+      : undefined;
+  // Checked first, as it sits over the play area.
+  const dropZones: [Zone, Rect | undefined, number][] = drag?.active ? [['trash', trashRect, PILE_PAD], ...zoneRects] : zoneRects;
+
   const zoneAt = (pageX: number, pageY: number): Zone | null => {
     const p = toTable(pageX, pageY);
-    return p ? (zoneRects.find(([, r, pad]) => r && inside(r, p.x, p.y, pad))?.[0] ?? null) : null;
+    return p ? (dropZones.find(([, r, pad]) => r && inside(r, p.x, p.y, pad))?.[0] ?? null) : null;
   };
 
   const onFlipButton = (t: NativeTouchEvent) => {
@@ -950,6 +976,8 @@ function Table({
       const rise = leanOffset(spotLean(groupSpots[i]), pileRise(tableCardWidth, left));
       return { x: r.x + rise.x, y: r.y + rise.y, w: r.w };
     }
+    // The trash isn't drawn on the table: its cards are only seen in the search.
+    if (h.from === 'trash') return null;
     const left = table[h.from].filter((c) => !isAway(c.iid)).length;
     return pileTopAt(h.from, left);
   };
@@ -1327,9 +1355,9 @@ function Table({
       return;
     }
     // Piles keep their rules: the deck is always face down and the discard pile always face up.
-    const faceUp = zone === 'deck' ? false : zone === 'discard' ? true : d.faceUp;
+    const faceUp = zone === 'deck' ? false : zone === 'discard' || zone === 'trash' ? true : d.faceUp;
     if (zone === 'discard' && !d.faceUp) setRevealed(d.stack[0].iid);
-    apply((t) => T.moveCards(t, ids, zone, faceUp));
+    apply((t) => T.moveCards(t, ids, zone, faceUp), zone === 'trash' ? 'Moved to the trash' : undefined);
   };
 
   /** Where a card in the hand or on the table sits on the (flat) table, counting how far its row is scrolled. */
@@ -1872,6 +1900,9 @@ function Table({
                   },
                 ]),
             { label: 'Shuffle discard pile into deck', onPress: () => shuffleDeck(T.shuffleDiscardIntoDeck, 'Shuffled into deck') },
+            ...(table.trash.length
+              ? [{ label: `Look in the trash (${table.trash.length})`, onPress: () => setSearchZone('trash' as const) }]
+              : []),
             { label: 'Edit deck', onPress: () => router.push({ pathname: '/deck/[id]', params: { id: deck.id } }) },
             { label: 'Reset table', destructive: true, opensModal: true, onPress: confirmReset },
           ],
@@ -2359,6 +2390,18 @@ function Table({
         </View>
       ) : null}
 
+      {/* Drop cards here to trash them; it lights up while they're over it. */}
+      {drag?.active && trashRect ? (
+        <View
+          style={[
+            styles.trash,
+            hover === 'trash' && styles.trashHover,
+            { left: trashRect.x, top: trashRect.y, width: trashRect.w, height: trashRect.h },
+          ]}>
+          <SymbolView name={{ ios: 'trash', android: 'delete', web: 'delete' }} size={24} tintColor="#fff" />
+        </View>
+      ) : null}
+
       {flying ? (
         <Animated.View style={[styles.flying, { transform: [...flight.pos.getTranslateTransform(), { scale: flight.scale }] }]}>
           {/* No shadow while it flips: anything behind a turning card shows round its edges as it narrows. */}
@@ -2527,9 +2570,13 @@ function CardFlight({
   );
 }
 
-const SEARCHABLE: { zone: 'deck' | 'discard'; label: string }[] = [
+/** The piles the search can look through. */
+type SearchPile = 'deck' | 'discard' | 'trash';
+
+const SEARCHABLE: { zone: SearchPile; label: string }[] = [
   { zone: 'deck', label: 'Deck' },
   { zone: 'discard', label: 'Discard' },
+  { zone: 'trash', label: 'Trash' },
 ];
 
 /** A finger on the screen, as read from a touch event (which isn't kept). */
@@ -2573,19 +2620,19 @@ function SearchPanel({
   onClosed,
 }: {
   /** The pile being searched, or null when the search is closed. */
-  zone: 'deck' | 'discard' | null;
+  zone: SearchPile | null;
   /** Cards have been taken out and are being carried over the table: fade away, but stay until they're dropped. */
   leaving: boolean;
   deck: Deck;
   table: TableState;
-  onReorder: (zone: 'deck' | 'discard', picked: number[], to: number) => void;
+  onReorder: (zone: SearchPile, picked: number[], to: number) => void;
   /**
    * Held cards (top first) taken out of the search, with the finger still on them, held at `grip`: where on the
    * first card the finger is, and how wide it's drawn.
    */
-  onTakeOut: (zone: 'deck' | 'discard', iids: string[], finger: Finger, grip: Grip) => void;
+  onTakeOut: (zone: SearchPile, iids: string[], finger: Finger, grip: Grip) => void;
   moveActions: (iid: string, from: Zone) => SheetAction[];
-  onSwitch: (zone: 'deck' | 'discard') => void;
+  onSwitch: (zone: SearchPile) => void;
   onClose: () => void;
   /** It has finished sliding away. */
   onClosed: () => void;
@@ -2855,6 +2902,17 @@ const styles = StyleSheet.create({
   },
   stackBadgeText: { color: colors.accentText, fontWeight: '800', fontSize: 14 },
   flipText: { color: colors.accentText, fontSize: 20, fontWeight: '800', letterSpacing: 2 },
+  trash: {
+    position: 'absolute',
+    pointerEvents: 'none',
+    borderRadius: TRASH_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  trashHover: { backgroundColor: colors.danger, borderColor: colors.danger, transform: [{ scale: 1.15 }] },
   toast: {
     position: 'absolute',
     top: '40%',

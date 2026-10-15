@@ -4,7 +4,10 @@ import { moveItems } from './order.ts';
 import { copiesOf } from './types.ts';
 import type { CardInstance, Deck, Spot, TableState, Zone } from './types.ts';
 
-export const ZONES: Zone[] = ['deck', 'hand', 'table', 'discard'];
+export const ZONES: Zone[] = ['deck', 'hand', 'table', 'discard', 'trash'];
+
+/** Zones that are piles: cards go on top, and the top card is the one shown (or, for the trash, listed first). */
+const PILES: Zone[] = ['deck', 'discard', 'trash'];
 
 export type Rng = () => number;
 
@@ -30,11 +33,11 @@ export function orderedTable(deck: Deck): TableState {
   const instances = deck.cards.flatMap((c) =>
     Array.from({ length: copiesOf(c) }, () => ({ iid: newId(), cardId: c.id, faceUp: false })),
   );
-  return { deck: instances, hand: [], table: [], discard: [] };
+  return { deck: instances, hand: [], table: [], discard: [], trash: [] };
 }
 
 /** Zones whose cards are kept first when a card's copy count drops: cards in play outrank piles. */
-const KEEP_ORDER: Zone[] = ['hand', 'table', 'discard', 'deck'];
+const KEEP_ORDER: Zone[] = ['hand', 'table', 'discard', 'deck', 'trash'];
 
 /**
  * Drops cards whose design was deleted from the deck since the table was saved, and extra copies
@@ -63,7 +66,7 @@ export function pruneTable(state: TableState, deck: Deck): TableState {
  */
 export function missingCards(state: TableState, deck: Deck): string[] {
   const present = new Map<string, number>();
-  for (const z of ZONES) for (const ci of state[z]) present.set(ci.cardId, (present.get(ci.cardId) ?? 0) + 1);
+  for (const z of ZONES) for (const ci of state[z] ?? []) present.set(ci.cardId, (present.get(ci.cardId) ?? 0) + 1);
   return deck.cards.flatMap((c) => Array(Math.max(0, copiesOf(c) - (present.get(c.id) ?? 0))).fill(c.id));
 }
 
@@ -76,7 +79,7 @@ export function addMissingCards(state: TableState, deck: Deck, rng: Rng = Math.r
 
 export function findCard(state: TableState, iid: string): { zone: Zone; index: number } | null {
   for (const zone of ZONES) {
-    const index = state[zone].findIndex((c) => c.iid === iid);
+    const index = (state[zone] ?? []).findIndex((c) => c.iid === iid);
     if (index !== -1) return { zone, index };
   }
   return null;
@@ -252,7 +255,7 @@ export function moveCard(state: TableState, iid: string, to: Zone, position?: Po
   const next = { ...state, [found.zone]: state[found.zone].filter((c) => c.iid !== iid) };
   const moved: CardInstance = { ...unstacked(card), faceUp: faceUp ?? defaultFace(to) };
   // Piles grow from the top; hand and table grow to the right.
-  const pos = position ?? (to === 'deck' || to === 'discard' ? 'top' : 'bottom');
+  const pos = position ?? (PILES.includes(to) ? 'top' : 'bottom');
   next[to] = pos === 'top' ? [moved, ...next[to]] : [...next[to], moved];
   return tidyStacks(next);
 }
@@ -262,7 +265,7 @@ export function moveCard(state: TableState, iid: string, to: Zone, position?: Po
  * pile the stack's top card ends up on top; in the hand and on the table they're laid out in stack order.
  */
 export function moveCards(state: TableState, iids: string[], to: Zone, faceUp?: boolean): TableState {
-  const pile = to === 'deck' || to === 'discard';
+  const pile = PILES.includes(to);
   const order = pile ? iids.slice().reverse() : iids;
   return order.reduce((s, iid) => moveCard(s, iid, to, pile ? 'top' : 'bottom', faceUp), state);
 }
@@ -304,7 +307,7 @@ export function takeTopOfDiscard(state: TableState, to: Zone = 'hand'): TableSta
  * Rearranges the deck or discard pile, e.g. from the search: the picked cards (by index, in pick order) go
  * together as a block starting at index `to`, where index 0 is the top card.
  */
-export function reorderPile(state: TableState, zone: 'deck' | 'discard', picked: number[], to: number): TableState {
+export function reorderPile(state: TableState, zone: 'deck' | 'discard' | 'trash', picked: number[], to: number): TableState {
   return { ...state, [zone]: moveItems(state[zone], picked, to) };
 }
 
@@ -348,12 +351,12 @@ export function turnStackOver(state: TableState, stackIid: string, cols: number)
   return placeStackOnTable(flipAll(state, ids), ids, spot, cols);
 }
 
-/** Gathers every card back into the deck, face down and shuffled. */
+/** Gathers every card back into the deck, face down and shuffled, trashed ones included. */
 export function resetTable(state: TableState, rng: Rng = Math.random): TableState {
-  const all = ZONES.flatMap((z) => state[z]).map((c) => ({ ...unstacked(c), faceUp: false }));
-  return { deck: shuffled(all, rng), hand: [], table: [], discard: [] };
+  const all = ZONES.flatMap((z) => state[z] ?? []).map((c) => ({ ...unstacked(c), faceUp: false }));
+  return { deck: shuffled(all, rng), hand: [], table: [], discard: [], trash: [] };
 }
 
 export function cardCount(state: TableState): number {
-  return ZONES.reduce((n, z) => n + state[z].length, 0);
+  return ZONES.reduce((n, z) => n + (state[z] ?? []).length, 0);
 }

@@ -78,8 +78,11 @@ export interface Session {
   updatedAt: number;
 }
 
-/** Where a card can sit while playing. */
-export type Zone = 'deck' | 'hand' | 'table' | 'discard';
+/**
+ * Where a card can sit while playing. `trash` is out of the game, but kept: trashed cards can be found in the
+ * search and brought back, and resetting the table gathers them back into the deck.
+ */
+export type Zone = 'deck' | 'hand' | 'table' | 'discard' | 'trash';
 
 /** One physical copy of a card on the table. */
 export interface CardInstance {
@@ -105,5 +108,5 @@ export interface Spot {
   col: number;
 }
 
-/** Index 0 is the top of the deck/discard pile, and the leftmost card in hand/table. */
+/** Index 0 is the top of the deck/discard pile (and the most recently trashed card), and the leftmost card in hand/table. */
 export type TableState = Record<Zone, CardInstance[]>;

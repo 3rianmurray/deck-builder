@@ -1,4 +1,5 @@
 import { router, Stack } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
@@ -86,6 +87,8 @@ type LayoutKey =
 /** Tabletop look: how far the table leans back, and the camera's distance (smaller is stronger perspective). */
 const TILT_ANGLE = 14;
 const TILT_PERSPECTIVE = 900;
+/** How many actions on a table can be undone, most recent first. */
+const UNDO_STEPS = 30;
 /** How long a revealed card takes to travel from the deck to the discard pile. */
 const FLIGHT_MS = 450;
 /** Where a pile's top card sits inside its slot (the slot's highlight border plus padding). */
@@ -309,6 +312,8 @@ function Table({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [searchZone, setSearchZone] = useState<Zone | null>(null);
   const [toast, setToast] = useState<{ msg: string } | null>(null);
+  /** How the table was before each of the last few actions, oldest first, for undo. Kept while it's open. */
+  const [history, setHistory] = useState<TableState[]>([]);
   /** A riffle playing over the deck, by when it started (see `shuffleDeck`). */
   const [shuffling, setShuffling] = useState<number | null>(null);
   /** How much of the deck's pile is on the table, which drops away and builds back up during a riffle. */
@@ -479,8 +484,33 @@ function Table({
   const flash = (msg: string) => setToast({ msg });
 
   const apply = (fn: (t: TableState) => TableState, msg?: string) => {
+    // Remember how the table was, to undo back to.
+    setHistory((h) => [...h.slice(-(UNDO_STEPS - 1)), table]);
     setTable((t) => (t ? fn(t) : t));
     if (msg) flash(msg);
+  };
+
+  // An action that changed nothing leaves the table as it was in the history; those steps are skipped.
+  const undoTo = (() => {
+    for (let i = history.length - 1; i >= 0; i--) if (history[i] !== table) return i;
+    return -1;
+  })();
+  /** Not while cards are in motion: held, flying from the deck, or still gliding into place. */
+  const canUndo = undoTo !== -1 && !drag?.active && !flying && !landing;
+
+  /** Puts the table back as it was before the last thing done to it. */
+  const undo = () => {
+    if (!canUndo) return;
+    const previous = history[undoTo];
+    setHistory(history.slice(0, undoTo));
+    setTable(previous);
+    // Anything still playing for what's being undone stops: a riffle, and the deck's pile with it.
+    setShuffling(null);
+    deckHeight.stopAnimation();
+    deckHeight.setValue(1);
+    setRevealed(null);
+    haptics.tick();
+    flash('Undone');
   };
 
   /**
@@ -1752,9 +1782,26 @@ function Table({
           options={{
             title: deck.name,
             headerRight: () => (
-              <Pressable onPress={() => open({ kind: 'table' })} hitSlop={12} accessibilityLabel="Table options">
-                <Text style={styles.headerButton}>•••</Text>
-              </Pressable>
+              <View style={styles.headerButtons}>
+                <Pressable
+                  onPress={undo}
+                  disabled={!canUndo}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel="Undo"
+                  accessibilityState={{ disabled: !canUndo }}
+                  style={({ pressed }) => ({ opacity: !canUndo ? 0.3 : pressed ? 0.6 : 1 })}>
+                  <SymbolView
+                    name={{ ios: 'arrow.uturn.backward', android: 'undo', web: 'undo' }}
+                    size={20}
+                    weight="semibold"
+                    tintColor={colors.accent}
+                  />
+                </Pressable>
+                <Pressable onPress={() => open({ kind: 'table' })} hitSlop={12} accessibilityLabel="Table options">
+                  <Text style={styles.headerButton}>•••</Text>
+                </Pressable>
+              </View>
             ),
           }}
         />
@@ -2153,6 +2200,7 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center' },
   muted: { color: colors.textMuted },
   headerButton: { color: colors.accent, fontSize: 17, fontWeight: '600' },
+  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 22 },
   banner: { backgroundColor: colors.accent, paddingVertical: 8, paddingHorizontal: 12 },
   bannerText: { color: colors.accentText, textAlign: 'center', fontWeight: '600' },
   piles: {

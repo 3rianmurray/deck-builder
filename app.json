@@ -33,6 +33,19 @@
           "microphonePermission": false
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "efcb9485-e756-46e8-b531-6361bc1b39ef"
+      }
+    },
+    "owner": "3rianmurray",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/efcb9485-e756-46e8-b531-6361bc1b39ef"
+    }
   }
 }

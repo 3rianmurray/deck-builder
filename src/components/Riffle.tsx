@@ -68,7 +68,8 @@ export function Riffle({ deck, width, onDone }: { deck: Deck; width: number; onD
                 ],
               },
             ]}>
-            <CardView deck={deck} faceUp={false} width={width} />
+            {/* Its own faint shadow: the table's full one, on eight cards at once, looks far too heavy. */}
+            <CardView deck={deck} faceUp={false} width={width} flat />
           </Animated.View>
         );
       })}
@@ -77,5 +78,13 @@ export function Riffle({ deck, width, onDone }: { deck: Deck; width: number; onD
 }
 
 const styles = StyleSheet.create({
-  card: { position: 'absolute', left: 0, top: 0 },
+  card: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    shadowColor: '#000',
+    shadowOpacity: 0.14,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+  },
 });

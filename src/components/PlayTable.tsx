@@ -481,10 +481,15 @@ function Table({
    * in) and plays a riffle over it. With motion turned down there's just a tap to feel it happen.
    */
   const shuffleDeck = (fn: (t: TableState) => TableState = (t) => T.shuffleZone(t, 'deck'), msg = 'Shuffled') => {
-    apply(fn, msg);
-    if (prefersReducedMotion()) haptics.success();
+    // The riffle shows it happened, so there's no message, unless motion is turned down and it can't play.
+    if (prefersReducedMotion()) {
+      apply(fn, msg);
+      haptics.success();
+      return;
+    }
+    apply(fn);
     // A new id each time, so shuffling again mid-riffle starts it over.
-    else setShuffling(Date.now());
+    setShuffling(Date.now());
   };
 
   /** Deals the deck's top card into the hand. */
@@ -1759,7 +1764,10 @@ function Table({
       <View style={[StyleSheet.absoluteFill, styles.stage]}>
       <View ref={stageRef} style={[StyleSheet.absoluteFill, tilt.angle ? { transform: tiltTransform(tilt) } : null]}>
       {missing > 0 ? (
-        <Pressable style={styles.banner} onPress={() => shuffleDeck((t) => T.addMissingCards(t, deck), 'Added to deck')}>
+        <Pressable style={styles.banner} onPress={() => {
+            shuffleDeck((t) => T.addMissingCards(t, deck));
+            flash('Added to deck');
+          }}>
           <Text style={styles.bannerText}>
             {missing} new {missing === 1 ? 'card' : 'cards'} in this deck · Tap to shuffle in
           </Text>

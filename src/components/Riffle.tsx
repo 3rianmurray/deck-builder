@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 
 import * as haptics from '../lib/haptics';
+import { cardRatio } from '../lib/types';
 import type { Deck } from '../lib/types';
+import { colors } from '../theme';
 import { CardView } from './CardView';
 
 /** Cards drawn in the riffle: enough to read as a deck splitting and weaving back together. */
@@ -40,14 +42,17 @@ export function riffleHeight(height: Animated.Value): Animated.CompositeAnimatio
 /**
  * A riffle shuffle drawn over the deck's top card: the deck splits into two halves, which lift and tilt apart,
  * then the cards fall back one by one from alternate halves, weaving together into one deck again. Each card
- * landing is felt as a tick, and nothing more at the end, so it finishes quietly. It plays once when mounted and calls `onDone` at the end.
+ * landing is felt as a tick, except the last, so it finishes quietly. Each card casts a faint shadow only while
+ * it's in the air: landed, they'd all stack into one dark patch. It plays once when mounted and calls `onDone`
+ * at the end.
  */
 export function Riffle({ deck, width, onDone }: { deck: Deck; width: number; onDone: () => void }) {
   const [t] = useState(() => new Animated.Value(0));
+  const ratio = cardRatio(deck);
 
   useEffect(() => {
     // Started once mounted: the native driver needs its views to exist first.
-    const timers = Array.from({ length: CARDS }, (_, i) =>
+    const timers = Array.from({ length: CARDS - 1 }, (_, i) =>
       setTimeout(haptics.tick, (WEAVE_START + i * WEAVE_STEP + FALL) * RIFFLE_MS),
     );
     Animated.timing(t, { toValue: 1, duration: RIFFLE_MS, easing: Easing.linear, useNativeDriver: true }).start(({ finished }) => {
@@ -85,7 +90,14 @@ export function Riffle({ deck, width, onDone }: { deck: Deck; width: number; onD
                 ],
               },
             ]}>
-            {/* Its own faint shadow: the table's full one, on eight cards at once, looks far too heavy. */}
+            {/* Its shadow, just while it's off the table (behind the card, so only the shadow shows). */}
+            <Animated.View
+              style={[
+                styles.shadow,
+                { width, height: width / ratio, borderRadius: Math.max(4, width * 0.06) },
+                { opacity: t.interpolate({ inputRange, outputRange: [0, 1, 1, 0, 0] }) },
+              ]}
+            />
             <CardView deck={deck} faceUp={false} width={width} flat />
           </Animated.View>
         );
@@ -95,13 +107,17 @@ export function Riffle({ deck, width, onDone }: { deck: Deck; width: number; onD
 }
 
 const styles = StyleSheet.create({
-  card: {
+  card: { position: 'absolute', left: 0, top: 0 },
+  shadow: {
     position: 'absolute',
     left: 0,
     top: 0,
+    // Hidden by the card on top of it; only the shadow shows.
+    backgroundColor: colors.surfaceRaised,
     shadowColor: '#000',
-    shadowOpacity: 0.14,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
+    // Each half is four cards deep, so their shadows add up: keep each one light.
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
   },
 });

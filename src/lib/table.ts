@@ -356,9 +356,15 @@ export function flip(state: TableState, iid: string): TableState {
   return { ...state, [found.zone]: zone };
 }
 
-/** Turns each of these cards the other way up, wherever they are. */
+/**
+ * Turns each of these cards the other way up, wherever they are: just these, card by card, even in a stack
+ * (unlike `flip`), e.g. a whole stack being turned over.
+ */
 export function flipAll(state: TableState, iids: string[]): TableState {
-  return iids.reduce(flip, state);
+  const ids = new Set(iids);
+  const next = { ...state };
+  for (const z of ZONES) next[z] = (state[z] ?? []).map((c) => (ids.has(c.iid) ? { ...c, faceUp: !c.faceUp } : c));
+  return next;
 }
 
 /**

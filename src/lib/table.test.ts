@@ -10,6 +10,7 @@ import {
   draw,
   findCard,
   flip,
+  flipAll,
   gridSpots,
   insertCards,
   missingCards,
@@ -218,6 +219,18 @@ test('a stack never mixes faces: cards put on it turn to match, and a stack is p
   t = flip(t, t.deck[0].iid); // c3 face up
   t = placeStackOnTable(t, [t.deck[0].iid, t.table[2].iid], { row: 0, col: 2 }, 3);
   assert.deepEqual(stackGroups(t.table)[1].map((c) => [c.cardId, c.faceUp]), [['c2', true], ['c3', true]]);
+});
+
+test('a held stack turned over lands turned over, whatever its size', () => {
+  for (const size of [2, 3, 4]) {
+    let t = draw(createTable(makeDeck(size), noShuffle), size);
+    t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 0 }, 3);
+    t = stackOnto(t, t.hand.map((c) => c.iid).reverse(), t.table[0].iid); // all face up
+    // Held top first, then turned over: the order reverses, and it's put down somewhere else.
+    const held = stackGroups(t.table)[0].map((c) => c.iid); // bottom first, i.e. top first once turned over
+    const moved = placeStackOnTable(flipAll(t, held), held, { row: 1, col: 1 }, 3);
+    assert.ok(moved.table.every((c) => !c.faceUp), `stack of ${size}`);
+  }
 });
 
 test('stacks saved with mixed faces are evened out to the bottom card when loaded', () => {

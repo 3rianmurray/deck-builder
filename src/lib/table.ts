@@ -57,7 +57,8 @@ export function pruneTable(state: TableState, deck: Deck): TableState {
   }
   const next = { ...state };
   for (const z of ZONES) next[z] = (state[z] ?? []).filter((ci) => keep.has(ci.iid));
-  return next;
+  // Also evens out any stack saved with cards facing different ways, from before stacks had to match.
+  return tidyStacks(next);
 }
 
 /**
@@ -111,19 +112,37 @@ const unstacked = (c: CardInstance): CardInstance => {
   return rest;
 };
 
-/** A stack down to one card is just a card again. */
+/**
+ * Keeps stacks tidy: a stack down to one card is just a card again, and every card in a stack faces the same
+ * way, the way its bottom card does (a stack is turned over as a whole, never card by card).
+ */
 function tidyStacks(state: TableState): TableState {
   const sizes = new Map<string, number>();
-  for (const c of state.table) if (c.stack) sizes.set(c.stack, (sizes.get(c.stack) ?? 0) + 1);
-  if (![...sizes.values()].some((n) => n < 2)) return state;
-  return { ...state, table: state.table.map((c) => (c.stack && sizes.get(c.stack)! < 2 ? unstacked(c) : c)) };
+  const faces = new Map<string, boolean>();
+  for (const c of state.table) {
+    if (!c.stack) continue;
+    sizes.set(c.stack, (sizes.get(c.stack) ?? 0) + 1);
+    // Bottom first, so the first seen is the bottom card.
+    if (!faces.has(c.stack)) faces.set(c.stack, c.faceUp);
+  }
+  const untidy = state.table.some((c) => c.stack && (sizes.get(c.stack)! < 2 || c.faceUp !== faces.get(c.stack)));
+  if (!untidy) return state;
+  return {
+    ...state,
+    table: state.table.map((c) => {
+      if (!c.stack) return c;
+      if (sizes.get(c.stack)! < 2) return unstacked(c);
+      return c.faceUp === faces.get(c.stack) ? c : { ...c, faceUp: faces.get(c.stack)! };
+    }),
+  };
 }
 
 /**
- * Puts cards (held top first) on top of the card or stack that `targetIid` belongs to on the play table, all
- * facing `faceUp`, or each the way it already was if that's left out. The held stack's top card ends up on top.
+ * Puts cards (held top first) on top of the card or stack that `targetIid` belongs to on the play table. The
+ * held stack's top card ends up on top. They turn to face the way the stack does: a stack's cards all face
+ * the same way, and putting cards on it never turns it over.
  */
-export function stackOnto(state: TableState, iids: string[], targetIid: string, faceUp?: boolean): TableState {
+export function stackOnto(state: TableState, iids: string[], targetIid: string): TableState {
   const target = state.table.find((c) => c.iid === targetIid);
   if (!target || iids.includes(targetIid)) return state;
   const stack = target.stack ?? target.iid;
@@ -132,7 +151,7 @@ export function stackOnto(state: TableState, iids: string[], targetIid: string, 
     const found = findCard(state, iid);
     if (found) {
       const c = state[found.zone][found.index];
-      moving.push({ ...c, faceUp: faceUp ?? c.faceUp, stack, spot: target.spot });
+      moving.push({ ...c, faceUp: target.faceUp, stack, spot: target.spot });
     }
   }
   const ids = new Set(moving.map((c) => c.iid));
@@ -233,10 +252,12 @@ export function placeStackOnTable(state: TableState, iids: string[], spot: Spot,
     const found = findCard(state, iid);
     if (found) {
       const c = state[found.zone][found.index];
-      moving.push({ ...unstacked(c), faceUp: faceUp ?? c.faceUp });
+      moving.push(unstacked(c));
     }
   }
   if (moving.length < 2) return placeOnTable(state, iids, spot, cols);
+  // One stack, one way up: `faceUp`, or the way its top card faces.
+  const face = faceUp ?? moving[moving.length - 1].faceUp;
   const ids = new Set(moving.map((c) => c.iid));
   let next: TableState = { ...state };
   for (const z of ZONES) next[z] = state[z].filter((c) => !ids.has(c.iid));
@@ -244,7 +265,7 @@ export function placeStackOnTable(state: TableState, iids: string[], spot: Spot,
   const free = firstFree(new Set(gridSpots(next.table, cols).map(spotKey)), cols, spot);
   // Named after its bottom card, as stacks made by `stackOnto` are.
   const stack = moving[0].iid;
-  return pinSpots({ ...next, table: [...next.table, ...moving.map((c) => ({ ...c, stack, spot: free }))] }, cols);
+  return pinSpots({ ...next, table: [...next.table, ...moving.map((c) => ({ ...c, faceUp: face, stack, spot: free }))] }, cols);
 }
 
 /** `faceUp` overrides the zone's usual facing, e.g. a card dragged from the deck and not yet revealed. */
@@ -325,9 +346,12 @@ export function discardHand(state: TableState): TableState {
   return { ...state, hand: [], discard: [...state.hand.slice().reverse(), ...state.discard] };
 }
 
+/** Turns a card the other way up where it lies. A card in a stack turns the whole stack's cards with it. */
 export function flip(state: TableState, iid: string): TableState {
   const found = findCard(state, iid);
   if (!found) return state;
+  const stack = state[found.zone][found.index].stack;
+  if (stack) return { ...state, table: state.table.map((c) => (c.stack === stack ? { ...c, faceUp: !c.faceUp } : c)) };
   const zone = state[found.zone].map((c) => (c.iid === iid ? { ...c, faceUp: !c.faceUp } : c));
   return { ...state, [found.zone]: zone };
 }

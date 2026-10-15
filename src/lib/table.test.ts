@@ -123,13 +123,14 @@ test('cards can be stacked on a table card, and leave the stack when moved off',
   t = insertCards(t, [t.hand[0].iid, t.hand[1].iid], 'table', 0); // table: c0 c1
   const c0 = t.table[0].iid;
   // Stack c2 then c3 (held with c3 on top) onto c0.
-  t = stackOnto(t, [t.hand[1].iid, t.hand[0].iid], c0, true);
+  t = stackOnto(t, [t.hand[1].iid, t.hand[0].iid], c0);
   assert.deepEqual(t.table.map((c) => c.cardId), ['c0', 'c2', 'c3', 'c1']);
   assert.deepEqual(stackGroups(t.table).map((g) => g.map((c) => c.cardId)), [['c0', 'c2', 'c3'], ['c1']]);
-  // Stacking onto any card of a stack puts it on top of that stack.
-  t = stackOnto(t, [t.deck[0].iid], t.table[1].iid, false);
+  // Stacking onto any card of a stack puts it on top of that stack, turned to face the stack's way (the deck's
+  // card was face down; the stack is face up).
+  t = stackOnto(t, [t.deck[0].iid], t.table[1].iid);
   assert.deepEqual(stackGroups(t.table)[0].map((c) => c.cardId), ['c0', 'c2', 'c3', 'c4']);
-  assert.equal(t.table[3].faceUp, false);
+  assert.ok(stackGroups(t.table)[0].every((c) => c.faceUp));
   // Taking the top three off one at a time leaves a single card, which is no longer a stack.
   for (let i = 0; i < 3; i++) t = moveCard(t, stackGroups(t.table)[0].at(-1)!.iid, 'hand');
   assert.equal(t.table[0].stack, undefined);
@@ -176,7 +177,7 @@ test('a narrower grid moves cards that no longer fit into free spots', () => {
 test('stacking puts cards in the stack\'s spot', () => {
   let t = draw(createTable(makeDeck(3), noShuffle), 2);
   t = placeOnTable(t, [t.hand[0].iid], { row: 1, col: 2 }, 3);
-  t = stackOnto(t, [t.hand[0].iid], t.table[0].iid, true);
+  t = stackOnto(t, [t.hand[0].iid], t.table[0].iid);
   assert.ok(t.table.every((c) => c.spot?.row === 1 && c.spot?.col === 2));
   assert.deepEqual(gridSpots(t.table, 3), [{ row: 1, col: 2 }]);
 });
@@ -184,16 +185,18 @@ test('stacking puts cards in the stack\'s spot', () => {
 test('a whole stack can be moved to another spot, staying a stack', () => {
   let t = draw(createTable(makeDeck(4), noShuffle), 3); // hand: c0 c1 c2
   t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 0 }, 3); // c0
-  t = stackOnto(t, [t.hand[1].iid, t.hand[0].iid], t.table[0].iid, true); // c0, c1, c2 (c2 on top)
-  t = flip(t, t.table[0].iid); // the bottom card face down
+  t = stackOnto(t, [t.hand[1].iid, t.hand[0].iid], t.table[0].iid); // c0, c1, c2 (c2 on top)
+  // Flipping a card in a stack turns the whole stack's cards.
+  t = flip(t, t.table[0].iid);
+  assert.ok(t.table.every((c) => !c.faceUp));
   const held = stackGroups(t.table)[0].map((c) => c.iid).reverse(); // top first
   const moved = placeStackOnTable(t, held, { row: 1, col: 2 }, 3);
   assert.deepEqual(stackGroups(moved.table).map((g) => g.map((c) => c.cardId)), [['c0', 'c1', 'c2']]);
   assert.deepEqual(gridSpots(moved.table, 3), [{ row: 1, col: 2 }]);
-  assert.deepEqual(moved.table.map((c) => c.faceUp), [false, true, true]);
-  // Turned over as a whole, where it lies: the order reverses and each card turns the other way up.
+  assert.ok(moved.table.every((c) => !c.faceUp));
+  // Turned over as a whole, where it lies: the order reverses and every card turns face up.
   const turned = turnStackOver(moved, moved.table[0].iid, 3);
-  assert.deepEqual(turned.table.map((c) => [c.cardId, c.faceUp]), [['c2', false], ['c1', false], ['c0', true]]);
+  assert.deepEqual(turned.table.map((c) => [c.cardId, c.faceUp]), [['c2', true], ['c1', true], ['c0', true]]);
   assert.deepEqual(gridSpots(turned.table, 3), [{ row: 1, col: 2 }]);
 });
 
@@ -206,12 +209,22 @@ test('held cards from anywhere can be put down together as a new stack', () => {
   assert.equal(t.hand.length + t.deck.length, 1);
 });
 
-test('stacking a held stack can keep each card the way up it was', () => {
-  let t = draw(createTable(makeDeck(3), noShuffle), 3); // hand: c0 c1 c2
-  t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 0 }, 3);
-  t = flip(t, t.hand[0].iid); // c1 face down
-  t = stackOnto(t, [t.hand[1].iid, t.hand[0].iid], t.table[0].iid);
-  assert.deepEqual(t.table.map((c) => [c.cardId, c.faceUp]), [['c0', true], ['c1', false], ['c2', true]]);
+test('a stack never mixes faces: cards put on it turn to match, and a stack is put down one way up', () => {
+  let t = draw(createTable(makeDeck(4), noShuffle), 3); // hand: c0 c1 c2
+  t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 0 }, 3, false); // c0, face down
+  t = stackOnto(t, [t.hand[1].iid, t.hand[0].iid], t.table[0].iid); // face-up c1, c2 onto it
+  assert.deepEqual(t.table.map((c) => [c.cardId, c.faceUp]), [['c0', false], ['c1', false], ['c2', false]]);
+  // Held cards facing different ways, put down as a new stack, all face the way its top card does.
+  t = flip(t, t.deck[0].iid); // c3 face up
+  t = placeStackOnTable(t, [t.deck[0].iid, t.table[2].iid], { row: 0, col: 2 }, 3);
+  assert.deepEqual(stackGroups(t.table)[1].map((c) => [c.cardId, c.faceUp]), [['c2', true], ['c3', true]]);
+});
+
+test('stacks saved with mixed faces are evened out to the bottom card when loaded', () => {
+  const deck = makeDeck(2);
+  const t = createTable(deck, noShuffle);
+  const mixed = { ...t, deck: [], table: [{ ...t.deck[0], stack: 's', faceUp: false }, { ...t.deck[1], stack: 's', faceUp: true }] };
+  assert.ok(pruneTable(mixed, deck).table.every((c) => !c.faceUp));
 });
 
 test('the deck can be rearranged from the search, several cards at once', () => {

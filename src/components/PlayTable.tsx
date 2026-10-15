@@ -197,6 +197,8 @@ interface Landing {
   iids: string[];
   cardId: string;
   faceUp: boolean;
+  /** It lands facing the other way from how it was held (onto a stack facing that way), so it turns as it lands. */
+  turns?: boolean;
   /** The width the glide starts at: the held stack's. */
   width: number;
   /** The first card's layout when it was dropped, to tell when it has been laid out in its new place. */
@@ -724,7 +726,8 @@ function Table({
     ];
     const actions: SheetAction[] = stack
       ? [{ label: 'Turn stack over', onPress: go((t) => T.turnStackOver(t, iid, cols)) }]
-      : !reveal && (from === 'table' || from === 'hand')
+      : // A card in a stack can't be turned over on its own: a stack's cards all face the same way.
+        !reveal && (from === 'hand' || (from === 'table' && !(group && group.length > 1)))
         ? [{ label: 'Flip over', onPress: () => apply((t) => T.flip(t, iid)) }]
         : [];
     return { tiles, actions };
@@ -1284,11 +1287,12 @@ function Table({
       const staying = i !== -1 ? tableGroups[i].filter((c) => !isHeld(c.iid)).length : 1;
       const lean = i !== -1 ? spotLean(groupSpots[i]) : undefined;
       glideIn('table', lean && leanOffset(lean, pileRise(tableCardWidth, staying + ids.length)));
-      // A whole stack keeps each card's face (each turned, if it was turned over); other cards all face its way.
-      const turnedOver = d.faceUp !== d.startFaceUp;
-      apply((t) =>
-        d.wholeStack ? T.stackOnto(turnedOver ? T.flipAll(t, ids) : t, ids, onto) : T.stackOnto(t, ids, onto, d.faceUp),
-      );
+      // The cards turn to face the way the stack does (a stack's cards all face the same way), turning over as
+      // they land if they were held the other way up.
+      const stackFace = i !== -1 ? tableGroups[i][0].faceUp : d.faceUp;
+      const heldFace = heldFaceUp(d, d.stack[0]);
+      if (stackFace !== heldFace) setLanding((l) => l && { ...l, faceUp: stackFace, turns: true });
+      apply((t) => T.stackOnto(t, ids, onto));
       // The held stack's top card becomes the stack's top; its count pops again as the new count.
       setPoppedStack(ids[0]);
       return;
@@ -2307,7 +2311,7 @@ function Table({
             ]}
           />
           {landing.pile ? landingEdges(landing) : null}
-          <CardView deck={deck} card={cardsById.get(landing.cardId)} faceUp={landing.faceUp} width={landing.width} sharp />
+          <CardView deck={deck} card={cardsById.get(landing.cardId)} faceUp={landing.faceUp} flipIn={landing.turns} width={landing.width} sharp />
         </Animated.View>
       ) : null}
 

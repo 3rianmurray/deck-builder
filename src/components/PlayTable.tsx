@@ -93,6 +93,8 @@ const PILE_INSET = 4;
 const REVEAL_CHROME = 100;
 /** Width of reveal mode's column of icon buttons, including the gap beside it. */
 const REVEAL_RAIL = 72;
+/** How far down the table the eye sits, for which way piles lean (0 is the top, 1 the bottom). */
+const VIEW_DOWN = 0.78;
 /** The play table's grid: space round its edge, and the least space between cards. */
 const GRID_PAD = 14;
 const GRID_GAP = 10;
@@ -594,9 +596,10 @@ function Table({
         ['table', playRect, 0],
       ];
   // ---- Perspective: which way each pile leans (see viewpoint.ts) ----
-  // Seen from above the middle of the table, so piles lean away from it, more the further out they are. A pile
-  // half the screen's width from the middle leans by its full thickness.
-  const viewCenter = { x: rootSize.w / 2, y: rootSize.h / 2 };
+  // Seen from above a point low on the table (VIEW_DOWN of the way down), so piles lean away from it, more the
+  // further out they are, and most of them lean up. A pile half the screen's width away leans by its full
+  // thickness.
+  const viewCenter = { x: rootSize.w / 2, y: rootSize.h * VIEW_DOWN };
   const leanReach = Math.max(1, width / 2);
   /** How the deck or discard pile leans, from where its top card lies on the (flat) table. */
   const pileLean = (z: 'deck' | 'discard'): Lean => {

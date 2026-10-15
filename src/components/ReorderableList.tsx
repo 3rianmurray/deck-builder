@@ -7,7 +7,7 @@ import { colors } from '../theme';
 
 /** Holding a row still this long picks it up. Rows' own long-press delay should match, to swallow the tap. */
 export const LIFT_HOLD_MS = 350;
-/** Moving further than this before the hold completes is a scroll, not a pick-up. */
+/** Moving further than this before the hold completes is a scroll or swipe, not a pick-up. */
 const SLOP = 8;
 /** Dragging within this distance of the top or bottom edge scrolls the list that way. */
 const EDGE = 70;
@@ -17,6 +17,7 @@ const EDGE_TICK_MS = 16;
 interface Press {
   index: number;
   touchId: string;
+  startX: number;
   startY: number;
   /** How far down the row the finger landed, so the lifted row stays under the finger. */
   offY: number;
@@ -167,6 +168,7 @@ export function ReorderableList<R>({
     setPress({
       index,
       touchId: n.identifier,
+      startX: n.pageX,
       startY: n.pageY,
       offY: rowsY(n.pageY) - layout.y,
       pressedAt: n.timestamp,
@@ -179,7 +181,9 @@ export function ReorderableList<R>({
     const t = press && holding(e.nativeEvent.touches);
     if (!press || !t) return;
     if (!press.lifted) {
-      if (!press.abandoned && Math.abs(t.pageY - press.startY) > SLOP) setPress((p) => p && { ...p, abandoned: true });
+      // Moving either way first is a scroll or a sideways swipe on the row (e.g. to delete it).
+      const moved = Math.max(Math.abs(t.pageX - press.startX), Math.abs(t.pageY - press.startY));
+      if (!press.abandoned && moved > SLOP) setPress((p) => p && { ...p, abandoned: true });
       return;
     }
     pan.setValue(t.pageY - press.startY);

@@ -7,6 +7,7 @@ import { ActionSheet } from '../components/ActionSheet';
 import { Button } from '../components/Button';
 import { CardView } from '../components/CardView';
 import { LIFT_HOLD_MS, ReorderableList } from '../components/ReorderableList';
+import { SwipeToDelete } from '../components/SwipeToDelete';
 import { useDecks } from '../lib/DecksContext';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
@@ -20,7 +21,9 @@ export default function HomeScreen() {
   const {
     decks,
     createDeck,
+    deleteDeck,
     sessions,
+    deleteSession,
     getDeck,
     groups,
     createGroup,
@@ -33,6 +36,28 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  /** The row swiped open to show its Delete button (`deck:…`, `group:…` or `session:…`); one at a time. */
+  const [openRow, setOpenRow] = useState<string | null>(null);
+
+  /** Props that let a row be swiped open, keyed so opening one closes the others. */
+  const swipe = (key: string, onDelete: () => void) => ({
+    open: openRow === key,
+    onOpenChange: (open: boolean) => setOpenRow((cur) => (open ? key : cur === key ? null : cur)),
+    onDelete,
+  });
+  const closeRows = () => setOpenRow(null);
+
+  // Decks and sessions take things with them, so ask first. A group's decks are kept, so it just goes.
+  const confirmDeleteDeck = (id: string, name: string) =>
+    Alert.alert(`Delete "${name}"?`, 'This removes the deck and all of its card images from this device.', [
+      { text: 'Cancel', style: 'cancel', onPress: closeRows },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteDeck(id) },
+    ]);
+  const confirmDeleteSession = (id: string, name: string) =>
+    Alert.alert(`Delete "${name}"?`, 'The decks themselves are kept.', [
+      { text: 'Cancel', style: 'cancel', onPress: closeRows },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteSession(id) },
+    ]);
 
   const rows = buildRows(decks, groups);
   const menuGroup = groups.find((g) => g.id === groupMenu);
@@ -64,7 +89,7 @@ export default function HomeScreen() {
       const group = groups.find((g) => g.id === row.id);
       if (!group) return null;
       const count = decks.filter((d) => d.groupId === group.id).length;
-      return (
+      const groupRow = (
         <Pressable
           onPress={() => toggleGroup(group.id)}
           // Matches the list's hold-to-lift, so letting go after lifting doesn't also toggle the group.
@@ -83,12 +108,19 @@ export default function HomeScreen() {
           </Pressable>
         </Pressable>
       );
+      return lifted ? (
+        <View style={styles.groupGap}>{groupRow}</View>
+      ) : (
+        <SwipeToDelete style={styles.groupGap} radius={10} {...swipe(`group:${group.id}`, () => deleteGroup(group.id))}>
+          {groupRow}
+        </SwipeToDelete>
+      );
     }
     const deck = getDeck(row.id);
     if (!deck) return null;
-    return (
+    const deckRow = (
       <Pressable
-        style={({ pressed }) => [styles.row, deck.groupId && styles.inGroup, lifted && styles.liftedRow, pressed && { opacity: 0.75 }]}
+        style={({ pressed }) => [styles.row, lifted && styles.liftedRow, pressed && { opacity: 0.75 }]}
         onPress={() => router.push({ pathname: '/deck/[id]', params: { id: deck.id } })}
         // Matches the list's hold-to-lift, so letting go after lifting doesn't also open the deck.
         onLongPress={() => {}}
@@ -110,6 +142,14 @@ export default function HomeScreen() {
         />
       </Pressable>
     );
+    const indent = deck.groupId ? styles.inGroup : undefined;
+    return lifted ? (
+      <View style={indent}>{deckRow}</View>
+    ) : (
+      <SwipeToDelete style={indent} {...swipe(`deck:${deck.id}`, () => confirmDeleteDeck(deck.id, deck.name))}>
+        {deckRow}
+      </SwipeToDelete>
+    );
   };
 
   const sessionsSection = sessions.length ? (
@@ -118,25 +158,26 @@ export default function HomeScreen() {
       {sessions.map((s) => {
         const names = s.deckIds.flatMap((d) => getDeck(d)?.name ?? []);
         return (
-          <Pressable
-            key={s.id}
-            style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
-            onPress={() => router.push({ pathname: '/session/edit', params: { id: s.id } })}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.name} numberOfLines={1}>
-                {s.name}
-              </Text>
-              <Text style={styles.meta} numberOfLines={1}>
-                {names.length ? names.join(' · ') : 'No decks'}
-              </Text>
-            </View>
-            <Button
-              label="Play"
-              variant="primary"
-              disabled={names.length === 0}
-              onPress={() => router.push({ pathname: '/session/[id]', params: { id: s.id } })}
-            />
-          </Pressable>
+          <SwipeToDelete key={s.id} {...swipe(`session:${s.id}`, () => confirmDeleteSession(s.id, s.name))}>
+            <Pressable
+              style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
+              onPress={() => router.push({ pathname: '/session/edit', params: { id: s.id } })}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {s.name}
+                </Text>
+                <Text style={styles.meta} numberOfLines={1}>
+                  {names.length ? names.join(' · ') : 'No decks'}
+                </Text>
+              </View>
+              <Button
+                label="Play"
+                variant="primary"
+                disabled={names.length === 0}
+                onPress={() => router.push({ pathname: '/session/[id]', params: { id: s.id } })}
+              />
+            </Pressable>
+          </SwipeToDelete>
         );
       })}
     </View>
@@ -149,7 +190,8 @@ export default function HomeScreen() {
         keyOf={(r) => `${r.kind}:${r.id}`}
         renderRow={(r) => <View style={styles.rowWrap}>{renderRow(r)}</View>}
         renderLifted={(r) => <View style={styles.liftedWrap}>{renderRow(r, true)}</View>}
-        canLift={(_, x, width) => x < width - BUTTON_ZONE}
+        // A row swiped open can't be picked up: a press on it closes it instead.
+        canLift={(r, x, width) => openRow !== `${r.kind}:${r.id}` && x < width - BUTTON_ZONE}
         onDrop={drop}
         bottomInset={insets.bottom + 72}
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 100 }]}
@@ -259,13 +301,14 @@ const styles = StyleSheet.create({
   // Decks in a group sit slightly indented under its header.
   inGroup: { marginLeft: 14 },
   liftedRow: { backgroundColor: colors.surfaceRaised },
+  // Outside the row itself, so a swiped-open group's Delete button is only as tall as the group row.
+  groupGap: { marginTop: 6 },
   groupRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    marginTop: 6,
     borderRadius: 10,
     backgroundColor: 'rgba(224,179,84,0.1)',
     borderWidth: 1,

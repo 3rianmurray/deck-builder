@@ -121,17 +121,21 @@ export function ActionSheet(props: Props) {
             {tiles?.length ? (
               <View style={styles.tiles}>
                 {tiles.map((t) => (
-                  <Pressable
-                    key={t.label}
-                    onPress={() => run(t)}
-                    disabled={t.disabled}
-                    accessibilityRole="button"
-                    accessibilityLabel={t.label}
-                    accessibilityState={{ disabled: t.disabled }}
-                    style={({ pressed }) => [styles.tile, pressed && styles.pressed, t.disabled && styles.tileDisabled]}>
-                    <SymbolView name={t.icon} size={22} tintColor={t.destructive ? colors.danger : colors.text} />
-                    <Text style={[styles.tileText, t.destructive && { color: colors.danger }]}>{t.label}</Text>
-                  </Pressable>
+                  // Three to a row, or four when there are more than six, so the rows stay even.
+                  <View key={t.label} style={[styles.tileCell, { width: tiles.length > 6 ? '25%' : '33.333%' }]}>
+                    <Pressable
+                      onPress={() => run(t)}
+                      disabled={t.disabled}
+                      accessibilityRole="button"
+                      accessibilityLabel={t.label}
+                      accessibilityState={{ disabled: t.disabled }}
+                      style={({ pressed }) => [styles.tile, pressed && styles.pressed, t.disabled && styles.tileDisabled]}>
+                      <SymbolView name={t.icon} size={22} tintColor={t.destructive ? colors.danger : colors.text} />
+                      <Text style={[styles.tileText, t.destructive && { color: colors.danger }]} numberOfLines={1}>
+                        {t.label}
+                      </Text>
+                    </Pressable>
+                  </View>
                 ))}
               </View>
             ) : null}
@@ -172,10 +176,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancel: { marginTop: 6 },
-  tiles: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 6 },
-  // Three to a row, with the space left over between them.
+  // Each tile sits in a cell with a little padding all round, so the gaps between them stay even.
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', margin: -3 },
+  tileCell: { padding: 3 },
   tile: {
-    width: '32%',
     backgroundColor: colors.surfaceRaised,
     borderRadius: 10,
     paddingVertical: 11,

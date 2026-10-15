@@ -488,6 +488,8 @@ function Table({
   const flightDone = (iid: string) => setFlying((f) => (f?.landed && f.iid === iid ? null : f));
   /** The card (by instance, so its neighbours can be found) blown up to nearly full screen, if any. */
   const [zoomed, setZoomed] = useState<string | null>(null);
+  /** Where closing the zoom goes back to (see `showFullSize`). */
+  const [zoomReturn, setZoomReturn] = useState<((iid: string) => void) | null>(null);
   const [rootSize, setRootSize] = useState({ w: 0, h: 0 });
 
   // The tabletop's camera tilt. Everything on the table is laid out flat and drawn tilted, so screen positions
@@ -725,8 +727,16 @@ function Table({
    * A card's menu: where it can go, as a grid of tiles (its own place dimmed), and turning it over. For a card
    * in a table stack with `wholeStack`, the same tiles move the whole stack, and it turns over as a whole. To a
    * pile, a stack's top card ends up on top; into the hand, its cards are laid out top card first.
+   *
+   * Its Full size tile shows the card full size; closing that comes `back` to the menu (for the card then
+   * showing, if the zoom stepped to another).
    */
-  const cardMenu = (iid: string, from: Zone, wholeStack = false): { tiles: SheetTile[]; actions: SheetAction[] } => {
+  const cardMenu = (
+    iid: string,
+    from: Zone,
+    wholeStack = false,
+    back?: (iid: string) => void,
+  ): { tiles: SheetTile[]; actions: SheetAction[] } => {
     const group = from === 'table' ? T.stackGroups(table.table).find((g) => g.some((c) => c.iid === iid)) : undefined;
     const stack = wholeStack && group && group.length > 1 ? group.map((c) => c.iid).reverse() : null;
     // Felt as the cards are put down where they're going.
@@ -746,7 +756,16 @@ function Table({
       destructive: zone === 'trash',
       onPress: go(moveTo(zone, position), zone === 'trash' ? 'Moved to the trash' : undefined),
     });
-    const tiles = [
+    // A face-down card on the table or in the hand can't be looked at; in the search every card is face up.
+    const found = T.findCard(table, iid);
+    const canView = from === 'deck' || from === 'discard' || from === 'trash' || !!(found && table[found.zone][found.index].faceUp);
+    const tiles: SheetTile[] = [
+      {
+        label: 'Full size',
+        icon: { ios: 'arrow.up.left.and.arrow.down.right', android: 'open_in_full', web: 'open_in_full' },
+        disabled: !canView,
+        onPress: () => showFullSize(iid, back),
+      },
       ...(reveal
         ? []
         : [
@@ -766,6 +785,15 @@ function Table({
         ? [{ label: 'Flip over', onPress: () => apply((t) => T.flip(t, iid)) }]
         : [];
     return { tiles, actions };
+  };
+
+  /**
+   * Shows a card full size. With `back`, closing it (by swiping or tapping it away) comes back to where it was
+   * opened from, e.g. the card's menu, for whichever card it was then showing.
+   */
+  const showFullSize = (iid: string, back?: (iid: string) => void) => {
+    setZoomed(iid);
+    setZoomReturn(() => back ?? null);
   };
 
   /** Turns the top card of the deck face up onto the discard pile. */
@@ -1885,7 +1913,10 @@ function Table({
         const group = found.zone === 'table' ? tableGroups.find((g) => g.some((c) => c.iid === inst.iid)) : undefined;
         const inStack = !!group && group.length > 1;
         const whole = inStack && !!sheet.whole;
-        const menu = cardMenu(inst.iid, found.zone, whole);
+        // Back from full size: this menu again, for the card the zoom ended on (on the whole stack, if it's still
+        // this stack's card).
+        const back = (at: string) => open({ kind: 'card', iid: at, whole: whole && at === inst.iid });
+        const menu = cardMenu(inst.iid, found.zone, whole, back);
         return {
           title: inst.faceUp ? card?.name : 'Face-down card',
           header: (
@@ -1895,7 +1926,7 @@ function Table({
                 disabled={!inst.faceUp}
                 onPress={() => {
                   setSheetOpen(false);
-                  setZoomed(inst.iid);
+                  showFullSize(inst.iid, back);
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="View full size">
@@ -2513,7 +2544,14 @@ function Table({
             setZoomed(dir === 1 ? zoomView.next!.key : zoomView.prev!.key);
             haptics.tick();
           }}
-          onClose={() => setZoomed(null)}
+          onClose={() => {
+            // Back to wherever it was opened from, if anywhere (see `showFullSize`).
+            const back = zoomReturn;
+            const at = zoomed;
+            setZoomed(null);
+            setZoomReturn(null);
+            if (back && at) back(at);
+          }}
         />
       ) : null}
 
@@ -2775,7 +2813,7 @@ function SearchPanel({
    * first card the finger is, and how wide it's drawn.
    */
   onTakeOut: (zone: SearchPile, iids: string[], finger: Finger, grip: Grip) => void;
-  cardMenu: (iid: string, from: Zone) => { tiles: SheetTile[]; actions: SheetAction[] };
+  cardMenu: (iid: string, from: Zone, wholeStack?: boolean, back?: (iid: string) => void) => { tiles: SheetTile[]; actions: SheetAction[] };
   onSwitch: (zone: SearchPile) => void;
   onClose: () => void;
   /** It has finished sliding away. */
@@ -2910,7 +2948,13 @@ function SearchPanel({
             </View>
           ) : null
         }
-        {...(selectedCard && pile ? cardMenu(selectedCard.iid, pile) : { actions: [] })}
+        {...(selectedCard && pile
+          ? cardMenu(selectedCard.iid, pile, false, (at) => {
+              // Back from full size: this card's menu again.
+              setSelected(at);
+              setSheetOpen(true);
+            })
+          : { actions: [] })}
       />
     </Animated.View>
   );

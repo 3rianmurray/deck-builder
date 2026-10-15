@@ -64,7 +64,16 @@ interface Props<T> {
   onPress: (item: T) => void;
   /** `picked` are item indexes in pick order; they end up together as a block starting at index `to`. */
   onMove: (picked: number[], to: number) => void;
+  /**
+   * If given, a strip along the bottom appears while items are held, saying `label`. Dragging them onto it
+   * hands them over (in pick order) with the finger still down, e.g. to carry them out of a screen: the grid
+   * lets go of the drag, and the finger is the caller's from then on.
+   */
+  takeOut?: { label: string; onTakeOut: (picked: number[], finger: NativeTouchEvent) => void };
 }
+
+/** Height of the take-out strip (see `takeOut`). */
+const TAKE_OUT_HEIGHT = 76;
 
 /**
  * One grid cell. Memoised so that during a drag only the cells whose state changes (picked up, or the
@@ -123,6 +132,7 @@ export function ReorderableGrid<T>({
   renderLifted,
   onPress,
   onMove,
+  takeOut,
 }: Props<T>) {
   // Kept in state, not a ref, because touch handlers scroll it; created once so it isn't re-attached each render.
   const [list, setList] = useState<FlatList<T> | null>(null);
@@ -162,6 +172,8 @@ export function ReorderableGrid<T>({
   const [coast, setCoast] = useState<number | null>(null);
 
   const lifted = press?.lifted ? press : null;
+  /** Space at the bottom taken by the take-out strip while items are held. */
+  const outStrip = takeOut && lifted ? TAKE_OUT_HEIGHT : 0;
 
   /** A window position relative to the first item's top-left corner, in content (scrolled) coordinates. */
   const inGrid = (x: number, y: number) => {
@@ -190,7 +202,7 @@ export function ReorderableGrid<T>({
       if (target !== null) haptics.tick();
     }
     const rel = y - origin.y;
-    const next = press?.helper ? 0 : rel < EDGE ? -1 : rel > viewHeight - bottomInset - EDGE ? 1 : 0;
+    const next = press?.helper ? 0 : rel < EDGE ? -1 : rel > viewHeight - bottomInset - outStrip - EDGE ? 1 : 0;
     if (next !== edge) setEdge(next);
   };
 
@@ -266,6 +278,13 @@ export function ReorderableGrid<T>({
 
   const followFinger = (t: NativeTouchEvent) => {
     if (!press) return;
+    // Onto the take-out strip: hand the held items over, finger and all, and let go of the drag here.
+    if (takeOut && press.lifted && t.pageY - origin.y > viewHeight - bottomInset - TAKE_OUT_HEIGHT) {
+      const picked = press.picked;
+      finish();
+      takeOut.onTakeOut(picked, t);
+      return;
+    }
     pan.setValue({ x: t.pageX - press.startX, y: t.pageY - press.startY });
     live.setFinger(t.pageX, t.pageY);
     track();
@@ -477,6 +496,12 @@ export function ReorderableGrid<T>({
           ) : null}
         </Animated.View>
       ) : null}
+
+      {takeOut && lifted ? (
+        <View style={[styles.takeOut, { bottom: bottomInset, height: TAKE_OUT_HEIGHT - 12 }]}>
+          <Text style={styles.takeOutText}>{takeOut.label}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -509,6 +534,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 14 },
+  takeOut: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    pointerEvents: 'none',
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: colors.accent,
+    borderRadius: 12,
+    backgroundColor: 'rgba(20,22,26,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  takeOutText: { color: colors.accent, fontSize: 15, fontWeight: '700' },
   lifted: {
     position: 'absolute',
     pointerEvents: 'none',

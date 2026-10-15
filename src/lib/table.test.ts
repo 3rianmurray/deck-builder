@@ -20,6 +20,7 @@ import {
   placeOnTable,
   placeStackOnTable,
   pruneTable,
+  reorderPile,
   resetTable,
   shuffleDiscardIntoDeck,
   stackGroups,
@@ -211,6 +212,14 @@ test('stacking a held stack can keep each card the way up it was', () => {
   t = flip(t, t.hand[0].iid); // c1 face down
   t = stackOnto(t, [t.hand[1].iid, t.hand[0].iid], t.table[0].iid);
   assert.deepEqual(t.table.map((c) => [c.cardId, c.faceUp]), [['c0', true], ['c1', false], ['c2', true]]);
+});
+
+test('the deck can be rearranged from the search, several cards at once', () => {
+  const t = createTable(makeDeck(5), noShuffle); // c0 (top) .. c4
+  // Pick c3 then c1, and put them on top.
+  const moved = reorderPile(t, 'deck', [3, 1], 0);
+  assert.deepEqual(moved.deck.map((c) => c.cardId), ['c3', 'c1', 'c0', 'c2', 'c4']);
+  assert.equal(cardCount(moved), 5);
 });
 
 test('searching the deck lets any card be pulled out', () => {

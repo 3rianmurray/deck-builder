@@ -1,5 +1,6 @@
 // Pure functions for the play table. Every function returns a new state and never mutates its input.
 import { newId } from './id.ts';
+import { moveItems } from './order.ts';
 import { copiesOf } from './types.ts';
 import type { CardInstance, Deck, Spot, TableState, Zone } from './types.ts';
 
@@ -297,6 +298,14 @@ export function draw(state: TableState, count = 1): TableState {
 export function takeTopOfDiscard(state: TableState, to: Zone = 'hand'): TableState {
   if (state.discard.length === 0) return state;
   return moveCard(state, state.discard[0].iid, to);
+}
+
+/**
+ * Rearranges the deck or discard pile, e.g. from the search: the picked cards (by index, in pick order) go
+ * together as a block starting at index `to`, where index 0 is the top card.
+ */
+export function reorderPile(state: TableState, zone: 'deck' | 'discard', picked: number[], to: number): TableState {
+  return { ...state, [zone]: moveItems(state[zone], picked, to) };
 }
 
 export function shuffleZone(state: TableState, zone: Zone, rng: Rng = Math.random): TableState {

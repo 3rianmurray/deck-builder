@@ -6,9 +6,7 @@ import {
   Alert,
   Animated,
   Easing,
-  FlatList,
   LayoutAnimation,
-  Modal,
   PanResponder,
   Pressable,
   ScrollView,
@@ -25,6 +23,7 @@ import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { matSpot, OnTabletopContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
 import { CardZoom, type ZoomItem } from './CardZoom';
+import { ReorderableGrid } from './ReorderableGrid';
 import { Riffle, riffleHeight } from './Riffle';
 import { CardView, EmptySlot, PileDepth, pileRise, pileThickness, prefersReducedMotion } from './CardView';
 import { leanAt, leanOffset, useViewTilt } from './viewpoint';
@@ -142,6 +141,8 @@ interface Drag {
   stack: HeldCard[];
   /** Picked up by its count: a whole table stack, which stays a stack wherever it's dropped on the table. */
   wholeStack: boolean;
+  /** Taken out of the deck or discard pile from the search: put back on its pile, it goes on top. */
+  fromSearch?: boolean;
   /** A second finger on the screen while cards are held: a tap picks up a card, a swipe scrolls the hand or table. */
   helper?: Helper;
   /**
@@ -350,7 +351,12 @@ function Table({
   const insets = useSafeAreaInsets();
   const [sheet, setSheet] = useState<Sheet>({ kind: 'table' });
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [searchZone, setSearchZone] = useState<Zone | null>(null);
+  const [searchZone, setSearchZone] = useState<'deck' | 'discard' | null>(null);
+  // The search stays up while it slides away after closing.
+  const [searchMounted, setSearchMounted] = useState(false);
+  if (searchZone && !searchMounted) setSearchMounted(true);
+  /** Cards have been dragged out of the search and are being carried over the table (see 	akeOutOfSearch). */
+  const [searchLeaving, setSearchLeaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string } | null>(null);
   /**
    * Cards a second finger has just picked up, flying from where they lay onto the held stack. They're in the
@@ -587,6 +593,63 @@ function Table({
       riffleHeight(deckHeight).start();
     }, arrive);
   };
+
+  /**
+   * Cards dragged out of the search (top first), with the finger still on them: they become a normal drag
+   * over the table, as if picked up there, to drop anywhere. The search gets out of the way, and closes once
+   * they've been dropped. They're held face up, as they were seen in the search.
+   */
+  const takeOutOfSearch = (zone: 'deck' | 'discard', iids: string[], finger: NativeTouchEvent) => {
+    const held = iids.flatMap((iid) => table[zone].filter((c) => c.iid === iid));
+    if (!held.length) return;
+    pan.setValue({ x: 0, y: 0 });
+    lastPan.set({ x: 0, y: 0 });
+    snap.set({ on: false, returning: false, leftSource: false });
+    liftGrow.setValue(1);
+    const w = tableCardWidth;
+    setDrag({
+      iid: held[0].iid,
+      cardId: held[0].cardId,
+      from: zone,
+      width: w,
+      verticalOnly: false,
+      touchId: finger.identifier,
+      startX: finger.pageX,
+      startY: finger.pageY,
+      // Held by the middle.
+      offX: w / 2,
+      offY: w / ratio / 2,
+      pressedAt: Date.now(),
+      zoomable: false,
+      active: true,
+      abandoned: false,
+      // The finger's touch began in the search, not on a card here: the screen's own touch events carry it.
+      orphaned: true,
+      startFaceUp: true,
+      faceUp: true,
+      stack: held.map((c) => ({ iid: c.iid, cardId: c.cardId, from: zone })),
+      wholeStack: false,
+      fromSearch: true,
+      shown: false,
+    });
+    setSearchLeaving(true);
+    onTouchingCard?.(true);
+  };
+
+  // While searching, a session's deck pager holds still, so sideways drags in the search don't change deck.
+  useEffect(() => {
+    if (searchZone) onTouchingCard?.(true);
+    else if (!zoomed) onTouchingCard?.(false);
+    // Only as the search opens and closes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchZone !== null]);
+
+  // Once cards taken out of the search have been dropped, the search closes. (Updated while rendering, React's
+  // pattern for state that follows other state.)
+  if (searchLeaving && !drag) {
+    setSearchLeaving(false);
+    setSearchZone(null);
+  }
 
   /** Deals the deck's top card into the hand. */
   const drawOne = () => {
@@ -1254,8 +1317,9 @@ function Table({
       apply((t) => T.insertCards(t, ids, zone, at.index, d.faceUp));
       return;
     }
-    // A single card put back on its own pile stays where it is, just turned over if it was flipped.
-    if (d.stack.length === 1 && zone === d.from) {
+    // A single card put back on its own pile stays where it is, just turned over if it was flipped. (Not one
+    // taken out from the search, from somewhere in the pile: put back, it goes on top.)
+    if (d.stack.length === 1 && zone === d.from && !d.fromSearch) {
       if (d.faceUp !== d.startFaceUp) apply((t) => T.flip(t, d.iid));
       return;
     }
@@ -2302,6 +2366,22 @@ function Table({
       </View>
       </View>
 
+      {searchMounted ? (
+        <SearchPanel
+          zone={searchZone}
+          leaving={searchLeaving}
+          deck={deck}
+          table={table}
+          onShuffle={() => shuffleDeck()}
+          onReorder={(zone, picked, to) => apply((t) => T.reorderPile(t, zone, picked, to))}
+          onTakeOut={takeOutOfSearch}
+          moveActions={moveActions}
+          onSwitch={setSearchZone}
+          onClose={() => setSearchZone(null)}
+          onClosed={() => setSearchMounted(false)}
+        />
+      ) : null}
+
       {zoomView ? (
         <CardZoom
           deck={deck}
@@ -2325,16 +2405,6 @@ function Table({
 
       <ActionSheet visible={sheetOpen} onClose={() => setSheetOpen(false)} {...sheetProps} />
 
-      <SearchModal
-        zone={searchZone}
-        deck={deck}
-        table={table}
-        apply={apply}
-        onShuffle={() => shuffleDeck()}
-        moveActions={moveActions}
-        onSwitch={setSearchZone}
-        onClose={() => setSearchZone(null)}
-      />
     </View>
   );
 }
@@ -2455,102 +2525,166 @@ function CardFlight({
   );
 }
 
-const SEARCHABLE: { zone: Zone; label: string }[] = [
+const SEARCHABLE: { zone: 'deck' | 'discard'; label: string }[] = [
   { zone: 'deck', label: 'Deck' },
   { zone: 'discard', label: 'Discard' },
 ];
 
-/** Full-screen browser for every card in the deck or discard pile, top card first, with a switch between them. */
-function SearchModal({
+/** How long the search takes to slide up over the table, and away again. */
+const SEARCH_IN_MS = 240;
+const SEARCH_OUT_MS = 180;
+
+/**
+ * Every card in the deck or discard pile, top card first, with a switch between them. It slides up over the
+ * table (a layer of it, not a separate window, so a drag can carry on out of it onto the table).
+ *
+ * - Tap a card for its options.
+ * - Hold a card to pick it up and drag it to another place in the pile; tap more with a second finger to
+ *   carry several.
+ * - Drag held cards onto the strip at the bottom to take them out: the search gets out of the way and they
+ *   carry on as a normal drag over the table, to drop anywhere (see `onTakeOut`).
+ */
+function SearchPanel({
   zone,
+  leaving,
   deck,
   table,
-  apply,
   onShuffle,
+  onReorder,
+  onTakeOut,
   moveActions,
   onSwitch,
   onClose,
+  onClosed,
 }: {
-  zone: Zone | null;
+  /** The pile being searched, or null when the search is closed. */
+  zone: 'deck' | 'discard' | null;
+  /** Cards have been taken out and are being carried over the table: fade away, but stay until they're dropped. */
+  leaving: boolean;
   deck: Deck;
   table: TableState;
-  apply: (fn: (t: TableState) => TableState, msg?: string) => void;
   /** Shuffles the deck, with its riffle. */
   onShuffle: () => void;
+  onReorder: (zone: 'deck' | 'discard', picked: number[], to: number) => void;
+  /** Held cards (top first) dragged out of the search, with the finger still on them. */
+  onTakeOut: (zone: 'deck' | 'discard', iids: string[], finger: NativeTouchEvent) => void;
   moveActions: (iid: string, from: Zone) => SheetAction[];
-  onSwitch: (zone: Zone) => void;
+  onSwitch: (zone: 'deck' | 'discard') => void;
   onClose: () => void;
+  /** It has finished sliding away. */
+  onClosed: () => void;
 }) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [selected, setSelected] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const cards = zone ? table[zone] : [];
+  // The pile last shown, kept while the search slides away.
+  const [shownZone, setShownZone] = useState(zone);
+  if (zone && zone !== shownZone) setShownZone(zone);
+  const [height, setHeight] = useState(800);
+  // 0 is closed, 1 open: how far it has slid up. Fading (when cards are taken out) is separate.
+  const [open] = useState(() => new Animated.Value(0));
+  const [fade] = useState(() => new Animated.Value(1));
+  const visible = zone !== null;
+
+  useEffect(() => {
+    if (visible) {
+      fade.setValue(1);
+      Animated.timing(open, { toValue: 1, duration: SEARCH_IN_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    } else {
+      Animated.timing(open, { toValue: 0, duration: SEARCH_OUT_MS, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(
+        ({ finished }) => finished && onClosed(),
+      );
+    }
+    // Slides on opening and closing only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+  useEffect(() => {
+    if (leaving) Animated.timing(fade, { toValue: 0, duration: 150, useNativeDriver: true }).start();
+  }, [leaving, fade]);
+
+  const pile = shownZone;
+  const cards = pile ? table[pile] : [];
   const cardsById = new Map(deck.cards.map((c) => [c.id, c]));
   const columns = 4;
   const cardWidth = (width - 16 * 2 - 8 * (columns - 1)) / columns;
   const selectedCard = selected ? cards.find((c) => c.iid === selected) : undefined;
 
   return (
-    <Modal visible={zone !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
-      <View style={[styles.searchScreen, { paddingTop: insets.top + 8 }]}>
-        <View style={styles.searchHeader}>
-          <View style={styles.searchTabs}>
-            {SEARCHABLE.map((s) => (
-              <Pressable
-                key={s.zone}
-                onPress={() => onSwitch(s.zone)}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: zone === s.zone }}
-                style={[styles.searchTab, zone === s.zone && styles.searchTabActive]}>
-                <Text style={[styles.searchTabText, zone === s.zone && { color: colors.accentText }]}>
-                  {s.label} · {table[s.zone].length}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          <Pressable onPress={onClose} hitSlop={12}>
-            <Text style={styles.headerButton}>Done</Text>
-          </Pressable>
+    <Animated.View
+      onLayout={(e) => setHeight(e.nativeEvent.layout.height)}
+      style={[
+        StyleSheet.absoluteFill,
+        styles.searchScreen,
+        // Out of the way once cards are taken out, though still there: the finger carrying them started here.
+        { pointerEvents: leaving || !visible ? 'none' : 'auto', opacity: fade },
+        { transform: [{ translateY: open.interpolate({ inputRange: [0, 1], outputRange: [height, 0] }) }] },
+      ]}>
+      <View style={[styles.searchHeader, { paddingTop: 10 }]}>
+        <View style={styles.searchTabs}>
+          {SEARCHABLE.map((s) => (
+            <Pressable
+              key={s.zone}
+              onPress={() => onSwitch(s.zone)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: pile === s.zone }}
+              style={[styles.searchTab, pile === s.zone && styles.searchTabActive]}>
+              <Text style={[styles.searchTabText, pile === s.zone && { color: colors.accentText }]}>
+                {s.label} · {table[s.zone].length}
+              </Text>
+            </Pressable>
+          ))}
         </View>
-        <Text style={styles.searchHint}>Top card first. Tap a card to move it.</Text>
-        <FlatList
-          data={cards}
-          keyExtractor={(c) => c.iid}
-          numColumns={columns}
-          columnWrapperStyle={{ gap: 8 }}
-          contentContainerStyle={{ padding: 16, gap: 8 }}
-          ListEmptyComponent={<Text style={styles.hint}>No cards here.</Text>}
-          renderItem={({ item, index }) => (
+        <Pressable onPress={onClose} hitSlop={12}>
+          <Text style={styles.headerButton}>Done</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.searchHint}>
+        Top card first. Tap a card for options. Hold one to drag it to a new place, or onto the table.
+      </Text>
+      {pile && cards.length ? (
+        <ReorderableGrid
+          // A fresh grid for each pile, so a drag in one never carries over to the other.
+          key={pile}
+          items={cards}
+          keyOf={(c) => c.iid}
+          columns={columns}
+          itemWidth={cardWidth}
+          gap={8}
+          padding={16}
+          renderItem={(item) => (
             <View>
-              <CardView
-                deck={deck}
-                card={cardsById.get(item.cardId)}
-                width={cardWidth}
-                onPress={() => {
-                  setSelected(item.iid);
-                  setSheetOpen(true);
-                }}
-              />
-              <Text style={styles.searchIndex}>{index + 1}</Text>
+              <CardView deck={deck} card={cardsById.get(item.cardId)} width={cardWidth} />
+              <Text style={styles.searchIndex}>{cards.indexOf(item) + 1}</Text>
             </View>
           )}
+          renderLifted={(item) => <CardView deck={deck} card={cardsById.get(item.cardId)} width={cardWidth} sharp />}
+          onPress={(item) => {
+            setSelected(item.iid);
+            setSheetOpen(true);
+          }}
+          onMove={(picked, to) => onReorder(pile, picked, to)}
+          takeOut={{
+            label: 'Drag here to take them out',
+            onTakeOut: (picked, finger) => onTakeOut(pile, picked.map((i) => cards[i].iid), finger),
+          }}
         />
-        {zone === 'deck' ? (
-          <View style={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 12 }}>
-            <Button
-              label="Shuffle & close"
-              variant="primary"
-              onPress={() => {
-                onShuffle();
-                onClose();
-              }}
-            />
-          </View>
-        ) : null}
-      </View>
+      ) : (
+        <Text style={styles.hint}>No cards here.</Text>
+      )}
+      {pile === 'deck' ? (
+        <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 12 }}>
+          <Button
+            label="Shuffle & close"
+            variant="primary"
+            onPress={() => {
+              onShuffle();
+              onClose();
+            }}
+          />
+        </View>
+      ) : null}
 
-      {/* Rendered inside the search modal so iOS can present it on top. */}
       <ActionSheet
         visible={sheetOpen}
         onClose={() => setSheetOpen(false)}
@@ -2562,9 +2696,9 @@ function SearchModal({
             </View>
           ) : null
         }
-        actions={selectedCard && zone ? moveActions(selectedCard.iid, zone) : []}
+        actions={selectedCard && pile ? moveActions(selectedCard.iid, pile) : []}
       />
-    </Modal>
+    </Animated.View>
   );
 }
 

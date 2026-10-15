@@ -535,6 +535,27 @@ function Table({
     });
   };
 
+  /**
+   * For a card in a table stack: actions on the whole stack. To a pile, the stack's top card ends up on top;
+   * into the hand, its cards are laid out top card first.
+   */
+  const stackActions = (iid: string): SheetAction[] => {
+    const group = T.stackGroups(table.table).find((g) => g.some((c) => c.iid === iid));
+    if (!group || group.length < 2) return [];
+    const ids = group.map((c) => c.iid).reverse(); // top first
+    const n = ids.length;
+    return [
+      ...(reveal ? [] : [{ label: `Put stack in hand (${n} cards)`, onPress: () => apply((t) => T.moveCards(t, ids, 'hand')) }]),
+      { label: `Discard stack (${n} cards)`, onPress: () => apply((t) => T.moveCards(t, ids, 'discard')) },
+      { label: 'Put stack on top of deck', onPress: () => apply((t) => T.moveCards(t, ids, 'deck')) },
+      {
+        label: 'Put stack on bottom of deck',
+        onPress: () => apply((t) => ids.reduce((s, id) => T.moveCard(s, id, 'deck', 'bottom'), t)),
+      },
+      { label: 'Turn stack over', onPress: () => apply((t) => T.turnStackOver(t, iid, cols)) },
+    ];
+  };
+
   const switchMode = (next: PlayMode) => {
     setMode(next);
     const outside = table.hand.length + table.table.length;
@@ -785,6 +806,16 @@ function Table({
     else onTouchingCard?.(false);
   }, [zoomOpen, onTouchingCard]);
 
+  /**
+   * Which way up a held card is showing. A whole stack picked up by its count is a real stack, whose cards can
+   * face either way: each keeps its own face, all turned the other way if the stack has been turned over. Any
+   * other held cards all face the held stack's way.
+   */
+  const heldFaceUp = (d: Drag, h: HeldCard) => {
+    const c = d.wholeStack ? table.table.find((t) => t.iid === h.iid) : undefined;
+    return c ? c.faceUp !== (d.faceUp !== d.startFaceUp) : d.faceUp;
+  };
+
   const drop = (d: Drag, zone: Zone | null, at: InsertAt | null, onto: string | null) => {
     const ids = d.stack.map((h) => h.iid);
 
@@ -815,7 +846,8 @@ function Table({
         zone: to,
         iids: ids,
         cardId: d.stack[0].cardId,
-        faceUp: d.faceUp,
+        // In the hand every card faces the held stack's way; on the table a whole stack keeps its cards' faces.
+        faceUp: to === 'hand' ? d.faceUp : heldFaceUp(d, d.stack[0]),
         width: d.width * LIFTED_SCALE,
         before: cardLayouts[ids[0]],
         rise,
@@ -840,7 +872,11 @@ function Table({
       const group = tableGroups.find((g) => g.some((c) => c.iid === onto));
       const staying = group ? group.filter((c) => !isHeld(c.iid)).length : 1;
       glideIn('table', pileRise(tableCardWidth, staying + ids.length));
-      apply((t) => T.stackOnto(t, ids, onto, d.faceUp));
+      // A whole stack keeps each card's face (each turned, if it was turned over); other cards all face its way.
+      const turnedOver = d.faceUp !== d.startFaceUp;
+      apply((t) =>
+        d.wholeStack ? T.stackOnto(turnedOver ? T.flipAll(t, ids) : t, ids, onto) : T.stackOnto(t, ids, onto, d.faceUp),
+      );
       // The held stack's top card becomes the stack's top; its count pops again as the new count.
       setPoppedStack(ids[0]);
       return;
@@ -852,7 +888,7 @@ function Table({
       const back = home !== -1 && sameSpot(groupSpots[home], at.spot);
       const turnedOver = d.faceUp !== d.startFaceUp;
       glideIn('table', pileRise(tableCardWidth, ids.length), back);
-      if (!back || turnedOver) apply((t) => T.placeStackOnTable(t, ids, at.spot, cols, turnedOver));
+      if (!back || turnedOver) apply((t) => T.placeStackOnTable(turnedOver ? T.flipAll(t, ids) : t, ids, at.spot, cols));
       return;
     }
 
@@ -1339,6 +1375,7 @@ function Table({
           actions: [
             ...(inst.faceUp ? [{ label: 'View full size', onPress: () => setZoomed(inst.iid) }] : []),
             ...moveActions(inst.iid, found.zone),
+            ...(found.zone === 'table' ? stackActions(inst.iid) : []),
           ],
         };
       }
@@ -1764,7 +1801,7 @@ function Table({
           <CardView
             deck={deck}
             card={cardsById.get(drag.stack[0].cardId)}
-            faceUp={drag.faceUp}
+            faceUp={heldFaceUp(drag, drag.stack[0])}
             width={liftedWidth}
             sharp
             onReady={markShown}

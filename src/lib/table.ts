@@ -117,16 +117,19 @@ function tidyStacks(state: TableState): TableState {
 
 /**
  * Puts cards (held top first) on top of the card or stack that `targetIid` belongs to on the play table, all
- * facing `faceUp`. The held stack's top card ends up on top.
+ * facing `faceUp`, or each the way it already was if that's left out. The held stack's top card ends up on top.
  */
-export function stackOnto(state: TableState, iids: string[], targetIid: string, faceUp: boolean): TableState {
+export function stackOnto(state: TableState, iids: string[], targetIid: string, faceUp?: boolean): TableState {
   const target = state.table.find((c) => c.iid === targetIid);
   if (!target || iids.includes(targetIid)) return state;
   const stack = target.stack ?? target.iid;
   const moving: CardInstance[] = [];
   for (const iid of iids.slice().reverse()) {
     const found = findCard(state, iid);
-    if (found) moving.push({ ...state[found.zone][found.index], faceUp, stack, spot: target.spot });
+    if (found) {
+      const c = state[found.zone][found.index];
+      moving.push({ ...c, faceUp: faceUp ?? c.faceUp, stack, spot: target.spot });
+    }
   }
   const ids = new Set(moving.map((c) => c.iid));
   const next = { ...state };
@@ -217,17 +220,13 @@ export function placeOnTable(state: TableState, iids: string[], spot: Spot, cols
 
 /**
  * Moves a whole stack (listed top first) to `spot` on the table, or the next free spot after it, keeping it a
- * stack. `turnedOver` turns the stack over as a whole: each card the other way up (the order is the caller's,
- * already reversed by turning it over).
+ * stack, each card the way up it already was.
  */
-export function placeStackOnTable(state: TableState, iids: string[], spot: Spot, cols: number, turnedOver = false): TableState {
+export function placeStackOnTable(state: TableState, iids: string[], spot: Spot, cols: number): TableState {
   const moving: CardInstance[] = [];
   for (const iid of iids.slice().reverse()) {
     const found = findCard(state, iid);
-    if (found) {
-      const c = state[found.zone][found.index];
-      moving.push({ ...unstacked(c), faceUp: turnedOver ? !c.faceUp : c.faceUp });
-    }
+    if (found) moving.push(unstacked(state[found.zone][found.index]));
   }
   if (moving.length < 2) return placeOnTable(state, iids, spot, cols);
   const ids = new Set(moving.map((c) => c.iid));
@@ -315,6 +314,25 @@ export function flip(state: TableState, iid: string): TableState {
   if (!found) return state;
   const zone = state[found.zone].map((c) => (c.iid === iid ? { ...c, faceUp: !c.faceUp } : c));
   return { ...state, [found.zone]: zone };
+}
+
+/** Turns each of these cards the other way up, wherever they are. */
+export function flipAll(state: TableState, iids: string[]): TableState {
+  return iids.reduce(flip, state);
+}
+
+/**
+ * Turns a table stack over as a whole, where it lies: its order reverses, so the bottom card is now on top,
+ * and each card is the other way up.
+ */
+export function turnStackOver(state: TableState, stackIid: string, cols: number): TableState {
+  const groups = stackGroups(state.table);
+  const i = groups.findIndex((g) => g.some((c) => c.iid === stackIid));
+  if (i === -1 || groups[i].length < 2) return state;
+  const spot = gridSpots(state.table, cols)[i];
+  const ids = groups[i].map((c) => c.iid);
+  // Listed top first, the old bottom card is now the top.
+  return placeStackOnTable(flipAll(state, ids), ids, spot, cols);
 }
 
 /** Gathers every card back into the deck, face down and shuffled. */

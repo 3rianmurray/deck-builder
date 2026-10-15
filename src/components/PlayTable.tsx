@@ -313,6 +313,11 @@ function Table({
   const [shuffling, setShuffling] = useState<number | null>(null);
   /** How much of the deck's pile is on the table, which drops away and builds back up during a riffle. */
   const [deckHeight] = useState(() => new Animated.Value(1));
+  /**
+   * The deck's real top card during a riffle: gone as the halves lift off, and fading back in under the last
+   * cards to land, so its shadow is already there when the riffle ends, rather than popping in.
+   */
+  const [deckTopShown] = useState(() => deckHeight.interpolate({ inputRange: [0.85, 1], outputRange: [0, 1], extrapolate: 'clamp' }));
 
   // Drag and drop. Layouts are relative to the screen's root view, which sits at `rootOrigin` in the window.
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -1675,9 +1680,9 @@ function Table({
               { onPress: reveal ? revealNext : drawOne, onLongPress: () => setSearchZone('deck') },
               deckShowing > 0 ? (
                 // Out of sight while the riffle plays over it, so the shuffle doesn't show a third half.
-                <View style={shuffling !== null && styles.hiddenCard}>
+                <Animated.View style={shuffling !== null && { opacity: deckTopShown }}>
                   <CardView deck={deck} faceUp={false} width={pileWidth} />
-                </View>
+                </Animated.View>
               ) : (
                 <EmptySlot deck={deck} width={pileWidth} label="Deck empty" />
               ),

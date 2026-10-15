@@ -40,7 +40,7 @@ export function riffleHeight(height: Animated.Value): Animated.CompositeAnimatio
 /**
  * A riffle shuffle drawn over the deck's top card: the deck splits into two halves, which lift and tilt apart,
  * then the cards fall back one by one from alternate halves, weaving together into one deck again. Each card
- * landing is felt as a tick. It plays once when mounted and calls `onDone` at the end.
+ * landing is felt as a tick, and nothing more at the end, so it finishes quietly. It plays once when mounted and calls `onDone` at the end.
  */
 export function Riffle({ deck, width, onDone }: { deck: Deck; width: number; onDone: () => void }) {
   const [t] = useState(() => new Animated.Value(0));
@@ -51,10 +51,7 @@ export function Riffle({ deck, width, onDone }: { deck: Deck; width: number; onD
       setTimeout(haptics.tick, (WEAVE_START + i * WEAVE_STEP + FALL) * RIFFLE_MS),
     );
     Animated.timing(t, { toValue: 1, duration: RIFFLE_MS, easing: Easing.linear, useNativeDriver: true }).start(({ finished }) => {
-      if (!finished) return;
-      // Squared up again.
-      haptics.drop();
-      onDone();
+      if (finished) onDone();
     });
     return () => timers.forEach(clearTimeout);
     // Plays once per mount; a new shuffle mounts a new riffle.

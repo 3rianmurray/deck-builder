@@ -40,7 +40,9 @@ import { colors } from '../theme';
 type Sheet =
   | { kind: 'card'; iid: string }
   | { kind: 'discard' }
-  | { kind: 'table' };
+  | { kind: 'table' }
+  /** Several cards (top first) let go on an empty table spot, asking how to put them down. */
+  | { kind: 'place'; iids: string[]; spot: Spot; faceUp: boolean };
 
 /** Distance a finger must travel before a press turns into a drag. */
 const DRAG_SLOP = 8;
@@ -1018,6 +1020,13 @@ function Table({
       return;
     }
 
+    // Several cards put down on an empty spot: ask whether they go there together as a stack, or side by side.
+    // They go back where they were until the player chooses (or cancels).
+    if (ids.length > 1 && zone === 'table' && at?.zone === 'table') {
+      open({ kind: 'place', iids: ids, spot: at.spot, faceUp: d.faceUp });
+      return;
+    }
+
     // On the table they go in the free spot by the finger (any further cards in the free spots after it).
     if (zone === 'table' && at?.zone === 'table') {
       // A single card dropped back into its own row lands in its blank space, which is already in place.
@@ -1511,11 +1520,13 @@ function Table({
 
   /** The spot carried cards would land in on the table, if that's where they're headed. */
   const dropSpot = drag?.active && insertAt?.zone === 'table' && !stackTarget ? insertAt.spot : null;
+  /** The outlined spot: where carried cards will land, or where some are waiting to be put down (see 'place'). */
+  const outlineSpot = dropSpot ?? (sheetOpen && sheet.kind === 'place' ? sheet.spot : null);
   /** Where each table group is drawn: in its spot, or for the dragged card's blank, where it would land. */
   const drawnSpot = (g: CardInstance[], i: number) =>
     dropSpot && g.length === 1 && g[0].iid === drag?.iid ? dropSpot : groupSpots[i];
   /** The grid's height: down to the row below the last card, so there's always a free row to drop into. */
-  const gridRows = Math.max(0, ...groupSpots.map((s) => s.row + 1), (dropSpot?.row ?? -1) + 1) + 1;
+  const gridRows = Math.max(0, ...groupSpots.map((s) => s.row + 1), (outlineSpot?.row ?? -1) + 1) + 1;
   const gridHeight = GRID_PAD * 2 + gridRows * rowStep - GRID_GAP;
 
   /** A blank space the size of a card in a row, where carried cards would land. */
@@ -1561,6 +1572,20 @@ function Table({
             },
           ],
         };
+      case 'place': {
+        const { iids, spot, faceUp } = sheet;
+        const put = (fn: (t: TableState) => TableState) => () => {
+          apply(fn);
+          haptics.drop();
+        };
+        return {
+          title: `Put down ${iids.length} cards`,
+          actions: [
+            { label: 'As a stack', onPress: put((t) => T.placeStackOnTable(t, iids, spot, cols, faceUp)) },
+            { label: 'Side by side', onPress: put((t) => T.placeOnTable(t, iids, spot, cols, faceUp)) },
+          ],
+        };
+      }
       case 'table':
         return {
           title: deck.name,
@@ -1900,13 +1925,13 @@ function Table({
             // Scrolling is off while cards are held, so the offset only needs updating when a scroll settles.
             onScrollEndDrag={(e) => trackScroll('play', e.nativeEvent.contentOffset.y)}
             onMomentumScrollEnd={(e) => trackScroll('play', e.nativeEvent.contentOffset.y)}>
-            {table.table.length || dropSpot ? null : <Text style={styles.hint}>Drag a card anywhere here to play it.</Text>}
+            {table.table.length || outlineSpot ? null : <Text style={styles.hint}>Drag a card anywhere here to play it.</Text>}
             {gridReady ? tableGroups.map((g, i) => renderStack(g, drawnSpot(g, i))) : null}
-            {dropSpot ? (
+            {outlineSpot ? (
               <View
                 style={[
                   styles.dropSpot,
-                  spotPlace(dropSpot),
+                  spotPlace(outlineSpot),
                   { width: tableCardWidth, height: cellH, borderRadius: Math.max(4, tableCardWidth * 0.06) },
                 ]}
               />

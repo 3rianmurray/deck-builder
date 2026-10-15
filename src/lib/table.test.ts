@@ -196,6 +196,15 @@ test('a whole stack can be moved to another spot, staying a stack', () => {
   assert.deepEqual(gridSpots(turned.table, 3), [{ row: 1, col: 2 }]);
 });
 
+test('held cards from anywhere can be put down together as a new stack', () => {
+  let t = draw(createTable(makeDeck(4), noShuffle), 2); // hand: c0 c1; deck: c2 c3
+  // Held top first: c1, then c0, then the deck's top card.
+  t = placeStackOnTable(t, [t.hand[1].iid, t.hand[0].iid, t.deck[0].iid], { row: 0, col: 1 }, 3, true);
+  assert.deepEqual(stackGroups(t.table).map((g) => g.map((c) => c.cardId)), [['c2', 'c0', 'c1']]);
+  assert.ok(t.table.every((c) => c.faceUp && c.spot?.row === 0 && c.spot?.col === 1));
+  assert.equal(t.hand.length + t.deck.length, 1);
+});
+
 test('stacking a held stack can keep each card the way up it was', () => {
   let t = draw(createTable(makeDeck(3), noShuffle), 3); // hand: c0 c1 c2
   t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 0 }, 3);

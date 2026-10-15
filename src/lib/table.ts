@@ -219,14 +219,18 @@ export function placeOnTable(state: TableState, iids: string[], spot: Spot, cols
 }
 
 /**
- * Moves a whole stack (listed top first) to `spot` on the table, or the next free spot after it, keeping it a
- * stack, each card the way up it already was.
+ * Puts cards (listed top first) at `spot` on the table, or the next free spot after it, as one stack: a whole
+ * stack moved elsewhere, or held cards put down together. Each card stays the way up it was, unless `faceUp`
+ * says otherwise.
  */
-export function placeStackOnTable(state: TableState, iids: string[], spot: Spot, cols: number): TableState {
+export function placeStackOnTable(state: TableState, iids: string[], spot: Spot, cols: number, faceUp?: boolean): TableState {
   const moving: CardInstance[] = [];
   for (const iid of iids.slice().reverse()) {
     const found = findCard(state, iid);
-    if (found) moving.push(unstacked(state[found.zone][found.index]));
+    if (found) {
+      const c = state[found.zone][found.index];
+      moving.push({ ...unstacked(c), faceUp: faceUp ?? c.faceUp });
+    }
   }
   if (moving.length < 2) return placeOnTable(state, iids, spot, cols);
   const ids = new Set(moving.map((c) => c.iid));

@@ -2867,10 +2867,6 @@ function SearchPanel({
           ))}
         </View>
       </View>
-      <Text style={styles.searchHint}>
-        Top card first. Tap a card for options, or hold one to drag it to a new place. Holding cards? Tap Close to
-        take them to the table.
-      </Text>
       {pile && cards.length ? (
         <ReorderableGrid
           // A fresh grid for each pile, so a drag in one never carries over to the other.
@@ -3074,7 +3070,6 @@ const styles = StyleSheet.create({
   searchTab: { flex: 1, paddingVertical: 9, borderRadius: 8, alignItems: 'center' },
   searchTabActive: { backgroundColor: colors.accent },
   searchTabText: { color: colors.text, fontSize: 15, fontWeight: '600' },
-  searchHint: { color: colors.textMuted, paddingHorizontal: 16, marginTop: 4 },
   // A card menu's switch between acting on the card and on its whole stack.
   scope: { flexDirection: 'row', alignSelf: 'stretch', backgroundColor: colors.surfaceRaised, borderRadius: 10, padding: 3 },
   scopeItem: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },

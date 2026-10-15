@@ -18,6 +18,26 @@ const WEAVE_STEP = 0.062;
 const FALL = 0.12;
 
 /**
+ * How much of the deck's pile is on the table through a riffle, for its `PileDepth` to follow: it goes as the
+ * halves lift off (the whole deck is in the player's hands), and builds back up as the cards weave down into
+ * it. Played alongside a `Riffle`; JS-driven, as PileDepth needs.
+ */
+export function riffleHeight(height: Animated.Value): Animated.CompositeAnimation {
+  const weaveEnd = WEAVE_START + (CARDS - 1) * WEAVE_STEP + FALL;
+  height.setValue(1);
+  return Animated.sequence([
+    Animated.timing(height, { toValue: 0, duration: SPLIT_END * RIFFLE_MS, easing: Easing.out(Easing.quad), useNativeDriver: false }),
+    Animated.delay((WEAVE_START + FALL / 2 - SPLIT_END) * RIFFLE_MS),
+    Animated.timing(height, {
+      toValue: 1,
+      duration: (weaveEnd - WEAVE_START - FALL / 2) * RIFFLE_MS,
+      easing: Easing.inOut(Easing.quad),
+      useNativeDriver: false,
+    }),
+  ]);
+}
+
+/**
  * A riffle shuffle drawn over the deck's top card: the deck splits into two halves, which lift and tilt apart,
  * then the cards fall back one by one from alternate halves, weaving together into one deck again. Each card
  * landing is felt as a tick. It plays once when mounted and calls `onDone` at the end.

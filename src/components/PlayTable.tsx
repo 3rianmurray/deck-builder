@@ -24,7 +24,7 @@ import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { matSpot, OnTabletopContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
 import { CardZoom, type ZoomItem } from './CardZoom';
-import { Riffle } from './Riffle';
+import { Riffle, riffleHeight } from './Riffle';
 import { CardView, EmptySlot, PileDepth, pileRise, pileThickness, prefersReducedMotion } from './CardView';
 import { leanAt, leanOffset, useViewTilt } from './viewpoint';
 import type { Lean } from './viewpoint';
@@ -311,6 +311,8 @@ function Table({
   const [toast, setToast] = useState<{ msg: string } | null>(null);
   /** A riffle playing over the deck, by when it started (see `shuffleDeck`). */
   const [shuffling, setShuffling] = useState<number | null>(null);
+  /** How much of the deck's pile is on the table, which drops away and builds back up during a riffle. */
+  const [deckHeight] = useState(() => new Animated.Value(1));
 
   // Drag and drop. Layouts are relative to the screen's root view, which sits at `rootOrigin` in the window.
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -490,6 +492,7 @@ function Table({
     apply(fn);
     // A new id each time, so shuffling again mid-riffle starts it over.
     setShuffling(Date.now());
+    riffleHeight(deckHeight).start();
   };
 
   /** Deals the deck's top card into the hand. */
@@ -1663,7 +1666,7 @@ function Table({
   const deckPile = (
     <>
       <View style={[styles.pileSlot, matSpot, highlight('deck')]}>
-        <PileDepth deck={deck} width={pileWidth} count={deckShowing} lean={pileLean('deck')}>
+        <PileDepth deck={deck} width={pileWidth} count={deckShowing} lean={pileLean('deck')} height={deckHeight}>
           {deckTop ? (
             draggable(
               deckTop,

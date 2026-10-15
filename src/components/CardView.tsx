@@ -209,18 +209,24 @@ const DEFAULT_LEAN: Lean = { x: -0.7, y: -0.7 };
  *
  * `lean` is which way the top card rises, in pile thicknesses: away from the middle of the table, as a real
  * pile seen from above the middle would (see `viewpoint.ts`). The phone's tilt adds to it as it moves.
+ *
+ * `height`, if given, is how much of the pile is there, from 0 to 1, as it changes: at 0 it's gone, leaving
+ * just its spot, with its top card (and anything drawn on it) sunk down to the table. For a deck being
+ * shuffled, whose cards are all in the player's hands for a moment. It must be a JS-driven value, like the tilt.
  */
 export function PileDepth({
   deck,
   width,
   count,
   lean = DEFAULT_LEAN,
+  height: present,
   children,
 }: {
   deck: Deck;
   width: number;
   count: number;
   lean?: Lean;
+  height?: Animated.Value;
   children: ReactNode;
 }) {
   const rise = pileRise(width, count);
@@ -238,10 +244,17 @@ export function PileDepth({
         outputRange: [-MAX_LEAN * rise, MAX_LEAN * rise],
         extrapolate: 'clamp',
       });
-    const top = { x: axis(viewTilt.x, lean.x), y: axis(viewTilt.y, lean.y) };
+    // Lowered as the pile goes (see `height`).
+    const lowered = (v: Animated.AnimatedInterpolation<number>) => (present ? Animated.multiply(v, present) : v);
+    const top = { x: lowered(axis(viewTilt.x, lean.x)), y: lowered(axis(viewTilt.y, lean.y)) };
     const part = (f: number) => [{ translateX: Animated.multiply(top.x, f) }, { translateY: Animated.multiply(top.y, f) }];
-    return { top: [{ translateX: top.x }, { translateY: top.y }], edge: Array.from({ length: edges }, (_, i) => part(i / edges)) };
-  }, [rise, edges, lean.x, lean.y]);
+    return {
+      top: [{ translateX: top.x }, { translateY: top.y }],
+      edge: Array.from({ length: edges }, (_, i) => part(i / edges)),
+      // The edges fade out as the pile all but goes, so only its spot is left.
+      opacity: present?.interpolate({ inputRange: [0, 0.35], outputRange: [0, 1], extrapolate: 'clamp' }),
+    };
+  }, [rise, edges, lean.x, lean.y, present]);
   return (
     <View style={{ width, height }}>
       {offsets?.edge.map((transform, i) => (
@@ -250,7 +263,7 @@ export function PileDepth({
           key={i}
           style={[
             styles.edge,
-            { width, height, borderRadius: radius, transform },
+            { width, height, borderRadius: radius, transform, opacity: offsets.opacity ?? 1 },
             // On the tabletop the bottom card casts the pile's shadow onto the cloth.
             tabletop && i === 0 && tabletopShadow.resting,
           ]}

@@ -18,7 +18,7 @@ import {
 import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ActionSheet, type SheetAction } from './ActionSheet';
+import { ActionSheet, type SheetAction, type SheetTile } from './ActionSheet';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { matSpot, OnTabletopContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
@@ -38,7 +38,8 @@ import type { Card, CardInstance, Deck, PlayMode, Spot, TableState, Zone } from 
 import { colors } from '../theme';
 
 type Sheet =
-  | { kind: 'card'; iid: string }
+  /** A card's menu; for a card in a table stack, `whole` has it act on the whole stack. */
+  | { kind: 'card'; iid: string; whole?: boolean }
   | { kind: 'discard' }
   | { kind: 'table' }
   /** Several cards (top first) let go on an empty table spot, asking how to put them down. */
@@ -274,7 +275,8 @@ const FLIGHTS_FROM_PILE = 4;
 const MAX_FLIGHTS = 24;
 
 interface PressOptions {
-  onPress?: () => void;
+  /** `wholeStack`: the press was on a table stack's count (see `stack`). */
+  onPress?: (wholeStack?: boolean) => void;
   onLongPress?: () => void;
   verticalOnly?: boolean;
   /**
@@ -681,35 +683,51 @@ function Table({
       { text: 'Cancel', style: 'cancel' },
     ]);
 
-  const moveActions = (iid: string, from: Zone): SheetAction[] => {
-    const to = (zone: Zone, label: string, position?: T.Position): SheetAction => ({
+  /**
+   * A card's menu: where it can go, as a grid of tiles (its own place dimmed), and turning it over. For a card
+   * in a table stack with `wholeStack`, the same tiles move the whole stack, and it turns over as a whole. To a
+   * pile, a stack's top card ends up on top; into the hand, its cards are laid out top card first.
+   */
+  const cardMenu = (iid: string, from: Zone, wholeStack = false): { tiles: SheetTile[]; actions: SheetAction[] } => {
+    const group = from === 'table' ? T.stackGroups(table.table).find((g) => g.some((c) => c.iid === iid)) : undefined;
+    const stack = wholeStack && group && group.length > 1 ? group.map((c) => c.iid).reverse() : null;
+    // Felt as the cards are put down where they're going.
+    const go = (fn: (t: TableState) => TableState, msg?: string) => () => {
+      moveCards(fn, msg);
+      haptics.drop();
+    };
+    const moveTo = (zone: Zone, position?: T.Position) => (t: TableState) => {
+      if (!stack) return T.moveCard(t, iid, zone, position);
+      if (position === 'bottom') return stack.reduce((s, id) => T.moveCard(s, id, zone, 'bottom'), t);
+      return T.moveCards(t, stack, zone);
+    };
+    const tile = (label: string, icon: SheetTile['icon'], zone: Zone, position?: T.Position): SheetTile => ({
       label,
-      onPress: () => {
-        moveCards((t) => T.moveCard(t, iid, zone, position));
-        haptics.drop();
-      },
+      icon,
+      // Already there (except the deck, where it can still move to the top or bottom).
+      disabled: zone === from && zone !== 'deck',
+      destructive: zone === 'trash',
+      onPress: go(moveTo(zone, position), zone === 'trash' ? 'Moved to the trash' : undefined),
     });
-    const actions: SheetAction[] = [];
-    if (!reveal) {
-      if (from !== 'hand') actions.push(to('hand', 'Put in hand'));
-      if (from !== 'table') actions.push(to('table', 'Play to table'));
-      if (from === 'table' || from === 'hand') actions.push({ label: 'Flip over', onPress: () => apply((t) => T.flip(t, iid)) });
-    }
-    if (from !== 'discard') actions.push(to('discard', 'Discard'));
-    actions.push(to('deck', from === 'deck' ? 'Move to top of deck' : 'Put on top of deck', 'top'));
-    actions.push(to('deck', from === 'deck' ? 'Move to bottom of deck' : 'Put on bottom of deck', 'bottom'));
-    // Out of the game, but it can be found in the search's Trash and brought back.
-    if (from !== 'trash') {
-      actions.push({
-        label: 'Trash',
-        destructive: true,
-        onPress: () => {
-          moveCards((t) => T.moveCard(t, iid, 'trash'), 'Moved to the trash');
-          haptics.drop();
-        },
-      });
-    }
-    return actions;
+    const tiles = [
+      ...(reveal
+        ? []
+        : [
+            tile('Hand', { ios: 'hand.raised', android: 'back_hand', web: 'back_hand' }, 'hand'),
+            tile('Table', { ios: 'square.grid.2x2', android: 'grid_view', web: 'grid_view' }, 'table'),
+          ]),
+      tile('Deck top', { ios: 'arrow.up.to.line', android: 'vertical_align_top', web: 'vertical_align_top' }, 'deck', 'top'),
+      tile('Deck bottom', { ios: 'arrow.down.to.line', android: 'vertical_align_bottom', web: 'vertical_align_bottom' }, 'deck', 'bottom'),
+      tile('Discard', { ios: 'rectangle.stack', android: 'layers', web: 'layers' }, 'discard'),
+      // Out of the game, but it can be found in the search's Trash and brought back.
+      tile('Trash', { ios: 'trash', android: 'delete', web: 'delete' }, 'trash'),
+    ];
+    const actions: SheetAction[] = stack
+      ? [{ label: 'Turn stack over', onPress: go((t) => T.turnStackOver(t, iid, cols)) }]
+      : !reveal && (from === 'table' || from === 'hand')
+        ? [{ label: 'Flip over', onPress: () => apply((t) => T.flip(t, iid)) }]
+        : [];
+    return { tiles, actions };
   };
 
   /** Turns the top card of the deck face up onto the discard pile. */
@@ -758,33 +776,6 @@ function Table({
       setFlying((f) => f && { ...f, landed: true });
       setTimeout(() => flightDone(top.iid), 150);
     });
-  };
-
-  /**
-   * For a card in a table stack: actions on the whole stack. To a pile, the stack's top card ends up on top;
-   * into the hand, its cards are laid out top card first.
-   */
-  const stackActions = (iid: string): SheetAction[] => {
-    const group = T.stackGroups(table.table).find((g) => g.some((c) => c.iid === iid));
-    if (!group || group.length < 2) return [];
-    const ids = group.map((c) => c.iid).reverse(); // top first
-    const n = ids.length;
-    // Felt as the stack is put down where it's going.
-    const put = (fn: (t: TableState) => TableState) => () => {
-      moveCards(fn);
-      haptics.drop();
-    };
-    return [
-      ...(reveal ? [] : [{ label: `Put stack in hand (${n} cards)`, onPress: put((t) => T.moveCards(t, ids, 'hand')) }]),
-      { label: `Discard stack (${n} cards)`, onPress: put((t) => T.moveCards(t, ids, 'discard')) },
-      { label: 'Put stack on top of deck', onPress: put((t) => T.moveCards(t, ids, 'deck')) },
-      {
-        label: 'Put stack on bottom of deck',
-        onPress: put((t) => ids.reduce((s, id) => T.moveCard(s, id, 'deck', 'bottom'), t)),
-      },
-      { label: 'Turn stack over', onPress: put((t) => T.turnStackOver(t, iid, cols)) },
-      { label: `Trash stack (${n} cards)`, destructive: true, onPress: put((t) => T.moveCards(t, ids, 'trash')) },
-    ];
   };
 
   const switchMode = (next: PlayMode) => {
@@ -1642,7 +1633,8 @@ function Table({
         if (!d || d.abandoned || d.pinch) return;
         if (d.active) return drop(d, hover, insertAt, stackTarget);
         const longPress = Date.now() - d.pressedAt >= LONG_PRESS_MS && opts.onLongPress;
-        (longPress ? opts.onLongPress : opts.onPress)?.();
+        if (longPress) opts.onLongPress?.();
+        else opts.onPress?.(d.wholeStack);
       },
       onPanResponderTerminate: (e) => (stillHeld(e) ? keepHolding() : endDrag()),
     });
@@ -1722,7 +1714,8 @@ function Table({
       'table',
       tableCardWidth,
       {
-        onPress: () => open({ kind: 'card', iid: shown?.iid ?? top.iid }),
+        // Tapping its count opens the menu on the whole stack (as dragging the count moves the whole stack).
+        onPress: (wholeStack) => open({ kind: 'card', iid: shown?.iid ?? top.iid, whole: wholeStack }),
         stack: { cards: g.slice().reverse(), w: tableCardWidth, h: cellH },
       },
       <>
@@ -1834,19 +1827,48 @@ function Table({
         if (!found) return { actions: [] };
         const inst = table[found.zone][found.index];
         const card = cardsById.get(inst.cardId);
-        // Show the card as it lies, so tapping a face-down card doesn't reveal it.
+        const group = found.zone === 'table' ? tableGroups.find((g) => g.some((c) => c.iid === inst.iid)) : undefined;
+        const inStack = !!group && group.length > 1;
+        const whole = inStack && !!sheet.whole;
+        const menu = cardMenu(inst.iid, found.zone, whole);
         return {
           title: inst.faceUp ? card?.name : 'Face-down card',
           header: (
-            <View style={{ alignItems: 'center', marginBottom: 6 }}>
-              <CardView deck={deck} card={card} faceUp={inst.faceUp} width={Math.min(240, width * 0.6)} />
+            <View style={{ alignItems: 'center', marginBottom: 6, gap: 10 }}>
+              {/* Shown as it lies, so tapping a face-down card doesn't reveal it. Tap a face-up one to see it full size. */}
+              <Pressable
+                disabled={!inst.faceUp}
+                onPress={() => {
+                  setSheetOpen(false);
+                  setZoomed(inst.iid);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="View full size">
+                <CardView deck={deck} card={card} faceUp={inst.faceUp} width={Math.min(200, width * 0.5)} />
+              </Pressable>
+              {inStack ? (
+                <View style={styles.scope}>
+                  {[false, true].map((w) => (
+                    <Pressable
+                      key={String(w)}
+                      onPress={() => {
+                        setSheet({ kind: 'card', iid: inst.iid, whole: w });
+                        haptics.tick();
+                      }}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: whole === w }}
+                      style={[styles.scopeItem, whole === w && styles.scopeItemOn]}>
+                      <Text style={[styles.scopeText, whole === w && { color: colors.accentText }]}>
+                        {w ? `Whole stack (${group!.length})` : 'This card'}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
             </View>
           ),
-          actions: [
-            ...(inst.faceUp ? [{ label: 'View full size', onPress: () => setZoomed(inst.iid) }] : []),
-            ...moveActions(inst.iid, found.zone),
-            ...(found.zone === 'table' ? stackActions(inst.iid) : []),
-          ],
+          tiles: menu.tiles,
+          actions: menu.actions,
         };
       }
       case 'discard':
@@ -2420,7 +2442,7 @@ function Table({
           table={table}
           onReorder={(zone, picked, to) => apply((t) => T.reorderPile(t, zone, picked, to))}
           onTakeOut={takeOutOfSearch}
-          moveActions={moveActions}
+          cardMenu={cardMenu}
           onSwitch={setSearchZone}
           onClose={() => setSearchZone(null)}
           onClosed={() => setSearchMounted(false)}
@@ -2614,7 +2636,7 @@ function SearchPanel({
   table,
   onReorder,
   onTakeOut,
-  moveActions,
+  cardMenu,
   onSwitch,
   onClose,
   onClosed,
@@ -2631,7 +2653,7 @@ function SearchPanel({
    * first card the finger is, and how wide it's drawn.
    */
   onTakeOut: (zone: SearchPile, iids: string[], finger: Finger, grip: Grip) => void;
-  moveActions: (iid: string, from: Zone) => SheetAction[];
+  cardMenu: (iid: string, from: Zone) => { tiles: SheetTile[]; actions: SheetAction[] };
   onSwitch: (zone: SearchPile) => void;
   onClose: () => void;
   /** It has finished sliding away. */
@@ -2769,7 +2791,7 @@ function SearchPanel({
             </View>
           ) : null
         }
-        actions={selectedCard && pile ? moveActions(selectedCard.iid, pile) : []}
+        {...(selectedCard && pile ? cardMenu(selectedCard.iid, pile) : { actions: [] })}
       />
     </Animated.View>
   );
@@ -2930,5 +2952,10 @@ const styles = StyleSheet.create({
   searchTabActive: { backgroundColor: colors.accent },
   searchTabText: { color: colors.text, fontSize: 15, fontWeight: '600' },
   searchHint: { color: colors.textMuted, paddingHorizontal: 16, marginTop: 4 },
+  // A card menu's switch between acting on the card and on its whole stack.
+  scope: { flexDirection: 'row', alignSelf: 'stretch', backgroundColor: colors.surfaceRaised, borderRadius: 10, padding: 3 },
+  scopeItem: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
+  scopeItemOn: { backgroundColor: colors.accent },
+  scopeText: { color: colors.text, fontSize: 14, fontWeight: '600' },
   searchIndex: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginTop: 2 },
 });

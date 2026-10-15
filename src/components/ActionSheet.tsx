@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Animated, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { SymbolView } from 'expo-symbols';
+import type { SymbolViewProps } from 'expo-symbols';
+import { Animated, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '../theme';
@@ -13,11 +15,21 @@ export interface SheetAction {
   opensModal?: boolean;
 }
 
+/** An action shown as a small labelled icon tile, in a grid above the other actions. */
+export interface SheetTile extends SheetAction {
+  /** SF Symbol on iOS, Material Symbol on Android and web. */
+  icon: SymbolViewProps['name'];
+  /** Shown dimmed and can't be pressed, e.g. a card's current place. */
+  disabled?: boolean;
+}
+
 interface Props {
   visible: boolean;
   title?: string;
   /** Optional content shown above the actions, e.g. a large card preview. */
   header?: ReactNode;
+  /** Actions shown as a grid of icon tiles, three to a row, above `actions`. */
+  tiles?: SheetTile[];
   actions: SheetAction[];
   onClose: () => void;
 }
@@ -30,7 +42,7 @@ const OUT_MS = 200;
  * A bottom sheet of actions. Each action closes the sheet when pressed. The dimmed backdrop fades in and out
  * over the screen while the sheet itself slides up from the bottom (and back down).
  */
-export function ActionSheet({ visible, title, header, actions, onClose }: Props) {
+export function ActionSheet({ visible, title, header, tiles, actions, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const pending = useRef<(() => void) | null>(null);
   // 0 is closed, 1 open: the backdrop's opacity, and how far up the sheet has slid.
@@ -88,6 +100,23 @@ export function ActionSheet({ visible, title, header, actions, onClose }: Props)
           <ScrollView bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
             {header}
             {title ? <Text style={styles.title}>{title}</Text> : null}
+            {tiles?.length ? (
+              <View style={styles.tiles}>
+                {tiles.map((t) => (
+                  <Pressable
+                    key={t.label}
+                    onPress={() => run(t)}
+                    disabled={t.disabled}
+                    accessibilityRole="button"
+                    accessibilityLabel={t.label}
+                    accessibilityState={{ disabled: t.disabled }}
+                    style={({ pressed }) => [styles.tile, pressed && styles.pressed, t.disabled && styles.tileDisabled]}>
+                    <SymbolView name={t.icon} size={22} tintColor={t.destructive ? colors.danger : colors.text} />
+                    <Text style={[styles.tileText, t.destructive && { color: colors.danger }]}>{t.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
             {actions.map((a) => (
               <Pressable
                 key={a.label}
@@ -125,6 +154,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancel: { marginTop: 6 },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 6 },
+  // Three to a row, with the space left over between them.
+  tile: {
+    width: '32%',
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+    gap: 5,
+  },
+  tileDisabled: { opacity: 0.35 },
+  tileText: { color: colors.text, fontSize: 12, fontWeight: '500' },
   pressed: { opacity: 0.7 },
   actionText: { color: colors.text, fontSize: 16 },
 });

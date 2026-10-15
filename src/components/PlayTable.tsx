@@ -15,7 +15,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent, ViewStyle } from 'react-native';
+import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent, StyleProp, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet, type SheetAction, type SheetTile } from './ActionSheet';
@@ -2469,22 +2469,13 @@ function Table({
 
       {/* Can't be pressed normally while a finger holds a card; the drag handler checks for a second finger here. */}
       {drag?.active && flipRect ? (
-        <View style={[styles.flip, { left: flipRect.x, top: flipRect.y, width: flipRect.w, height: flipRect.h }]}>
+        <FadeIn style={[styles.flip, { left: flipRect.x, top: flipRect.y, width: flipRect.w, height: flipRect.h }]}>
           <Text style={styles.flipText}>FLIP</Text>
-        </View>
+        </FadeIn>
       ) : null}
 
       {/* Drop cards here to trash them; it lights up while they're over it. */}
-      {drag?.active && trashRect ? (
-        <View
-          style={[
-            styles.trash,
-            hover === 'trash' && styles.trashHover,
-            { left: trashRect.x, top: trashRect.y, width: trashRect.w, height: trashRect.h },
-          ]}>
-          <SymbolView name={{ ios: 'trash', android: 'delete', web: 'delete' }} size={24} tintColor="#fff" />
-        </View>
-      ) : null}
+      {drag?.active && trashRect ? <TrashTarget rect={trashRect} hot={hover === 'trash'} /> : null}
 
       {flying ? (
         <Animated.View style={[styles.flying, { transform: [...flight.pos.getTranslateTransform(), { scale: flight.scale }] }]}>
@@ -2526,11 +2517,7 @@ function Table({
         />
       ) : null}
 
-      {toast ? (
-        <View style={[styles.toast, { pointerEvents: 'none' }]}>
-          <Text style={styles.toastText}>{toast.msg}</Text>
-        </View>
-      ) : null}
+      <Toast toast={toast} />
 
       <ActionSheet visible={sheetOpen} onClose={() => setSheetOpen(false)} {...sheetProps} />
 
@@ -2664,6 +2651,67 @@ function CardFlight({
       <CardView deck={deck} card={card} faceUp={setOff ? flight.toFaceUp : flight.fromFaceUp} width={size} sharp />
     </Animated.View>
   );
+}
+
+/** A brief message over the table, fading in and out. */
+function Toast({ toast }: { toast: { msg: string } | null }) {
+  // The last message, kept while it fades away.
+  const [shown, setShown] = useState(toast);
+  if (toast && toast !== shown) setShown(toast);
+  const [opacity] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    Animated.timing(opacity, { toValue: toast ? 1 : 0, duration: toast ? 140 : 220, useNativeDriver: true }).start(
+      ({ finished }) => finished && !toast && setShown(null),
+    );
+  }, [toast, opacity]);
+  if (!shown) return null;
+  return (
+    <Animated.View
+      style={[
+        styles.toast,
+        { pointerEvents: 'none', opacity, transform: [{ translateY: opacity.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] },
+      ]}>
+      <Text style={styles.toastText}>{shown.msg}</Text>
+    </Animated.View>
+  );
+}
+
+/** The trash can shown while dragging: it fades in, and turns red and swells while cards are over it. */
+function TrashTarget({ rect, hot }: { rect: Rect; hot: boolean }) {
+  const [appear] = useState(() => new Animated.Value(0));
+  const [heat] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    Animated.timing(appear, { toValue: 1, duration: 140, useNativeDriver: true }).start();
+  }, [appear]);
+  useEffect(() => {
+    Animated.spring(heat, { toValue: hot ? 1 : 0, speed: 30, bounciness: 6, useNativeDriver: true }).start();
+  }, [hot, heat]);
+  return (
+    <Animated.View
+      style={[
+        styles.trash,
+        {
+          left: rect.x,
+          top: rect.y,
+          width: rect.w,
+          height: rect.h,
+          opacity: appear,
+          transform: [{ scale: heat.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] }) }],
+        },
+      ]}>
+      <Animated.View style={[StyleSheet.absoluteFill, styles.trashHot, { opacity: heat }]} />
+      <SymbolView name={{ ios: 'trash', android: 'delete', web: 'delete' }} size={24} tintColor="#fff" />
+    </Animated.View>
+  );
+}
+
+/** Fades its contents in when it appears, e.g. the FLIP button as a card is picked up. */
+function FadeIn({ style, children }: { style: StyleProp<ViewStyle>; children: ReactNode }) {
+  const [opacity] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    Animated.timing(opacity, { toValue: 1, duration: 140, useNativeDriver: true }).start();
+  }, [opacity]);
+  return <Animated.View style={[style, { opacity }]}>{children}</Animated.View>;
 }
 
 /** The piles the search can look through. */
@@ -3009,7 +3057,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.35)',
   },
-  trashHover: { backgroundColor: colors.danger, borderColor: colors.danger, transform: [{ scale: 1.15 }] },
+  trashHot: { borderRadius: TRASH_SIZE / 2, backgroundColor: colors.danger },
   toast: {
     position: 'absolute',
     top: '40%',

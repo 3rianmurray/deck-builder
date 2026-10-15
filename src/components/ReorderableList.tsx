@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Animated, LayoutAnimation, ScrollView, StyleSheet, View } from 'react-native';
+import { Animated, Easing, LayoutAnimation, ScrollView, StyleSheet, View } from 'react-native';
 import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent, StyleProp, ViewStyle } from 'react-native';
 
 import * as haptics from '../lib/haptics';
@@ -73,6 +73,11 @@ export function ReorderableList<R>({
   const [contentHeight, setContentHeight] = useState(0);
   const [rowsTop, setRowsTop] = useState(0);
   const [layouts, setLayouts] = useState<Record<string, { y: number; h: number }>>({});
+  /**
+   * A dropped row settling into place: its lifted copy glides to where the row lands, the rows move, and only
+   * then does the copy go and the row itself show (hidden meanwhile, so it isn't seen sliding from where it was).
+   */
+  const [settling, setSettling] = useState<{ row: R; key: string; h: number } | null>(null);
 
   // The scroll position and finger change every frame, so they live outside React state.
   const live = useMemo(() => {
@@ -151,6 +156,7 @@ export function ReorderableList<R>({
     setPress(null);
     setAt(null);
     setEdge(0);
+    setSettling(null);
   };
 
   const holding = (touches: NativeTouchEvent[]) => touches.find((t) => t.identifier === press?.touchId);
@@ -201,12 +207,29 @@ export function ReorderableList<R>({
     if (!press || !holding(e.nativeEvent.changedTouches)) return;
     const p = press;
     const drop = at;
-    finish();
-    if (p.lifted && drop !== null && drop !== p.index && drop !== p.index + 1) {
+    const own = rowLayout(p.index);
+    if (!p.lifted || !own) return finish();
+    const moves = drop !== null && drop !== p.index && drop !== p.index + 1;
+    // Where the row will be: in the place of the row at the drop line (moving up), or ending just above it
+    // (moving down), or back in its own place.
+    let y = own.y;
+    if (moves && drop < p.index) y = rowLayout(drop)?.y ?? y;
+    else if (moves) {
+      const above = rowLayout(drop - 1);
+      if (above) y = above.y + above.h - own.h;
+    }
+    setAt(null);
+    setEdge(0);
+    setSettling({ row: rows[p.index], key: keyOf(rows[p.index]), h: own.h });
+    // Glide the lifted copy there; then the rows move (the row itself hidden, under the copy), and it settles.
+    const toward = rowsTop + y - live.get().scroll - (p.startY - origin.y - p.offY);
+    Animated.timing(pan, { toValue: toward, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => {
+      if (!moves) return finish();
       LayoutAnimation.configureNext({ duration: 220, update: { type: LayoutAnimation.Types.easeInEaseOut } });
       onDrop(rows[p.index], drop);
       haptics.drop();
-    }
+      setTimeout(finish, 230);
+    });
   };
 
   const touchCancel = (e: GestureResponderEvent) => {
@@ -252,7 +275,7 @@ export function ReorderableList<R>({
             <View
               key={keyOf(row)}
               onLayout={measureRow(keyOf(row))}
-              style={lifted?.index === i && styles.placeholder}>
+              style={settling ? keyOf(row) === settling.key && styles.hidden : lifted?.index === i && styles.placeholder}>
               {renderRow(row)}
             </View>
           ))}
@@ -261,13 +284,17 @@ export function ReorderableList<R>({
         {footer}
       </ScrollView>
 
-      {lifted && liftedLayout ? (
+      {lifted && (settling || liftedLayout) ? (
         <Animated.View
           style={[
             styles.lifted,
-            { top: lifted.startY - origin.y - lifted.offY, height: liftedLayout.h, transform: [{ translateY: pan }, { scale: 1.03 }] },
+            {
+              top: lifted.startY - origin.y - lifted.offY,
+              height: settling?.h ?? liftedLayout?.h,
+              transform: [{ translateY: pan }, { scale: 1.03 }],
+            },
           ]}>
-          {renderLifted(rows[lifted.index])}
+          {renderLifted(settling ? settling.row : rows[lifted.index])}
         </Animated.View>
       ) : null}
     </View>
@@ -276,6 +303,7 @@ export function ReorderableList<R>({
 
 const styles = StyleSheet.create({
   placeholder: { opacity: 0.25 },
+  hidden: { opacity: 0 },
   line: {
     position: 'absolute',
     left: 0,

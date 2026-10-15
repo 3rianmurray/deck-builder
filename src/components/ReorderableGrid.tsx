@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { Animated, FlatList, LayoutAnimation, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, FlatList, LayoutAnimation, StyleSheet, Text, View } from 'react-native';
 import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent } from 'react-native';
 
 import * as haptics from '../lib/haptics';
@@ -90,6 +90,7 @@ const Cell = memo(function Cell<T>({
   item,
   width,
   picked,
+  hidden,
   landing,
   renderItem,
   onLayout,
@@ -97,12 +98,14 @@ const Cell = memo(function Cell<T>({
   item: T;
   width: number;
   picked: boolean;
+  /** Out of sight: dropped, and settling into place under its lifted copy. */
+  hidden?: boolean;
   landing: boolean;
   renderItem: (item: T) => ReactNode;
   onLayout?: (e: LayoutChangeEvent) => void;
 }) {
   return (
-    <View onLayout={onLayout} style={[{ width, pointerEvents: 'box-only' }, picked && styles.placeholder]}>
+    <View onLayout={onLayout} style={[{ width, pointerEvents: 'box-only' }, picked && styles.placeholder, hidden && { opacity: 0 }]}>
       <View style={picked && { opacity: 0 }}>{renderItem(item)}</View>
       {landing ? <View style={styles.landing} /> : null}
     </View>
@@ -111,6 +114,8 @@ const Cell = memo(function Cell<T>({
   item: T;
   width: number;
   picked: boolean;
+  /** Out of sight: dropped, and settling into place under its lifted copy. */
+  hidden?: boolean;
   landing: boolean;
   renderItem: (item: T) => ReactNode;
   onLayout?: (e: LayoutChangeEvent) => void;
@@ -177,6 +182,11 @@ export function ReorderableGrid<T>({
   }, []);
   /** The grid's speed while coasting after a second-finger scroll (points per ms), or null when still. */
   const [coast, setCoast] = useState<number | null>(null);
+  /**
+   * Dropped items settling into place: the lifted copy glides to where they land, the grid rearranges, and only
+   * then does the copy go and the items themselves show (hidden meanwhile, so they aren't seen sliding over).
+   */
+  const [settling, setSettling] = useState<{ keys: string[]; items: T[] } | null>(null);
 
   const lifted = press?.lifted ? press : null;
 
@@ -274,6 +284,7 @@ export function ReorderableGrid<T>({
     setTarget(null);
     setEdge(0);
     setCoast(null);
+    setSettling(null);
     // The drag offset isn't reset here: that would jump the lifted item back to where it was picked up just
     // before it disappears. The next press resets it.
   };
@@ -344,16 +355,34 @@ export function ReorderableGrid<T>({
   const release = () => {
     const p = press;
     const to = target;
-    finish();
-    if (!p || p.abandoned) return;
+    if (!p || p.abandoned) return finish();
     if (p.lifted) {
-      if (to !== null && !(p.picked.length === 1 && to === p.from)) {
+      const moves = to !== null && !(p.picked.length === 1 && to === p.from);
+      // Where the first carried item ends up (or back where it came from), in the grid's own coordinates.
+      const slot = moves ? to : p.from;
+      const top = padding + headerHeight + (header ? gap : 0);
+      const x = padding + (slot % columns) * (itemWidth + gap);
+      const y = top + Math.floor(slot / columns) * (itemHeight + gap) - live.get().scroll;
+      setTarget(null);
+      setEdge(0);
+      setCoast(null);
+      setSettling({ keys: p.picked.map((i) => keyOf(items[i])), items: p.picked.map((i) => items[i]) });
+      // Glide the lifted copy there; then the grid rearranges (the items hidden, under the copy), and it settles.
+      Animated.timing(pan, {
+        toValue: { x: x - (p.startX - p.offX - origin.x), y: y - (p.startY - p.offY - origin.y) },
+        duration: 160,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(() => {
+        if (!moves) return finish();
         slideIntoPlace();
         onMove(p.picked, to);
         haptics.drop();
-      }
+        setTimeout(finish, 230);
+      });
       return;
     }
+    finish();
     onPress(items[p.from]);
   };
 
@@ -365,6 +394,8 @@ export function ReorderableGrid<T>({
   /** A finger lands. With nothing held, it may be the start of a tap or a hold on an item. */
   const touchStart = (e: GestureResponderEvent) => {
     const n = e.nativeEvent;
+    // Nothing new while dropped items settle into place.
+    if (settling) return;
     if (press?.lifted) return helperStart(n.changedTouches);
     if (press) return;
     setCoast(null);
@@ -425,20 +456,25 @@ export function ReorderableGrid<T>({
 
   // The grid itself stays put while dragging: reordering its data mid-drag would rebuild its rows. Instead
   // the landing slot is outlined, and each cell only re-renders when its own state changes.
-  const picked = lifted?.picked;
+  const picked = settling ? undefined : lifted?.picked;
+  const settlingKeys = settling?.keys;
   const renderCell = useCallback(
     ({ item, index }: { item: T; index: number }) => (
       <Cell
         item={item}
         width={itemWidth}
         picked={!!picked?.includes(index)}
+        hidden={!!settlingKeys?.includes(keyOf(item))}
         landing={index === target && !(picked?.length === 1 && picked[0] === target)}
         renderItem={renderItem}
         onLayout={index === 0 ? measureItem : undefined}
       />
     ),
-    [itemWidth, picked, target, renderItem, measureItem],
+    [itemWidth, picked, settlingKeys, keyOf, target, renderItem, measureItem],
   );
+
+  // What's carried, as it was picked up: while it settles, the items may already have moved in the list.
+  const heldItems = settling ? settling.items : (lifted?.picked.map((i) => items[i]) ?? []);
 
   const headerEl = useMemo(
     () => (header ? <View onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>{header}</View> : null),
@@ -488,18 +524,18 @@ export function ReorderableGrid<T>({
             },
           ]}>
           {/* The next couple of carried items peek out behind the first. */}
-          {lifted.picked
+          {heldItems
             .slice(1, 3)
-            .map((index, i) => (
-              <View key={index} style={{ position: 'absolute', left: (i + 1) * 5, top: (i + 1) * 5 }}>
-                {renderLifted(items[index])}
+            .map((item, i) => (
+              <View key={keyOf(item)} style={{ position: 'absolute', left: (i + 1) * 5, top: (i + 1) * 5 }}>
+                {renderLifted(item)}
               </View>
             ))
             .reverse()}
-          {renderLifted(items[lifted.picked[0]])}
-          {lifted.picked.length > 1 ? (
+          {renderLifted(heldItems[0])}
+          {heldItems.length > 1 ? (
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>{lifted.picked.length}</Text>
+              <Text style={styles.badgeText}>{heldItems.length}</Text>
             </View>
           ) : null}
         </Animated.View>

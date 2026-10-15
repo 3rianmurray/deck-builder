@@ -26,6 +26,8 @@ import { IconButton } from './IconButton';
 import { matSpot, OnTabletopContext, TabletopSurface, tabletopShadow, WoodRail } from './Tabletop';
 import { CardZoom, type ZoomItem } from './CardZoom';
 import { CardView, EmptySlot, PileDepth, pileRise, pileThickness, prefersReducedMotion } from './CardView';
+import { leanAt, leanOffset, useViewTilt } from './viewpoint';
+import type { Lean } from './viewpoint';
 import { useDecks } from '../lib/DecksContext';
 import * as T from '../lib/table';
 import { fitTilt, tiltTransform, unproject } from '../lib/tilt';
@@ -188,8 +190,8 @@ interface Landing {
   before?: Rect;
   /** The glide has finished and the real cards are showing; the stand-in goes a moment later. */
   revealed?: boolean;
-  /** How far up and left of its spot the card lands: on top of a stack it sits risen above the pile. */
-  rise: number;
+  /** Where the card lands relative to its spot: on top of a stack it sits risen above the pile (see leanOffset). */
+  rise: { x: number; y: number };
   /** The card's view is already in its final place, so the glide can start straight away. */
   settled?: boolean;
 }
@@ -507,16 +509,16 @@ function Table({
     // actually moved there. Meanwhile it counts as gone from the deck and not yet on the discard pile.
     // A pile's top card rises above its spot by the pile's height: start on the deck's current top card and
     // land where the discard pile's top card will be once this one is on it.
-    const lift = pileRise(pileWidth, table.deck.length);
-    const land = pileRise(pileWidth, table.discard.length + 1);
-    flight.pos.setValue({ x: from.x + PILE_INSET - lift, y: from.y + PILE_INSET - lift });
+    const lift = leanOffset(pileLean('deck'), pileRise(pileWidth, table.deck.length));
+    const land = leanOffset(pileLean('discard'), pileRise(pileWidth, table.discard.length + 1));
+    flight.pos.setValue({ x: from.x + PILE_INSET + lift.x, y: from.y + PILE_INSET + lift.y });
     flight.scale.setValue(1);
     setFlying({ iid: top.iid, cardId: top.cardId, faceUp: false });
     setTimeout(() => setFlying((f) => f && { ...f, faceUp: true }), FLIGHT_MS * 0.2);
     const half = { duration: FLIGHT_MS / 2, useNativeDriver: true };
     Animated.parallel([
       Animated.timing(flight.pos, {
-        toValue: { x: to.x + PILE_INSET - land, y: to.y + PILE_INSET - land },
+        toValue: { x: to.x + PILE_INSET + land.x, y: to.y + PILE_INSET + land.y },
         duration: FLIGHT_MS,
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: true,
@@ -591,6 +593,30 @@ function Table({
         ['hand', handRect, 0],
         ['table', playRect, 0],
       ];
+  // ---- Perspective: which way each pile leans (see viewpoint.ts) ----
+  // Seen from above the middle of the table, so piles lean away from it, more the further out they are. A pile
+  // half the screen's width from the middle leans by its full thickness.
+  const viewCenter = { x: rootSize.w / 2, y: rootSize.h / 2 };
+  const leanReach = Math.max(1, width / 2);
+  /** How the deck or discard pile leans, from where its top card lies on the (flat) table. */
+  const pileLean = (z: 'deck' | 'discard'): Lean => {
+    const r = zoneRects.find(([zone]) => zone === z)?.[1];
+    if (!r) return { x: 0, y: 0 };
+    return leanAt({ x: r.x + PILE_INSET + pileWidth / 2, y: r.y + PILE_INSET + pileWidth / ratio / 2 }, viewCenter, leanReach);
+  };
+  /** How a stack in this grid spot leans, from where it lies on the (flat) table, scrolling included. */
+  const spotLean = (s: Spot): Lean => {
+    if (!playRect) return { x: 0, y: 0 };
+    const { left, top } = spotPlace(s);
+    return leanAt(
+      { x: playRect.x + PLAY_BORDER + left + tableCardWidth / 2, y: playRect.y + PLAY_BORDER + top - scroll.play + cellH / 2 },
+      viewCenter,
+      leanReach,
+    );
+  };
+  // The eye moves as the phone tilts, while this table is the one on screen.
+  useViewTilt(active !== false && !prefersReducedMotion());
+
   // In reveal mode the piles decide which way up a card lies, so there is nothing to flip.
   const flipRect: Rect | undefined = !reveal && playRect ? {
     x: playRect.x + (playRect.w - FLIP_SIZE.w) / 2,
@@ -822,10 +848,10 @@ function Table({
     // Glide in from where the held stack is now (its top-left corner, as drawn) to wherever the cards end up,
     // even if that's exactly where they came from: otherwise they'd jump back into place. The stand-in starts
     // exactly as the held card was drawn, at the lifted size, and shrinks as it lands, so it stays sharp.
-    // `rise` is how far above its spot the card ends up (on top of a stack).
+    // `rise` is where the card ends up relative to its spot (risen, on top of a stack; see `leanOffset`).
     // `settled`: the card's view is already where it will end up (its own blank space, back in its own row), so
     // there's no new layout to wait for before gliding.
-    const glideIn = (to: 'hand' | 'table', rise = 0, settled = false) => {
+    const glideIn = (to: 'hand' | 'table', rise = { x: 0, y: 0 }, settled = false) => {
       if (!liftedFrom) return;
       const w = d.width * LIFTED_SCALE;
       const s = snap.get();
@@ -862,16 +888,17 @@ function Table({
     // its blank space.
     if (!zone) {
       if (d.stack.length === 1 && (d.from === 'hand' || d.from === 'table') && leftBlankIn(d.from)) {
-        glideIn(d.from, 0, true);
+        glideIn(d.from, undefined, true);
       }
       return;
     }
 
     // Dropped right on a table card or stack: the cards go on top of it, making (or growing) a stack.
     if (zone === 'table' && onto) {
-      const group = tableGroups.find((g) => g.some((c) => c.iid === onto));
-      const staying = group ? group.filter((c) => !isHeld(c.iid)).length : 1;
-      glideIn('table', pileRise(tableCardWidth, staying + ids.length));
+      const i = tableGroups.findIndex((g) => g.some((c) => c.iid === onto));
+      const staying = i !== -1 ? tableGroups[i].filter((c) => !isHeld(c.iid)).length : 1;
+      const lean = i !== -1 ? spotLean(groupSpots[i]) : undefined;
+      glideIn('table', lean && leanOffset(lean, pileRise(tableCardWidth, staying + ids.length)));
       // A whole stack keeps each card's face (each turned, if it was turned over); other cards all face its way.
       const turnedOver = d.faceUp !== d.startFaceUp;
       apply((t) =>
@@ -887,7 +914,7 @@ function Table({
       const home = tableGroups.findIndex((g) => g.some((c) => c.iid === d.iid));
       const back = home !== -1 && sameSpot(groupSpots[home], at.spot);
       const turnedOver = d.faceUp !== d.startFaceUp;
-      glideIn('table', pileRise(tableCardWidth, ids.length), back);
+      glideIn('table', leanOffset(spotLean(at.spot), pileRise(tableCardWidth, ids.length)), back);
       if (!back || turnedOver) apply((t) => T.placeStackOnTable(turnedOver ? T.flipAll(t, ids) : t, ids, at.spot, cols));
       return;
     }
@@ -896,7 +923,7 @@ function Table({
     if (zone === 'table' && at?.zone === 'table') {
       // A single card dropped back into its own row lands in its blank space, which is already in place.
       const own = d.stack.length === 1 && leftBlankIn('table');
-      glideIn('table', 0, own);
+      glideIn('table', undefined, own);
       // Put back in the spot it came from, it stays put, just turned over if it was flipped.
       const home = tableGroups.findIndex((g) => g[0].iid === d.iid);
       if (own && home !== -1 && sameSpot(groupSpots[home], at.spot)) {
@@ -910,7 +937,7 @@ function Table({
     // In the hand the cards go where the finger is, between the cards there.
     if (zone === 'hand' && at?.zone === zone) {
       // A single card dropped back into its own row lands in its blank space, which is already in place.
-      glideIn(zone, 0, d.stack.length === 1 && leftBlankIn(zone));
+      glideIn(zone, undefined, d.stack.length === 1 && leftBlankIn(zone));
       // A single card put back exactly where it came from stays put, just turned over if it was flipped.
       const was = table.hand.findIndex((c) => c.iid === d.iid);
       if (d.stack.length === 1 && d.from === 'hand' && at.index === was) {
@@ -1011,14 +1038,15 @@ function Table({
    * about its grab point, so its top-left lands at base + pan + origin·(1 − scale).
    */
   const snapPlacement = (onto: string) => {
-    const g = tableGroups.find((grp) => grp.some((c) => c.iid === onto));
+    const i = tableGroups.findIndex((grp) => grp.some((c) => c.iid === onto));
+    const g = tableGroups[i];
     const r = g && groupRect(g);
     if (!drag || !liftedFrom || !g || !r) return null;
     const total = g.filter((c) => !isHeld(c.iid)).length + drag.stack.length;
-    const rise = pileRise(tableCardWidth, total);
+    const rise = leanOffset(spotLean(groupSpots[i]), pileRise(tableCardWidth, total));
     const scale = r.w / liftedWidth;
-    const x = r.x - rise;
-    const y = r.y - rise;
+    const x = r.x + rise.x;
+    const y = r.y + rise.y;
     const base = { x: liftedFrom.x - drag.offX * LIFTED_SCALE, y: liftedFrom.y - drag.offY * LIFTED_SCALE };
     const origin = { x: drag.offX * LIFTED_SCALE, y: drag.offY * LIFTED_SCALE };
     return { x, y, scale, pan: { x: x - base.x - origin.x * (1 - scale), y: y - base.y - origin.y * (1 - scale) } };
@@ -1275,7 +1303,8 @@ function Table({
    * and tapping opens the top card's menu. Once every card is being carried off it, it steps out of the row
    * like a single card does.
    */
-  const renderStack = (g: CardInstance[], place: ViewStyle) => {
+  const renderStack = (g: CardInstance[], spot: Spot) => {
+    const place = spotPlace(spot);
     if (g.length === 1) return renderCard(g[0], tableCardWidth, 'table', place);
     const top = groupTop(g);
     // As drawn: a card lifted off the stack stays on it until its lifted copy is showing.
@@ -1290,7 +1319,7 @@ function Table({
         stack: { cards: g.slice().reverse(), w: tableCardWidth, h: cellH },
       },
       <>
-        <PileDepth deck={deck} width={tableCardWidth} count={left}>
+        <PileDepth deck={deck} width={tableCardWidth} count={left} lean={spotLean(spot)}>
           {shown ? (
             <View key={shown.iid} style={landingOn(shown.iid) && styles.hiddenCard}>
               <CardView deck={deck} card={cardsById.get(shown.cardId)} faceUp={shown.faceUp} width={tableCardWidth} />
@@ -1454,8 +1483,8 @@ function Table({
     /** Glides the stand-in onto a card at this spot and size on the (flat) table. */
     const glideTo = (x: number, y: number, w: number, h: number) => {
       // The stand-in scales about its centre, so aim its centre at the card's centre (risen, on a stack).
-      const toX = x - landing.rise + w / 2 - landing.width / 2;
-      const toY = y - landing.rise + h / 2 - landing.width / ratio / 2;
+      const toX = x + landing.rise.x + w / 2 - landing.width / 2;
+      const toY = y + landing.rise.y + h / 2 - landing.width / ratio / 2;
       Animated.parallel([
         Animated.timing(landingAnim.pos, { toValue: { x: toX, y: toY }, duration: LANDING_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         Animated.timing(landingAnim.scale, { toValue: w / landing.width, duration: LANDING_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
@@ -1527,7 +1556,7 @@ function Table({
   const deckPile = (
     <>
       <View style={[styles.pileSlot, matSpot, highlight('deck')]}>
-        <PileDepth deck={deck} width={pileWidth} count={deckShowing}>
+        <PileDepth deck={deck} width={pileWidth} count={deckShowing} lean={pileLean('deck')}>
           {deckTop ? (
             draggable(
               deckTop,
@@ -1552,8 +1581,7 @@ function Table({
   const discardPile = (
     <>
       <View style={[styles.pileSlot, matSpot, highlight('discard')]}>
-        {/* In table mode the discard pile is on the right, so it leans right; in reveal mode it's on the left. */}
-        <PileDepth deck={deck} width={pileWidth} count={discardCount} lean={reveal ? 'left' : 'right'}>
+        <PileDepth deck={deck} width={pileWidth} count={discardCount} lean={pileLean('discard')}>
           {topDiscard ? (
             draggable(
               topDiscard,
@@ -1700,7 +1728,7 @@ function Table({
             onScrollEndDrag={(e) => trackScroll('play', e.nativeEvent.contentOffset.y)}
             onMomentumScrollEnd={(e) => trackScroll('play', e.nativeEvent.contentOffset.y)}>
             {table.table.length || dropSpot ? null : <Text style={styles.hint}>Drag a card anywhere here to play it.</Text>}
-            {gridReady ? tableGroups.map((g, i) => renderStack(g, spotPlace(drawnSpot(g, i)))) : null}
+            {gridReady ? tableGroups.map((g, i) => renderStack(g, drawnSpot(g, i))) : null}
             {dropSpot ? (
               <View
                 style={[

@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
@@ -9,6 +9,8 @@ import { cardRatio } from '../lib/types';
 import type { Card, Deck } from '../lib/types';
 import { colors } from '../theme';
 import { tabletopShadow, useOnTabletop } from './Tabletop';
+import { MAX_LEAN, viewTilt } from './viewpoint';
+import type { Lean } from './viewpoint';
 
 /** Time for each half of a flip: turning edge-on, then turning back with the other face showing. */
 const HALF_FLIP_MS = 120;
@@ -188,60 +190,74 @@ export function pileThickness(width: number): number {
 }
 
 /**
- * How far a pile of `count` cards rises: its top card sits this far up and to the left of its bottom card.
- * A pile of one lies flat; it rises steadily up to `FULL_PILE` cards, and no further.
+ * How far a pile of `count` cards rises: its top card sits this many points from its bottom card for each
+ * unit of lean (see `leanOffset`). A pile of one lies flat; it rises steadily up to `FULL_PILE` cards, and no
+ * further.
  */
 export function pileRise(width: number, count: number): number {
   const thickness = count <= 1 ? 0 : pileThickness(width) * Math.min(1, (count - 1) / (FULL_PILE - 1));
   return Math.round(thickness / EDGE_STEP) * EDGE_STEP;
 }
 
+/** Up and to the left: how a pile leans when nothing says otherwise. */
+const DEFAULT_LEAN: Lean = { x: -0.7, y: -0.7 };
+
 /**
- * Gives a pile some depth. The bottom card sits exactly in the pile's spot, and each card above it steps up
- * and to one side, so a tall pile rises out of its spot towards the top left (or right). The pile's own box
- * stays the size of one card, so nothing around it moves as it grows or shrinks.
+ * Gives a pile some depth. The bottom card sits exactly in the pile's spot, and each card above it steps
+ * towards its top card, which is risen out of the spot. The pile's own box stays the size of one card, so
+ * nothing around it moves as it grows or shrinks.
  *
- * `lean` is the side it rises towards: away from the middle of the screen, as a real pile seen from above the
- * middle would, showing its edges on the side facing the player. So a pile on the right leans right.
+ * `lean` is which way the top card rises, in pile thicknesses: away from the middle of the table, as a real
+ * pile seen from above the middle would (see `viewpoint.ts`). The phone's tilt adds to it as it moves.
  */
 export function PileDepth({
   deck,
   width,
   count,
-  lean = 'left',
+  lean = DEFAULT_LEAN,
   children,
 }: {
   deck: Deck;
   width: number;
   count: number;
-  lean?: 'left' | 'right';
+  lean?: Lean;
   children: ReactNode;
 }) {
   const rise = pileRise(width, count);
-  const side = lean === 'right' ? 1 : -1;
-  const edges = Math.round(rise / EDGE_STEP);
+  // Enough edges to look solid however far the pile leans.
+  const edges = Math.round((rise * MAX_LEAN) / EDGE_STEP);
   const height = width / cardRatio(deck);
   const radius = Math.max(4, width * 0.06);
   const tabletop = useOnTabletop();
+  // The top card's offset from the spot, following the tilt; each edge is part of the way there.
+  const offsets = useMemo(() => {
+    if (!rise) return null;
+    const axis = (tilt: Animated.Value, base: number) =>
+      Animated.add(tilt, base).interpolate({
+        inputRange: [-MAX_LEAN, MAX_LEAN],
+        outputRange: [-MAX_LEAN * rise, MAX_LEAN * rise],
+        extrapolate: 'clamp',
+      });
+    const top = { x: axis(viewTilt.x, lean.x), y: axis(viewTilt.y, lean.y) };
+    const part = (f: number) => [{ translateX: Animated.multiply(top.x, f) }, { translateY: Animated.multiply(top.y, f) }];
+    return { top: [{ translateX: top.x }, { translateY: top.y }], edge: Array.from({ length: edges }, (_, i) => part(i / edges)) };
+  }, [rise, edges, lean.x, lean.y]);
   return (
     <View style={{ width, height }}>
-      {Array.from({ length: edges }, (_, i) => {
+      {offsets?.edge.map((transform, i) => (
         // Drawn bottom card first (at the pile's spot), so each edge sits over the one below it.
-        const step = i * EDGE_STEP;
-        return (
-          <View
-            key={i}
-            style={[
-              styles.edge,
-              { width, height, borderRadius: radius, left: side * step, top: -step },
-              // On the tabletop the bottom card casts the pile's shadow onto the cloth.
-              tabletop && i === 0 && tabletopShadow.resting,
-            ]}
-          />
-        );
-      })}
+        <Animated.View
+          key={i}
+          style={[
+            styles.edge,
+            { width, height, borderRadius: radius, transform },
+            // On the tabletop the bottom card casts the pile's shadow onto the cloth.
+            tabletop && i === 0 && tabletopShadow.resting,
+          ]}
+        />
+      ))}
       {/* The top card, risen above the rest. */}
-      <View style={{ position: 'absolute', left: side * rise, top: -rise }}>{children}</View>
+      <Animated.View style={{ position: 'absolute', left: 0, top: 0, transform: offsets?.top ?? [] }}>{children}</Animated.View>
     </View>
   );
 }

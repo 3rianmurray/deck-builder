@@ -36,13 +36,15 @@ function useFlip<C>(faceUp: boolean, flipIn: boolean, card: C) {
   const settled = shown === faceUp;
   if (settled && settledCard !== card) setSettledCard(card);
   const shownCard = settled ? card : settledCard;
+  // Still turning back flat after the swap (the second half of the flip).
+  const [settling, setSettling] = useState(false);
 
   useEffect(() => {
     const half = (toValue: number, easing: (t: number) => number) =>
       Animated.timing(turn, { toValue, duration: HALF_FLIP_MS, easing, useNativeDriver: true });
     // Faces match: either the swap just happened, or the card was flipped back mid-turn. Turn flat.
     if (faceUp === shown) {
-      half(0, Easing.out(Easing.quad)).start();
+      half(0, Easing.out(Easing.quad)).start(({ finished }) => finished && setSettling(false));
       return;
     }
     // Deferred so the swap happens outside the effect, as it does after the animation.
@@ -51,7 +53,9 @@ function useFlip<C>(faceUp: boolean, flipIn: boolean, card: C) {
       return () => clearTimeout(timer);
     }
     half(1, Easing.in(Easing.quad)).start(({ finished }) => {
-      if (finished) setShown(faceUp);
+      if (!finished) return;
+      setSettling(true);
+      setShown(faceUp);
     });
   }, [faceUp, shown, turn]);
 
@@ -61,7 +65,9 @@ function useFlip<C>(faceUp: boolean, flipIn: boolean, card: C) {
     // A slight lift sells the 3D turn.
     { scale: turn.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }) },
   ];
-  return { shown, shownCard, transform };
+  // Mid-flip: from starting to turn until it's lying flat again.
+  const turning = !settled || settling;
+  return { shown, shownCard, transform, turning };
 }
 
 interface Props {
@@ -110,7 +116,7 @@ export function CardView({
 }: Props) {
   const height = width / cardRatio(deck);
   const radius = Math.max(4, width * 0.06);
-  const { shown, shownCard: card, transform } = useFlip(faceUp, flipIn, cardProp);
+  const { shown, shownCard: card, transform, turning } = useFlip(faceUp, flipIn, cardProp);
   const showFace = shown && card;
   const hasPicture = !!showFace || !!deck.backImage;
   useEffect(() => {
@@ -122,7 +128,14 @@ export function CardView({
   // itself clips its corners, which would clip the shadow too.
   const tabletop = useOnTabletop();
 
+  // While it turns, the card is drawn inside a clipping layer a little bigger than it (room for the lift and a
+  // little shadow). On iOS that flattens the turning card into its own plane; otherwise its 3D turn is sorted
+  // against the views beside it, and the half turning away goes behind them (the edges of a held stack, a
+  // shadow layer), showing grey where the card should be. Clipping only while it turns keeps its shadow whole
+  // the rest of the time. The layer is always there, so starting a turn never rebuilds the card.
+  const room = Math.ceil(Math.max(6, width * 0.06));
   return (
+    <View style={{ margin: -room, padding: room, overflow: turning ? 'hidden' : 'visible' }}>
     <Animated.View
       style={[
         { transform },
@@ -166,6 +179,7 @@ export function CardView({
         {tabletop ? <View style={[StyleSheet.absoluteFill, styles.sheen, { borderRadius: radius }]} /> : null}
       </Pressable>
     </Animated.View>
+    </View>
   );
 }
 

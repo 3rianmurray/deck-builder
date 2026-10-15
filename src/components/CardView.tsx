@@ -198,11 +198,27 @@ export function pileRise(width: number, count: number): number {
 
 /**
  * Gives a pile some depth. The bottom card sits exactly in the pile's spot, and each card above it steps up
- * and to the left, so a tall pile rises out of its spot towards the top left. The pile's own box stays the
- * size of one card, so nothing around it moves as it grows or shrinks.
+ * and to one side, so a tall pile rises out of its spot towards the top left (or right). The pile's own box
+ * stays the size of one card, so nothing around it moves as it grows or shrinks.
+ *
+ * `lean` is the side it rises towards: away from the middle of the screen, as a real pile seen from above the
+ * middle would, showing its edges on the side facing the player. So a pile on the right leans right.
  */
-export function PileDepth({ deck, width, count, children }: { deck: Deck; width: number; count: number; children: ReactNode }) {
+export function PileDepth({
+  deck,
+  width,
+  count,
+  lean = 'left',
+  children,
+}: {
+  deck: Deck;
+  width: number;
+  count: number;
+  lean?: 'left' | 'right';
+  children: ReactNode;
+}) {
   const rise = pileRise(width, count);
+  const side = lean === 'right' ? 1 : -1;
   const edges = Math.round(rise / EDGE_STEP);
   const height = width / cardRatio(deck);
   const radius = Math.max(4, width * 0.06);
@@ -211,13 +227,13 @@ export function PileDepth({ deck, width, count, children }: { deck: Deck; width:
     <View style={{ width, height }}>
       {Array.from({ length: edges }, (_, i) => {
         // Drawn bottom card first (at the pile's spot), so each edge sits over the one below it.
-        const offset = -i * EDGE_STEP;
+        const step = i * EDGE_STEP;
         return (
           <View
             key={i}
             style={[
               styles.edge,
-              { width, height, borderRadius: radius, left: offset, top: offset },
+              { width, height, borderRadius: radius, left: side * step, top: -step },
               // On the tabletop the bottom card casts the pile's shadow onto the cloth.
               tabletop && i === 0 && tabletopShadow.resting,
             ]}
@@ -225,7 +241,7 @@ export function PileDepth({ deck, width, count, children }: { deck: Deck; width:
         );
       })}
       {/* The top card, risen above the rest. */}
-      <View style={{ position: 'absolute', left: -rise, top: -rise }}>{children}</View>
+      <View style={{ position: 'absolute', left: side * rise, top: -rise }}>{children}</View>
     </View>
   );
 }

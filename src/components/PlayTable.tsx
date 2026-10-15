@@ -1423,7 +1423,8 @@ function Table({
   const discardPile = (
     <>
       <View style={[styles.pileSlot, matSpot, highlight('discard')]}>
-        <PileDepth deck={deck} width={pileWidth} count={discardCount}>
+        {/* In table mode the discard pile is on the right, so it leans right; in reveal mode it's on the left. */}
+        <PileDepth deck={deck} width={pileWidth} count={discardCount} lean={reveal ? 'left' : 'right'}>
           {topDiscard ? (
             draggable(
               topDiscard,

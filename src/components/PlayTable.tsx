@@ -279,8 +279,16 @@ interface Flight {
   landed?: boolean;
   /** The last of its batch: its landing is felt (see `moveCards`). */
   thud?: boolean;
+  /**
+   * A stack turning over where it lies (see `flipStack`): it starts as the old top card (`fromCardId`) and turns
+   * to show the new one. The stack stays as it is underneath (its count included), its top card hidden.
+   */
+  turn?: boolean;
+  fromCardId?: string;
 }
 
+/** How long a menu takes to get out of the way, for something it asked for to be seen happening. */
+const SHEET_CLEAR_MS = 200;
 /** How long each card takes to fly to its new place. */
 const FLIGHT_MOVE_MS = 320;
 /** The gap between one card setting off and the next. */
@@ -775,7 +783,7 @@ function Table({
       // Turning over: a whole stack as one, or a single card (not one in a stack: a stack's cards all face the
       // same way).
       ...(stack
-        ? [{ label: 'Turn over', icon: FLIP_ICON, onPress: go((t) => T.turnStackOver(t, iid, cols)) }]
+        ? [{ label: 'Flip over', icon: FLIP_ICON, onPress: () => flipStack(iid) }]
         : !reveal && (from === 'hand' || (from === 'table' && !(group && group.length > 1)))
           ? [{ label: 'Flip over', icon: FLIP_ICON, onPress: () => apply((t) => T.flip(t, iid)) }]
           : []),
@@ -958,7 +966,9 @@ function Table({
   const carriedAway = (iid: string) => isHeld(iid) && !!drag?.shown;
   /** Held in a drag, or mid-flight after a reveal: either way, not shown on its pile. */
   /** Flying to its new place after a change (see `moveCards`): it's there, but not shown there until it lands. */
-  const arriving = (iid: string) => flights.some((f) => f.iid === iid && !f.landed);
+  const arriving = (iid: string) => flights.some((f) => f.iid === iid && !f.landed && !f.turn);
+  /** The top card of a stack that's turning over (see `flipStack`), hidden under its turning copy. */
+  const turningOver = (iid: string) => flights.some((f) => f.iid === iid && !f.landed && f.turn);
   const isAway = (iid: string) => isHeld(iid) || flying?.iid === iid || arriving(iid);
   /** As `isAway`, for drawing: a just-lifted card stays on its pile until its lifted copy is showing. */
   const drawnAway = (iid: string) => carriedAway(iid) || (flying?.iid === iid && !flying.landed) || arriving(iid);
@@ -1094,6 +1104,36 @@ function Table({
       }
     }
     return planned.map((f, i) => ({ ...f, delay: i * FLIGHT_STAGGER_MS, thud: thud && i === planned.length - 1 }));
+  };
+
+  /**
+   * Turns a table stack over as a whole, and shows it happen: once the menu that asked for it has gone, its old
+   * top card turns over where it lies and comes up as the new top card (the old bottom one).
+   */
+  const flipStack = (iid: string) => {
+    const g = tableGroups.find((grp) => grp.some((c) => c.iid === iid));
+    if (!g || g.length < 2) return;
+    const oldTop = g[g.length - 1];
+    const newTop = g[0];
+    const from = drawnAt({ iid: oldTop.iid, cardId: oldTop.cardId, from: 'table' });
+    apply((t) => T.turnStackOver(t, iid, cols));
+    if (!from || prefersReducedMotion()) return haptics.drop();
+    launch([
+      {
+        iid: newTop.iid,
+        cardId: newTop.cardId,
+        fromCardId: oldTop.cardId,
+        from,
+        fromFaceUp: oldTop.faceUp,
+        toFaceUp: !oldTop.faceUp,
+        // Once the menu has slid away, so it can be seen.
+        delay: SHEET_CLEAR_MS,
+        zone: 'table',
+        batch: flightBatch.next(),
+        turn: true,
+        thud: true,
+      },
+    ]);
   };
 
   /** Sends cards on their way, alongside any still in the air (a card sent off again starts over). */
@@ -1803,7 +1843,7 @@ function Table({
       <>
         <PileDepth deck={deck} width={tableCardWidth} count={left} lean={spotLean(spot)}>
           {shown ? (
-            <View key={shown.iid} style={landingOn(shown.iid) && styles.hiddenCard}>
+            <View key={shown.iid} style={(landingOn(shown.iid) || turningOver(shown.iid)) && styles.hiddenCard}>
               <CardView deck={deck} card={cardsById.get(shown.cardId)} faceUp={shown.faceUp} width={tableCardWidth} />
             </View>
           ) : null}
@@ -2405,6 +2445,7 @@ function Table({
           flight={f}
           deck={deck}
           card={cardsById.get(f.cardId)}
+          fromCard={f.fromCardId ? cardsById.get(f.fromCardId) : undefined}
           size={Math.max(handWidth, pileWidth, tableCardWidth)}
           onLanded={() => {
             if (f.thud) haptics.drop();
@@ -2632,6 +2673,7 @@ function CardFlight({
   flight,
   deck,
   card,
+  fromCard,
   size,
   onLanded,
   onGone,
@@ -2639,6 +2681,8 @@ function CardFlight({
   flight: Flight;
   deck: Deck;
   card: Card | undefined;
+  /** A different card to show until it sets off (a stack turning over shows its old top card first). */
+  fromCard?: Card;
   size: number;
   /** It's there: the real card can show underneath. */
   onLanded: () => void;
@@ -2684,7 +2728,8 @@ function CardFlight({
           ],
         },
       ]}>
-      <CardView deck={deck} card={card} faceUp={setOff ? flight.toFaceUp : flight.fromFaceUp} width={size} sharp />
+      {/* Changing card and face together, it keeps the old card until it's edge-on, then shows the new one. */}
+      <CardView deck={deck} card={setOff || !fromCard ? card : fromCard} faceUp={setOff ? flight.toFaceUp : flight.fromFaceUp} width={size} sharp />
     </Animated.View>
   );
 }

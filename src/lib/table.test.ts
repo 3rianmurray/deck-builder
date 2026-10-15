@@ -18,6 +18,7 @@ import {
   orderedTable,
   pinSpots,
   placeOnTable,
+  placeStackOnTable,
   pruneTable,
   resetTable,
   shuffleDiscardIntoDeck,
@@ -176,6 +177,21 @@ test('stacking puts cards in the stack\'s spot', () => {
   t = stackOnto(t, [t.hand[0].iid], t.table[0].iid, true);
   assert.ok(t.table.every((c) => c.spot?.row === 1 && c.spot?.col === 2));
   assert.deepEqual(gridSpots(t.table, 3), [{ row: 1, col: 2 }]);
+});
+
+test('a whole stack can be moved to another spot, staying a stack', () => {
+  let t = draw(createTable(makeDeck(4), noShuffle), 3); // hand: c0 c1 c2
+  t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 0 }, 3); // c0
+  t = stackOnto(t, [t.hand[1].iid, t.hand[0].iid], t.table[0].iid, true); // c0, c1, c2 (c2 on top)
+  t = flip(t, t.table[0].iid); // the bottom card face down
+  const held = stackGroups(t.table)[0].map((c) => c.iid).reverse(); // top first
+  const moved = placeStackOnTable(t, held, { row: 1, col: 2 }, 3);
+  assert.deepEqual(stackGroups(moved.table).map((g) => g.map((c) => c.cardId)), [['c0', 'c1', 'c2']]);
+  assert.deepEqual(gridSpots(moved.table, 3), [{ row: 1, col: 2 }]);
+  assert.deepEqual(moved.table.map((c) => c.faceUp), [false, true, true]);
+  // Turned over as a whole: the order reverses and each card turns the other way up.
+  const turned = placeStackOnTable(t, held.slice().reverse(), { row: 0, col: 0 }, 3, true);
+  assert.deepEqual(turned.table.map((c) => [c.cardId, c.faceUp]), [['c2', false], ['c1', false], ['c0', true]]);
 });
 
 test('searching the deck lets any card be pulled out', () => {

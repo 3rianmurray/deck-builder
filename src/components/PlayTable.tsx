@@ -130,6 +130,8 @@ interface Drag {
    * finger puts them on top, and FLIP turns the stack over, so the bottom card ends up showing.
    */
   stack: HeldCard[];
+  /** Picked up by its count: a whole table stack, which stays a stack wherever it's dropped on the table. */
+  wholeStack: boolean;
   /** A second finger on the screen while cards are held: a tap picks up a card, a swipe scrolls the hand or table. */
   helper?: Helper;
   /**
@@ -215,7 +217,15 @@ interface PressOptions {
   onPress?: () => void;
   onLongPress?: () => void;
   verticalOnly?: boolean;
+  /**
+   * A stack on the table: its cards (top first) and its size. Dragging from its count, in the bottom-right
+   * corner, picks up the whole stack; dragging from anywhere else takes just its top card.
+   */
+  stack?: { cards: CardInstance[]; w: number; h: number };
 }
+
+/** How far in from a stack's bottom-right corner (where its count is) a press grabs the whole stack. */
+const STACK_HANDLE = 40;
 
 interface PageProps {
   /** Whether this table is the one on screen. Only the active table sets the screen header. */
@@ -836,6 +846,16 @@ function Table({
       return;
     }
 
+    // A whole stack picked up by its count goes to the free spot by the finger, still a stack.
+    if (d.wholeStack && zone === 'table' && at?.zone === 'table') {
+      const home = tableGroups.findIndex((g) => g.some((c) => c.iid === d.iid));
+      const back = home !== -1 && sameSpot(groupSpots[home], at.spot);
+      const turnedOver = d.faceUp !== d.startFaceUp;
+      glideIn('table', pileRise(tableCardWidth, ids.length), back);
+      if (!back || turnedOver) apply((t) => T.placeStackOnTable(t, ids, at.spot, cols, turnedOver));
+      return;
+    }
+
     // On the table they go in the free spot by the finger (any further cards in the free spots after it).
     if (zone === 'table' && at?.zone === 'table') {
       // A single card dropped back into its own row lands in its blank space, which is already in place.
@@ -1076,6 +1096,8 @@ function Table({
         // Reset here rather than when the last drag ended: dropping reads it after the drag has been cleared.
         snap.set({ on: false, returning: false, leftSource: false });
         onTouchingCard?.(true);
+        const s = opts.stack;
+        const whole = !!s && n.locationX > s.w - STACK_HANDLE && n.locationY > s.h - STACK_HANDLE;
         setDrag({
           iid: inst.iid,
           cardId: inst.cardId,
@@ -1088,13 +1110,15 @@ function Table({
           offX: n.locationX,
           offY: n.locationY,
           pressedAt: Date.now(),
-          zoomable: inst.faceUp && from !== 'deck',
+          // Holding a stack's count still does nothing: it's for dragging the stack.
+          zoomable: inst.faceUp && from !== 'deck' && !whole,
           active: false,
           abandoned: false,
           orphaned: false,
           startFaceUp: inst.faceUp,
           faceUp: inst.faceUp,
-          stack: [{ iid: inst.iid, cardId: inst.cardId, from }],
+          stack: whole && s ? s.cards.map((c) => ({ iid: c.iid, cardId: c.cardId, from })) : [{ iid: inst.iid, cardId: inst.cardId, from }],
+          wholeStack: whole,
           shown: false,
         });
       },
@@ -1225,7 +1249,10 @@ function Table({
       top,
       'table',
       tableCardWidth,
-      { onPress: () => open({ kind: 'card', iid: shown?.iid ?? top.iid }) },
+      {
+        onPress: () => open({ kind: 'card', iid: shown?.iid ?? top.iid }),
+        stack: { cards: g.slice().reverse(), w: tableCardWidth, h: cellH },
+      },
       <>
         <PileDepth deck={deck} width={tableCardWidth} count={left}>
           {shown ? (
@@ -1246,7 +1273,8 @@ function Table({
         {targetOutline(shown?.iid)}
       </>,
       measureCard(top.iid),
-      g.every((c) => isHeld(c.iid)),
+      // Gone once every card is carried off it, but only once the lifted copy is showing, so it doesn't blink out.
+      g.every((c) => carriedAway(c.iid)),
       place,
     );
   };
@@ -2001,10 +2029,11 @@ const styles = StyleSheet.create({
     bottom: -6,
     // Pops grow out of the stack's corner.
     transformOrigin: ['100%', '100%', 0],
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    paddingHorizontal: 5,
+    // Big enough to grab: dragging it moves the whole stack.
+    minWidth: 26,
+    height: 26,
+    borderRadius: 13,
+    paddingHorizontal: 6,
     backgroundColor: 'rgba(0,0,0,0.75)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.35)',

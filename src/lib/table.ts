@@ -215,6 +215,31 @@ export function placeOnTable(state: TableState, iids: string[], spot: Spot, cols
   return pinSpots({ ...next, table: [...next.table, ...placed] }, cols);
 }
 
+/**
+ * Moves a whole stack (listed top first) to `spot` on the table, or the next free spot after it, keeping it a
+ * stack. `turnedOver` turns the stack over as a whole: each card the other way up (the order is the caller's,
+ * already reversed by turning it over).
+ */
+export function placeStackOnTable(state: TableState, iids: string[], spot: Spot, cols: number, turnedOver = false): TableState {
+  const moving: CardInstance[] = [];
+  for (const iid of iids.slice().reverse()) {
+    const found = findCard(state, iid);
+    if (found) {
+      const c = state[found.zone][found.index];
+      moving.push({ ...unstacked(c), faceUp: turnedOver ? !c.faceUp : c.faceUp });
+    }
+  }
+  if (moving.length < 2) return placeOnTable(state, iids, spot, cols);
+  const ids = new Set(moving.map((c) => c.iid));
+  let next: TableState = { ...state };
+  for (const z of ZONES) next[z] = state[z].filter((c) => !ids.has(c.iid));
+  next = pinSpots(tidyStacks(next), cols);
+  const free = firstFree(new Set(gridSpots(next.table, cols).map(spotKey)), cols, spot);
+  // Named after its bottom card, as stacks made by `stackOnto` are.
+  const stack = moving[0].iid;
+  return pinSpots({ ...next, table: [...next.table, ...moving.map((c) => ({ ...c, stack, spot: free }))] }, cols);
+}
+
 /** `faceUp` overrides the zone's usual facing, e.g. a card dragged from the deck and not yet revealed. */
 export function moveCard(state: TableState, iid: string, to: Zone, position?: Position, faceUp?: boolean): TableState {
   const found = findCard(state, iid);

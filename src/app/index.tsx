@@ -7,7 +7,8 @@ import { ActionSheet } from '../components/ActionSheet';
 import { Button } from '../components/Button';
 import { CardView } from '../components/CardView';
 import { LIFT_HOLD_MS, ReorderableList } from '../components/ReorderableList';
-import { SwipeToDelete } from '../components/SwipeToDelete';
+import { SwipeRow } from '../components/SwipeRow';
+import type { SwipeSide } from '../components/SwipeRow';
 import { useDecks } from '../lib/DecksContext';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
@@ -22,6 +23,7 @@ export default function HomeScreen() {
     decks,
     createDeck,
     deleteDeck,
+    duplicateDeck,
     sessions,
     deleteSession,
     getDeck,
@@ -36,16 +38,25 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
-  /** The row swiped open to show its Delete button (`deck:…`, `group:…` or `session:…`); one at a time. */
-  const [openRow, setOpenRow] = useState<string | null>(null);
+  /**
+   * The row swiped open (`deck:…`, `group:…` or `session:…`) and which of its buttons is showing: Delete on
+   * the right, or a deck's Duplicate on the left. One at a time.
+   */
+  const [openRow, setOpenRow] = useState<{ key: string; side: SwipeSide } | null>(null);
 
   /** Props that let a row be swiped open, keyed so opening one closes the others. */
-  const swipe = (key: string, onDelete: () => void) => ({
-    open: openRow === key,
-    onOpenChange: (open: boolean) => setOpenRow((cur) => (open ? key : cur === key ? null : cur)),
+  const swipe = (key: string, onDelete: () => void, onDuplicate?: () => void) => ({
+    open: openRow?.key === key ? openRow.side : null,
+    onOpenChange: (side: SwipeSide | null) => setOpenRow((cur) => (side ? { key, side } : cur?.key === key ? null : cur)),
     onDelete,
+    onDuplicate,
   });
   const closeRows = () => setOpenRow(null);
+
+  const copyDeck = (id: string) => {
+    closeRows();
+    duplicateDeck(id);
+  };
 
   // Decks and sessions take things with them, so ask first. A group's decks are kept, so it just goes.
   const confirmDeleteDeck = (id: string, name: string) =>
@@ -111,9 +122,9 @@ export default function HomeScreen() {
       return lifted ? (
         <View style={styles.groupGap}>{groupRow}</View>
       ) : (
-        <SwipeToDelete style={styles.groupGap} radius={10} {...swipe(`group:${group.id}`, () => deleteGroup(group.id))}>
+        <SwipeRow style={styles.groupGap} radius={10} {...swipe(`group:${group.id}`, () => deleteGroup(group.id))}>
           {groupRow}
-        </SwipeToDelete>
+        </SwipeRow>
       );
     }
     const deck = getDeck(row.id);
@@ -146,9 +157,11 @@ export default function HomeScreen() {
     return lifted ? (
       <View style={indent}>{deckRow}</View>
     ) : (
-      <SwipeToDelete style={indent} {...swipe(`deck:${deck.id}`, () => confirmDeleteDeck(deck.id, deck.name))}>
+      <SwipeRow
+        style={indent}
+        {...swipe(`deck:${deck.id}`, () => confirmDeleteDeck(deck.id, deck.name), () => copyDeck(deck.id))}>
         {deckRow}
-      </SwipeToDelete>
+      </SwipeRow>
     );
   };
 
@@ -158,7 +171,7 @@ export default function HomeScreen() {
       {sessions.map((s) => {
         const names = s.deckIds.flatMap((d) => getDeck(d)?.name ?? []);
         return (
-          <SwipeToDelete key={s.id} {...swipe(`session:${s.id}`, () => confirmDeleteSession(s.id, s.name))}>
+          <SwipeRow key={s.id} {...swipe(`session:${s.id}`, () => confirmDeleteSession(s.id, s.name))}>
             <Pressable
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
               onPress={() => router.push({ pathname: '/session/edit', params: { id: s.id } })}>
@@ -177,7 +190,7 @@ export default function HomeScreen() {
                 onPress={() => router.push({ pathname: '/session/[id]', params: { id: s.id } })}
               />
             </Pressable>
-          </SwipeToDelete>
+          </SwipeRow>
         );
       })}
     </View>
@@ -191,7 +204,7 @@ export default function HomeScreen() {
         renderRow={(r) => <View style={styles.rowWrap}>{renderRow(r)}</View>}
         renderLifted={(r) => <View style={styles.liftedWrap}>{renderRow(r, true)}</View>}
         // A row swiped open can't be picked up: a press on it closes it instead.
-        canLift={(r, x, width) => openRow !== `${r.kind}:${r.id}` && x < width - BUTTON_ZONE}
+        canLift={(r, x, width) => openRow?.key !== `${r.kind}:${r.id}` && x < width - BUTTON_ZONE}
         onDrop={drop}
         bottomInset={insets.bottom + 72}
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 100 }]}

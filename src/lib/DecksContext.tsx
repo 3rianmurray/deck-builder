@@ -5,6 +5,7 @@ import { newId } from './id';
 import {
   deleteDeckFiles,
   deleteImage,
+  imageUri,
   importImage,
   loadDecks,
   loadGroups,
@@ -24,6 +25,8 @@ interface DecksApi {
   decks: Deck[];
   getDeck: (id: string) => Deck | undefined;
   createDeck: (name: string) => Deck;
+  /** Copies a deck, art and all, placing the copy right after it. Returns the copy. */
+  duplicateDeck: (id: string) => Deck | undefined;
   renameDeck: (id: string, name: string) => void;
   deleteDeck: (id: string) => void;
   addCards: (deckId: string, imageUris: string[]) => void;
@@ -108,6 +111,34 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         const now = Date.now();
         const deck: Deck = { id: newId(), name, backImage: null, cards: [], createdAt: now, updatedAt: now };
         setDecks((all) => [deck, ...all]);
+        return deck;
+      },
+      duplicateDeck(id) {
+        const original = getDeck(id);
+        if (!original) return undefined;
+        const now = Date.now();
+        const copyId = newId();
+        // The copy gets its own image files, so deleting either deck leaves the other's art alone. Cards that
+        // share one image (from older app versions) keep sharing one copy of it.
+        const copied = new Map<string, string>();
+        const copyImage = (path: string) => {
+          if (!copied.has(path)) copied.set(path, importImage(copyId, imageUri(path)));
+          return copied.get(path)!;
+        };
+        const deck: Deck = {
+          ...original,
+          id: copyId,
+          name: `${original.name} copy`,
+          cards: original.cards.map((c) => ({ ...c, id: newId(), image: copyImage(c.image) })),
+          backImage: original.backImage ? copyImage(original.backImage) : null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        // Right after the original, in the same group.
+        setDecks((all) => {
+          const at = all.findIndex((d) => d.id === id);
+          return at === -1 ? [deck, ...all] : [...all.slice(0, at + 1), deck, ...all.slice(at + 1)];
+        });
         return deck;
       },
       renameDeck(id, name) {

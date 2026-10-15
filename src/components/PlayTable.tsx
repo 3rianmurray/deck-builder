@@ -196,7 +196,15 @@ interface Landing {
   rise: { x: number; y: number };
   /** The card's view is already in its final place, so the glide can start straight away. */
   settled?: boolean;
+  /**
+   * The dropped cards make up the whole pile where they land: a stack picked up by its count and put down on
+   * its own. The pile stays hidden while the stand-in, drawn with the pile's edges, glides into place.
+   */
+  pile?: boolean;
 }
+
+/** How many card edges the stand-in for a landing stack is drawn with. */
+const LANDING_EDGES = 6;
 
 /**
  * Where carried cards would go: a position between the cards in the hand (counting the cards there that
@@ -854,7 +862,7 @@ function Table({
     // `rise` is where the card ends up relative to its spot (risen, on top of a stack; see `leanOffset`).
     // `settled`: the card's view is already where it will end up (its own blank space, back in its own row), so
     // there's no new layout to wait for before gliding.
-    const glideIn = (to: 'hand' | 'table', rise = { x: 0, y: 0 }, settled = false) => {
+    const glideIn = (to: 'hand' | 'table', rise = { x: 0, y: 0 }, settled = false, pile = false) => {
       if (!liftedFrom) return;
       const w = d.width * LIFTED_SCALE;
       const s = snap.get();
@@ -881,6 +889,7 @@ function Table({
         before: cardLayouts[ids[0]],
         rise,
         settled,
+        pile,
       });
     };
     /** Whether the dragged card left a blank space in this row (a single card, not the top of a stack). */
@@ -917,7 +926,7 @@ function Table({
       const home = tableGroups.findIndex((g) => g.some((c) => c.iid === d.iid));
       const back = home !== -1 && sameSpot(groupSpots[home], at.spot);
       const turnedOver = d.faceUp !== d.startFaceUp;
-      glideIn('table', leanOffset(spotLean(at.spot), pileRise(tableCardWidth, ids.length)), back);
+      glideIn('table', leanOffset(spotLean(at.spot), pileRise(tableCardWidth, ids.length)), back, true);
       if (!back || turnedOver) apply((t) => T.placeStackOnTable(turnedOver ? T.flipAll(t, ids) : t, ids, at.spot, cols));
       return;
     }
@@ -1342,9 +1351,41 @@ function Table({
       </>,
       measureCard(top.iid),
       // Gone once every card is carried off it, but only once the lifted copy is showing, so it doesn't blink out.
-      g.every((c) => carriedAway(c.iid)),
+      // Also while the whole stack is landing here: its stand-in brings the edges with it.
+      g.every((c) => carriedAway(c.iid) || (!!landing?.pile && landingOn(c.iid))),
       place,
     );
+  };
+
+  /**
+   * The edges of a whole stack landing on its own: they start as the held stack's (stepped down and right of
+   * its top card) and settle into the pile's, leaning back to its spot, as the stand-in lands. The stand-in is
+   * scaled as a whole, so offsets are in its unscaled units.
+   */
+  const landingEdges = (l: Landing) => {
+    const endScale = tableCardWidth / l.width;
+    const h = l.width / ratio;
+    return Array.from({ length: LANDING_EDGES }, (_, i) => {
+      // Bottom edge first; at the end each lies part of the way from the spot to the top card.
+      const towardSpot = 1 - i / LANDING_EDGES;
+      const held = Math.min(2, LANDING_EDGES - i) * 6;
+      const move = (end: number) => landingAnim.lift.interpolate({ inputRange: [0, 1], outputRange: [end / endScale, held] });
+      const radius = { borderRadius: Math.max(4, l.width * 0.06) };
+      return (
+        <Animated.View
+          key={i}
+          style={{
+            position: 'absolute',
+            width: l.width,
+            height: h,
+            transform: [{ translateX: move(-l.rise.x * towardSpot) }, { translateY: move(-l.rise.y * towardSpot) }],
+          }}>
+          {/* A pile's paper edge, under the held stack's edge, which fades away as it lands. */}
+          <View style={[StyleSheet.absoluteFill, styles.pileEdge, radius]} />
+          <Animated.View style={[StyleSheet.absoluteFill, styles.stackEdge, radius, { opacity: landingAnim.lift }]} />
+        </Animated.View>
+      );
+    });
   };
 
   // ---- The hand while dragging, home-screen style ----
@@ -1789,6 +1830,7 @@ function Table({
               tabletopShadow.lifted,
             ]}
           />
+          {landing.pile ? landingEdges(landing) : null}
           <CardView deck={deck} card={cardsById.get(landing.cardId)} faceUp={landing.faceUp} width={landing.width} sharp />
         </Animated.View>
       ) : null}
@@ -2112,6 +2154,8 @@ const styles = StyleSheet.create({
   stackCountText: { color: colors.text, fontSize: 12, fontWeight: '700' },
   landing: { position: 'absolute', left: 0, top: 0, pointerEvents: 'none' },
   landingShadow: { position: 'absolute', left: 0, top: 0, backgroundColor: colors.surfaceRaised },
+  // Matches a pile's edges (PileDepth), for a landing stack's stand-in.
+  pileEdge: { backgroundColor: '#d8d3c8', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.45)' },
   stage: { overflow: 'hidden' },
   // The piles sit straight on the cloth, and the hand on the wooden rail.
   pilesOnCloth: { backgroundColor: 'transparent' },

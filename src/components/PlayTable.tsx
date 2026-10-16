@@ -269,8 +269,9 @@ interface Flight {
   toFaceUp: boolean;
   /** When it sets off, after the flights before it, so several cards go one after another. */
   delay: number;
-  /** Where it's going. */
+  /** Where it's going, and where it came from. */
   zone: Zone;
+  fromZone?: Zone;
   /** Which change sent it, so a card sent off again (say, by an undo) starts a fresh flight. */
   batch: number;
   /**
@@ -411,6 +412,8 @@ function Table({
    * held stack already; it just doesn't show them (or count them) until they land.
    */
   const [pickups, setPickups] = useState<Pickup[]>([]);
+  /** Whether the hand's tray is open, or folded away to give the table more room. */
+  const [handOpen, setHandOpen] = useState(true);
   /** Cards flying to their new places (see `moveCards`). Each is hidden there until it lands. */
   const [flights, setFlights] = useState<Flight[]>([]);
   /** A table stack turning over where it lies (see `flipStack`). */
@@ -1051,6 +1054,8 @@ function Table({
       zone = 'table';
     } else if (
       !reveal &&
+      // Folded away, the hand's cards can't be seen to be tapped.
+      handOpen &&
       handRect &&
       layout.handScroll &&
       (found = laidOut('hand', { x: handRect.x + layout.handScroll.x - scroll.hand, y: handRect.y + layout.handScroll.y }))
@@ -1070,6 +1075,8 @@ function Table({
   /** Where a card is drawn on the (flat) table right now, as its top-left corner and width: risen, on a pile. */
   const drawnAt = (h: HeldCard): { x: number; y: number; w: number } | null => {
     if (h.from === 'hand') {
+      // Folded away, a card in the hand isn't drawn anywhere.
+      if (!handOpen) return null;
       const r = cardLayouts[h.iid];
       if (!r || !handRect || !layout.handScroll) return null;
       return { x: handRect.x + layout.handScroll.x - scroll.hand + r.x, y: handRect.y + layout.handScroll.y + r.y, w: r.w };
@@ -1136,6 +1143,7 @@ function Table({
           toFaceUp: c.faceUp,
           delay: 0,
           zone,
+          fromZone: was.zone,
           batch,
           // Onto a pile, where it lands is known now (its top, with these cards on it), so it needn't wait for
           // the screen to be laid out and measured before setting off.
@@ -1533,6 +1541,8 @@ function Table({
    * don't count, since they're leaving.
    */
   const handInsertionAt = (pageX: number, pageY: number): number | null => {
+    // Folded away, cards dropped on the hand go on the end of it.
+    if (!handOpen) return table.hand.length;
     const o = laidOutAt('hand');
     const p = toTable(pageX, pageY);
     if (!o || !p) return null;
@@ -1919,6 +1929,25 @@ function Table({
       );
     });
   };
+
+  /** A flight from one table spot to another, drawn inside the play area (see where it's drawn). */
+  const onTable = (f: Flight) => !reveal && f.zone === 'table' && f.fromZone === 'table';
+  /** A card's flight, drawn in the layer whose top-left corner on the table is within (the whole table if none). */
+  const flightView = (f: Flight, within?: { x: number; y: number }) => (
+    <CardFlight
+      key={`${f.iid}:${f.batch}`}
+      flight={f}
+      offset={within}
+      deck={deck}
+      card={cardsById.get(f.cardId)}
+      size={Math.max(handWidth, pileWidth, tableCardWidth)}
+      onLanded={() => {
+        if (f.thud) haptics.drop();
+        setFlights((all) => all.map((g) => (g.iid === f.iid && g.batch === f.batch ? { ...g, landed: true } : g)));
+      }}
+      onGone={() => setFlights((all) => all.filter((g) => !(g.iid === f.iid && g.batch === f.batch)))}
+    />
+  );
 
   // ---- The hand while dragging, home-screen style ----
   // The card being dragged leaves a blank space where it was. Over the hand, that space moves to wherever the
@@ -2392,13 +2421,43 @@ function Table({
             ) : null}
           </ScrollView>
 
+          {/*
+            Cards moving from one table spot to another (a stack spread out, cards pushed along, an undo) glide inside
+            the play area, so they pass under the hand's tray rather than over it.
+          */}
+          {playRect ? (
+            <View style={[styles.playClip, { left: playRect.x, top: playRect.y, width: playRect.w, height: playRect.h }]}>
+              {flights.filter(onTable).map((f) => flightView(f, playRect))}
+            </View>
+          ) : null}
+
           {/* Hand */}
           <View
             style={[styles.hand, { paddingBottom: insets.bottom + 4 }, highlight('hand')]}
             onLayout={measure('hand')}>
             <WoodRail />
-            {/* A small tab on the rail, over the groove the cards sit in. */}
-            <Text style={styles.handTab}>Hand · {table.hand.length}</Text>
+            {/* A small tab on the rail, over the groove the cards sit in. Tapping it folds the tray away (giving the
+                table more room) or opens it again. */}
+            <Pressable
+              onPress={() => {
+                animateLayout();
+                setHandOpen((o) => !o);
+                haptics.tick();
+              }}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={`Hand, ${table.hand.length} cards`}
+              accessibilityHint={handOpen ? 'Folds the hand away' : 'Opens the hand'}
+              style={({ pressed }) => [styles.handTab, pressed && { opacity: 0.8 }]}>
+              <Text style={styles.handTabText}>Hand · {table.hand.length}</Text>
+              <SymbolView
+                name={handOpen ? { ios: 'chevron.down', android: 'expand_more', web: 'expand_more' } : { ios: 'chevron.up', android: 'expand_less', web: 'expand_less' }}
+                size={10}
+                weight="bold"
+                tintColor={colors.accentText}
+              />
+            </Pressable>
+            {handOpen ? (
             <ScrollView
               ref={attachHandView}
               onContentSizeChange={(w) => setContentSize((s) => ({ ...s, hand: w }))}
@@ -2416,6 +2475,7 @@ function Table({
                 <EmptySlot deck={deck} width={handWidth} label="Tap or drag the deck to draw" />
               )}
             </ScrollView>
+            ) : null}
           </View>
         </>
       )}
@@ -2461,20 +2521,7 @@ function Table({
       ) : null}
 
       {/* Cards flying to their new places after a change (see `moveCards`). */}
-      {flights.map((f) => (
-        <CardFlight
-          key={`${f.iid}:${f.batch}`}
-          flight={f}
-          deck={deck}
-          card={cardsById.get(f.cardId)}
-          size={Math.max(handWidth, pileWidth, tableCardWidth)}
-          onLanded={() => {
-            if (f.thud) haptics.drop();
-            setFlights((all) => all.map((g) => (g.iid === f.iid && g.batch === f.batch ? { ...g, landed: true } : g)));
-          }}
-          onGone={() => setFlights((all) => all.filter((g) => !(g.iid === f.iid && g.batch === f.batch)))}
-        />
-      ))}
+      {flights.filter((f) => reveal || !onTable(f)).map((f) => flightView(f))}
 
       {/* The held stack follows the finger above everything else: its top card, with the edges of the rest. */}
       {drag?.active && liftedFrom ? (
@@ -2695,12 +2742,15 @@ function CardFlight({
   deck,
   card,
   size,
+  offset,
   onLanded,
   onGone,
 }: {
   flight: Flight;
   deck: Deck;
   card: Card | undefined;
+  /** The top-left corner, on the table, of the layer it's drawn in, if not the whole table. */
+  offset?: { x: number; y: number };
   size: number;
   /** It's there: the real card can show underneath. */
   onLanded: () => void;
@@ -2736,8 +2786,8 @@ function CardFlight({
       style={[
         styles.pickup,
         {
-          left: from.x,
-          top: from.y,
+          left: from.x - (offset?.x ?? 0),
+          top: from.y - (offset?.y ?? 0),
           transformOrigin: [0, 0, 0],
           transform: [
             { translateX: t.interpolate({ inputRange: [0, 1], outputRange: [0, end.x - from.x] }) },
@@ -3151,26 +3201,26 @@ const styles = StyleSheet.create({
   handTab: {
     alignSelf: 'flex-start',
     marginLeft: 22,
-    paddingHorizontal: 9,
-    paddingTop: 2,
-    paddingBottom: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingTop: 3,
+    paddingBottom: 4,
     borderTopLeftRadius: 7,
     borderTopRightRadius: 7,
     backgroundColor: colors.accent,
-    color: colors.accentText,
-    fontSize: 11,
-    fontWeight: '700',
-    overflow: 'hidden',
   },
+  handTabText: { color: colors.accentText, fontSize: 11, fontWeight: '700' },
+  // Edge to edge: the cards scroll right off the sides, as across the whole rail.
   handGroove: {
-    marginHorizontal: 12,
-    borderRadius: 12,
     backgroundColor: 'rgba(0,0,0,0.3)',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.45)',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.45)',
     borderBottomColor: 'rgba(255,220,180,0.12)',
   },
-  handCards: { paddingHorizontal: 10, paddingVertical: 9, gap: 8 },
+  handCards: { paddingHorizontal: 14, paddingVertical: 9, gap: 8 },
   lifted: {
     position: 'absolute',
     pointerEvents: 'none',
@@ -3229,6 +3279,7 @@ const styles = StyleSheet.create({
   stackCountText: { color: colors.text, fontSize: 12, fontWeight: '700' },
   landing: { position: 'absolute', left: 0, top: 0, pointerEvents: 'none' },
   pickup: { position: 'absolute', pointerEvents: 'none' },
+  playClip: { position: 'absolute', overflow: 'hidden', pointerEvents: 'none' },
   landingShadow: { position: 'absolute', left: 0, top: 0, backgroundColor: colors.surfaceRaised },
   // Matches a pile's edges (PileDepth), for a landing stack's stand-in.
   pileEdge: { backgroundColor: '#d8d3c8', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.45)' },

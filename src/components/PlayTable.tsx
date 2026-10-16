@@ -490,6 +490,15 @@ function Table({
   }));
   const [pan] = useState(() => new Animated.ValueXY());
   /**
+   * The press (by when it began) whose cards have been picked up. Picking up happens once per press: until the
+   * screen catches up, more finger movements still arrive for the press as it was before it lifted, and they
+   * mustn't pick it up again (another haptic, the lift restarting).
+   */
+  const liftedPress = useMemo(() => {
+    const now = { at: -1 };
+    return { get: () => now.at, set: (at: number) => Object.assign(now, { at }) };
+  }, []);
+  /**
    * Where the held cards are headed right now, as worked out from the finger: the zone it's over, the gap or
    * spot they'd land in, and the stack they'd go on. Kept here as well as in state, because the table redraws
    * for them at low priority (see ollowFinger), so the rendered ones can be a moment behind the finger.
@@ -1818,12 +1827,14 @@ function Table({
         if (drag.active) helperMove(e.nativeEvent.touches);
         const finger = e.nativeEvent.touches.find((t) => t.identifier === drag.touchId);
         if (!finger) return;
-        if (!drag.active) {
+        // Picked up already, though the screen hasn't caught up yet (this is still the press as it was): just follow.
+        if (!drag.active && liftedPress.get() !== drag.pressedAt) {
           const dx = finger.pageX - drag.startX;
           const dy = finger.pageY - drag.startY;
           if (Math.hypot(dx, dy) < DRAG_SLOP || Date.now() - drag.pressedAt < LIFT_DELAY_MS) return;
           const lift = !drag.verticalOnly || Math.abs(dy) > Math.abs(dx);
           if (lift) {
+            liftedPress.set(drag.pressedAt);
             // Felt as it comes off the table: a whole stack a little heavier than one card.
             if (drag.wholeStack) haptics.liftHeavy();
             else haptics.lift();

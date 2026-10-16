@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { AppState } from 'react-native';
 
 import { newId } from './id';
 import {
@@ -66,6 +67,9 @@ interface DecksApi {
 
 const DecksContext = createContext<DecksApi | null>(null);
 
+/** A changed table is saved this long after its last change, so a run of quick moves is saved once. */
+const TABLE_SAVE_DELAY_MS = 400;
+
 /** Saved tables are keyed by deck id when played alone (as before sessions existed), or `sessionId:deckId`. */
 function tableKey(deckId: string, sessionId?: string): string {
   return sessionId ? `${sessionId}:${deckId}` : deckId;
@@ -77,7 +81,42 @@ function withoutTables(all: Record<string, TableState>, drop: (key: string) => b
 
 export function DecksProvider({ children }: { children: ReactNode }) {
   const [decks, setDecks] = useState<Deck[]>(() => loadDecks());
-  const [tables, setTables] = useState<Record<string, TableState>>(() => loadTables());
+  // Saved tables are kept outside React state: a table changes with every move, and if they were state, every
+  // screen using the decks (the deck editor's grid of cards, say, still open under the table) would redraw with
+  // each one. Nothing but the table itself shows them, so they're just kept here and saved soon after changing.
+  const tables = useMemo(() => {
+    const box: { all: Record<string, TableState>; timer?: ReturnType<typeof setTimeout> } = { all: loadTables() };
+    const saveSoon = () => {
+      clearTimeout(box.timer);
+      box.timer = setTimeout(() => {
+        box.timer = undefined;
+        saveTables(box.all);
+      }, TABLE_SAVE_DELAY_MS);
+    };
+    return {
+      get: (key: string) => box.all[key],
+      set: (key: string, table: TableState) => {
+        Object.assign(box, { all: { ...box.all, [key]: table } });
+        saveSoon();
+      },
+      drop: (gone: (key: string) => boolean) => {
+        Object.assign(box, { all: withoutTables(box.all, gone) });
+        saveSoon();
+      },
+      /** Saves now, if a save is waiting. */
+      flush: () => {
+        if (box.timer === undefined) return;
+        clearTimeout(box.timer);
+        box.timer = undefined;
+        saveTables(box.all);
+      },
+    };
+  }, []);
+  // Leaving the app saves straight away, in case it's closed before a waiting save would have happened.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => state !== 'active' && tables.flush());
+    return () => sub.remove();
+  }, [tables]);
   const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
   const [groups, setGroups] = useState<DeckGroup[]>(() => loadGroups());
   const loaded = useRef(false);
@@ -85,9 +124,6 @@ export function DecksProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loaded.current) saveDecks(decks);
   }, [decks]);
-  useEffect(() => {
-    if (loaded.current) saveTables(tables);
-  }, [tables]);
   useEffect(() => {
     if (loaded.current) saveSessions(sessions);
   }, [sessions]);
@@ -147,7 +183,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       },
       deleteDeck(id) {
         setDecks((all) => all.filter((d) => d.id !== id));
-        setTables((all) => withoutTables(all, (key) => key === id || key.endsWith(`:${id}`)));
+        tables.drop((key) => key === id || key.endsWith(`:${id}`));
         setSessions((all) => all.map((s) => ({ ...s, deckIds: s.deckIds.filter((d) => d !== id) })));
         deleteDeckFiles(id);
       },
@@ -216,11 +252,11 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       getTable(deckId, sessionId) {
         const deck = getDeck(deckId);
         if (!deck) return undefined;
-        const saved = tables[tableKey(deckId, sessionId)];
+        const saved = tables.get(tableKey(deckId, sessionId));
         return saved ? pruneTable(saved, deck) : createTable(deck);
       },
       setTable(deckId, sessionId, table) {
-        setTables((all) => ({ ...all, [tableKey(deckId, sessionId)]: table }));
+        tables.set(tableKey(deckId, sessionId), table);
       },
       sessions,
       getSession: (id) => sessions.find((s) => s.id === id),
@@ -267,7 +303,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       },
       deleteSession(id) {
         setSessions((all) => all.filter((s) => s.id !== id));
-        setTables((all) => withoutTables(all, (key) => key.startsWith(`${id}:`)));
+        tables.drop((key) => key.startsWith(`${id}:`));
       },
     };
   }, [decks, tables, sessions, groups, updateDeck]);

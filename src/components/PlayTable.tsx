@@ -28,7 +28,7 @@ import { ReorderableGrid } from './ReorderableGrid';
 import type { GridHold } from './ReorderableGrid';
 import { Riffle, riffleHeight } from './Riffle';
 import { CardView, EmptySlot, PileDepth, pileRise, pileThickness, prefersReducedMotion } from './CardView';
-import { leanAt, leanOffset, useViewTilt } from './viewpoint';
+import { leanAt, leanOffset } from './viewpoint';
 import type { Lean } from './viewpoint';
 import { useDecks } from '../lib/DecksContext';
 import * as haptics from '../lib/haptics';
@@ -1020,8 +1020,8 @@ function Table({
       leanReach,
     );
   };
-  // The eye moves as the phone tilts, while this table is the one on screen.
-  useViewTilt(active !== false && !prefersReducedMotion());
+  // The piles' perspective is fixed for now: following the phone's tilt (`useViewTilt`) is off, as it kept the
+  // phone working (and warm) the whole time a table was open.
 
   // In reveal mode the piles decide which way up a card lies, so there is nothing to flip.
   const flipRect: Rect | undefined = !reveal && playRect ? {

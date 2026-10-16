@@ -237,7 +237,13 @@ export default function DeckEditorScreen() {
             ) : null}
 
             <View style={[styles.backRow, { marginTop: 12 }]}>
-              <CardView deck={deck} faceUp={false} width={64} onPress={() => setMenu('back')} />
+              {/* Once it has a picture, tapping it goes back to cropping that; until then, to choosing one. */}
+              <CardView
+                deck={deck}
+                faceUp={false}
+                width={64}
+                onPress={() => (deck.backImage ? setCrop({ uris: [imageUri(deck.backImage)], target: 'back' }) : setMenu('back'))}
+              />
               <View style={{ flex: 1, gap: 8 }}>
                 <Text style={styles.label}>Card back</Text>
                 <View style={{ flexDirection: 'row', gap: 8 }}>

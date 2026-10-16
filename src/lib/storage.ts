@@ -4,6 +4,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 
 import { newId } from './id';
 import type { DeckGroup } from './groups';
+import type { SandboxTable } from './sandbox';
 import type { Deck, Session, TableState } from './types';
 
 const DECKS_FILE = 'decks.json';
@@ -11,6 +12,7 @@ const TABLES_FILE = 'tables.json';
 const SESSIONS_FILE = 'sessions.json';
 const GROUPS_FILE = 'groups.json';
 const SETTINGS_FILE = 'settings.json';
+const SANDBOXES_FILE = 'sandboxes.json';
 
 function readJson<T>(name: string, fallback: T): T {
   try {
@@ -37,6 +39,9 @@ export const loadSessions = () => readJson<Session[]>(SESSIONS_FILE, []);
 export const saveSessions = (sessions: Session[]) => writeJson(SESSIONS_FILE, sessions);
 export const loadGroups = () => readJson<DeckGroup[]>(GROUPS_FILE, []);
 export const saveGroups = (groups: DeckGroup[]) => writeJson(GROUPS_FILE, groups);
+
+export const loadSandboxes = () => readJson<SandboxTable[]>(SANDBOXES_FILE, []);
+export const saveSandboxes = (tables: SandboxTable[]) => writeJson(SANDBOXES_FILE, tables);
 
 /** App-wide settings, kept apart from the player's decks and tables. */
 export interface Settings {

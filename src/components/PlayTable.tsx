@@ -103,10 +103,8 @@ const REVEAL_CHROME = 100;
 const REVEAL_RAIL = 72;
 /** How far down the table the eye sits, for which way piles lean (0 is the top, 1 the bottom). */
 const VIEW_DOWN = 0.78;
-/** How long the hand's tray takes to fold away or open. */
-const HAND_SLIDE_MS = 420;
-/** How much of the hand's cards shows when its tray is folded away. */
-const HAND_PEEK = 26;
+/** How much of the hand's tray shows when it's folded away: its top edge and the tops of its cards. */
+const HAND_FOLDED_SHOWS = 38;
 /** How far the hand's pull tab stands up above its tray. */
 const HAND_TAB_HEIGHT = 24;
 /** Size of the trash can that appears while dragging. */
@@ -423,6 +421,11 @@ function Table({
   const [pickups, setPickups] = useState<Pickup[]>([]);
   /** Whether the hand's tray is open, or folded away to give the table more room (remembered for the deck). */
   const handOpen = !deck.handFolded;
+  // 0 open, 1 folded: the tray slides between them with a spring, natively, so nothing else has to move.
+  const [handFold] = useState(() => new Animated.Value(handOpen ? 0 : 1));
+  useEffect(() => {
+    Animated.spring(handFold, { toValue: handOpen ? 0 : 1, speed: 14, bounciness: 7, useNativeDriver: true }).start();
+  }, [handOpen, handFold]);
   /** Cards flying to their new places (see `moveCards`). Each is hidden there until it lands. */
   const [flights, setFlights] = useState<Flight[]>([]);
   /** A table stack turning over where it lies (see `flipStack`). */
@@ -946,6 +949,38 @@ function Table({
     parent && child ? { ...child, x: parent.x + child.x, y: parent.y + child.y } : undefined;
   const playRect = layout.play;
   const handRect = layout.hand;
+  /**
+   * How far past the sides the hand's tray reaches, so it meets the screen's edges all the way up. The table is
+   * tilted back and scaled to fit, so only its very bottom edge spans the screen; the tray's top, a little
+   * further back, would otherwise fall short of the sides.
+   */
+  const handReach = (() => {
+    if (!tilt.angle || !rootSize.w) return 0;
+    const top = layout.hand?.y ?? rootSize.h * 0.75;
+    const dy = (top - rootSize.h / 2) * tilt.scale;
+    const enlarged = tilt.perspective / (tilt.perspective - dy * Math.sin((tilt.angle * Math.PI) / 180));
+    return Math.ceil(rootSize.w / 2 / (tilt.scale * enlarged) - rootSize.w / 2) + 2;
+  })();
+  /**
+   * How far below the table the tray reaches, so it meets the bottom of the screen: tilted back, the table's
+   * bottom edge sits a little above it.
+   */
+  const handDrop = (() => {
+    if (!tilt.angle || !rootSize.h) return 0;
+    let extra = 0;
+    while (extra < 80 && project(rootSize.w / 2, rootSize.h + extra, rootSize, tilt).y < rootSize.h + 1) extra += 2;
+    return extra;
+  })();
+
+  /**
+   * The hand's tray floats over the bottom of the table, and folds away by sliding down (natively, so nothing
+   * else moves) until only the tops of its cards show above the bottom of the screen. oldShift is how far it
+   * slides; handShows is how much of it shows, which the table leaves room for at its bottom.
+   */
+  const foldShift = handRect ? Math.max(0, handRect.h - handDrop - HAND_FOLDED_SHOWS) : 0;
+  const handShows = handRect ? (handOpen ? handRect.h - handDrop : HAND_FOLDED_SHOWS) + HAND_TAB_HEIGHT : 0;
+  /** Where the hand takes dropped cards: the tray as it shows, folded or not. */
+  const handZone = handRect && !handOpen ? { ...handRect, y: handRect.y + foldShift, h: handRect.h - foldShift } : handRect;
   const zoneRects: [Zone, Rect | undefined, number][] = reveal
     ? [
         ['deck', within(layout.reveal, within(layout.revealPiles, layout.revealDeck)), PILE_PAD],
@@ -954,7 +989,7 @@ function Table({
     : [
         ['deck', within(layout.piles, layout.deckPile), PILE_PAD],
         ['discard', within(layout.piles, layout.discardPile), PILE_PAD],
-        ['hand', handRect, 0],
+        ['hand', handZone, 0],
         ['table', playRect, 0],
       ];
   // ---- Perspective: which way each pile leans (see viewpoint.ts) ----
@@ -986,7 +1021,8 @@ function Table({
   // In reveal mode the piles decide which way up a card lies, so there is nothing to flip.
   const flipRect: Rect | undefined = !reveal && playRect ? {
     x: playRect.x + (playRect.w - FLIP_SIZE.w) / 2,
-    y: playRect.y + playRect.h - FLIP_SIZE.h - 16,
+    // Above the hand's tray, which floats over the bottom of the table.
+    y: playRect.y + playRect.h - handShows - FLIP_SIZE.h - 16,
     ...FLIP_SIZE,
   } : undefined;
 
@@ -1228,6 +1264,8 @@ function Table({
     const found = T.findCard(table, iid);
     if (!found) return Promise.resolve(null);
     if (found.zone === 'deck' || found.zone === 'discard') return Promise.resolve(pileTopAt(found.zone, table[found.zone].length));
+    // Into the folded hand, it just goes in: its cards are tucked away off the bottom of the screen.
+    if (found.zone === 'hand' && !handOpen) return Promise.resolve(null);
     // On the table a card is drawn by its stack's top card, risen above the stack's spot.
     const i = found.zone === 'table' ? tableGroups.findIndex((g) => g.some((c) => c.iid === iid)) : -1;
     const group = i === -1 ? undefined : tableGroups[i];
@@ -1509,7 +1547,8 @@ function Table({
     // In the hand the cards go where the finger is, between the cards there.
     if (zone === 'hand' && at?.zone === zone) {
       // A single card dropped back into its own row lands in its blank space, which is already in place.
-      glideIn(zone, undefined, d.stack.length === 1 && leftBlankIn(zone));
+      // Into the folded tray, they just go in: its cards are tucked away off the bottom of the screen.
+      if (handOpen) glideIn(zone, undefined, d.stack.length === 1 && leftBlankIn(zone));
       // A single card put back exactly where it came from stays put, just turned over if it was flipped.
       const was = table.hand.findIndex((c) => c.iid === d.iid);
       if (d.stack.length === 1 && d.from === 'hand' && at.index === was) {
@@ -1955,28 +1994,6 @@ function Table({
     });
   };
 
-  /**
-   * How far past the sides the hand's tray reaches, so it meets the screen's edges all the way up. The table is
-   * tilted back and scaled to fit, so only its very bottom edge spans the screen; the tray's top, a little
-   * further back, would otherwise fall short of the sides.
-   */
-  const handReach = (() => {
-    if (!tilt.angle || !rootSize.w) return 0;
-    const top = layout.hand?.y ?? rootSize.h * 0.75;
-    const dy = (top - rootSize.h / 2) * tilt.scale;
-    const enlarged = tilt.perspective / (tilt.perspective - dy * Math.sin((tilt.angle * Math.PI) / 180));
-    return Math.ceil(rootSize.w / 2 / (tilt.scale * enlarged) - rootSize.w / 2) + 2;
-  })();
-  /**
-   * How far below the table the tray reaches, so it meets the bottom of the screen: tilted back, the table's
-   * bottom edge sits a little above it.
-   */
-  const handDrop = (() => {
-    if (!tilt.angle || !rootSize.h) return 0;
-    let extra = 0;
-    while (extra < 80 && project(rootSize.w / 2, rootSize.h + extra, rootSize, tilt).y < rootSize.h + 1) extra += 2;
-    return extra;
-  })();
 
   /** A flight from one table spot to another, drawn inside the play area (see where it's drawn). */
   const onTable = (f: Flight) => !reveal && f.zone === 'table' && f.fromZone === 'table';
@@ -2455,7 +2472,8 @@ function Table({
             ref={attachPlayView}
             onContentSizeChange={(_, h) => setContentSize((s) => ({ ...s, play: h }))}
             style={[styles.playArea, highlight('table')]}
-            contentContainerStyle={[styles.playAreaContent, { minHeight: gridHeight }]}
+            // Room at the bottom for the hand's tray, which floats over it, so no card is left hidden under it.
+            contentContainerStyle={[styles.playAreaContent, { minHeight: gridHeight + handShows, paddingBottom: handShows }]}
             scrollEnabled={!drag?.active && !drag?.pinch}
             alwaysBounceVertical={false}
             onLayout={measure('play')}
@@ -2486,30 +2504,26 @@ function Table({
           ) : null}
 
           {/* Hand */}
-          <View
+          <Animated.View
             style={[
               styles.hand,
               {
-                // Open, a little into the home indicator's space; folded, right down at the bottom, its cards
-                // running off the screen.
-                paddingBottom: (handOpen ? Math.max(4, insets.bottom - 14) : 0) + handDrop,
-                marginHorizontal: -handReach,
-                marginBottom: -handDrop,
+                left: -handReach,
+                right: -handReach,
+                bottom: -handDrop,
+                // A little into the home indicator's space.
+                paddingBottom: Math.max(4, insets.bottom - 14) + handDrop,
+                // Folded away, it slides down until just the tops of its cards show (see oldShift).
+                transform: [{ translateY: handFold.interpolate({ inputRange: [0, 1], outputRange: [0, foldShift] }) }],
               },
               highlight('hand'),
             ]}
             onLayout={measure('hand')}>
             <WoodRail />
-            {/* A small tab on the rail, over the groove the cards sit in. Tapping it folds the tray away (giving the
-                table more room) or opens it again. */}
+            {/* A pull tab on the tray's top edge. Tapping it folds the tray away (giving the table more room) or
+                opens it again. */}
             <Pressable
               onPress={() => {
-                // A springy slide, settling with a slight overshoot, rather than the quick slide other layout
-                // changes get.
-                LayoutAnimation.configureNext({
-                  duration: HAND_SLIDE_MS,
-                  update: { type: LayoutAnimation.Types.spring, springDamping: 0.72 },
-                });
                 setHandFolded(handOpen);
                 haptics.tick();
               }}
@@ -2517,7 +2531,7 @@ function Table({
               accessibilityRole="button"
               accessibilityLabel={`Hand, ${table.hand.length} cards`}
               accessibilityHint={handOpen ? 'Folds the hand away' : 'Opens the hand'}
-              style={({ pressed }) => [styles.handTab, { marginTop: -HAND_TAB_HEIGHT }, pressed && { opacity: 0.85 }]}>
+              style={({ pressed }) => [styles.handTab, { marginTop: -HAND_TAB_HEIGHT }, pressed && styles.handTabPressed]}>
               <Text style={styles.handTabText}>Hand · {table.hand.length}</Text>
               <SymbolView
                 name={handOpen ? { ios: 'chevron.down', android: 'expand_more', web: 'expand_more' } : { ios: 'chevron.up', android: 'expand_less', web: 'expand_less' }}
@@ -2526,14 +2540,14 @@ function Table({
                 tintColor={colors.accent}
               />
             </Pressable>
-            {handOpen ? (
+            {/* Folded away, its cards still peek out, but can't be touched until it's opened again. */}
             <ScrollView
               ref={attachHandView}
               onContentSizeChange={(w) => setContentSize((s) => ({ ...s, hand: w }))}
               horizontal
-              scrollEnabled={!drag?.active && !drag?.pinch}
+              scrollEnabled={handOpen && !drag?.active && !drag?.pinch}
               showsHorizontalScrollIndicator={false}
-              style={styles.handGroove}
+              style={[styles.handGroove, { pointerEvents: handOpen ? 'auto' : 'none' }]}
               contentContainerStyle={[styles.handCards, { paddingHorizontal: 14 + handReach }]}
               onLayout={measure('handScroll')}
               onScrollEndDrag={(e) => trackScroll('hand', e.nativeEvent.contentOffset.x)}
@@ -2544,16 +2558,7 @@ function Table({
                 <EmptySlot deck={deck} width={handWidth} label="Tap or drag the deck to draw" />
               )}
             </ScrollView>
-            ) : (
-              // Folded away, just the tops of the cards peek out of the tray: a reminder of what's there, not
-              // something to tap or drag (open the tray for that).
-              <View style={[styles.handPeek, { paddingHorizontal: 14 + handReach }]}>
-                {table.hand.map((c) => (
-                  <CardView key={c.iid} deck={deck} card={cardsById.get(c.cardId)} faceUp={c.faceUp} width={handWidth} />
-                ))}
-              </View>
-            )}
-          </View>
+          </Animated.View>
         </>
       )}
 
@@ -3277,8 +3282,8 @@ const styles = StyleSheet.create({
   hint: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', width: '100%', marginTop: 24 },
   // The wooden rail along the bottom, holding the hand: a small label tab, then a recessed groove inset from
   // the sides (and above the home indicator) that the cards sit and scroll in, so none run off the screen.
-  // Not clipped: its pull tab stands up above it.
-  hand: { paddingTop: 6, borderWidth: 2, borderColor: 'transparent' },
+  // Floats over the bottom of the table (see `foldShift`). Not clipped: its pull tab stands up above it.
+  hand: { position: 'absolute', paddingTop: 6, borderWidth: 2, borderColor: 'transparent' },
   // A pull tab on the middle of the tray's top edge, in the same wood, standing up from it.
   handTab: {
     alignSelf: 'center',
@@ -3296,6 +3301,8 @@ const styles = StyleSheet.create({
     borderRightWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,220,180,0.35)',
   },
+  // Darker while pressed (not see-through).
+  handTabPressed: { backgroundColor: '#4a2d18' },
   handTabText: { color: 'rgba(255,240,220,0.9)', fontSize: 12, fontWeight: '700' },
   // Edge to edge: the cards scroll right off the sides, as across the whole rail.
   handGroove: {
@@ -3307,8 +3314,6 @@ const styles = StyleSheet.create({
   },
   handCards: { paddingHorizontal: 14, paddingVertical: 9, gap: 8 },
   // The folded tray's glimpse of the hand: the tops of its cards, cut off, and not to be touched.
-  // Only as tall as the glimpse: the cards themselves are full size, running off the bottom of the screen.
-  handPeek: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, height: HAND_PEEK, paddingTop: 6, pointerEvents: 'none' },
   lifted: {
     position: 'absolute',
     pointerEvents: 'none',

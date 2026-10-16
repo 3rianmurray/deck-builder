@@ -46,23 +46,41 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
   const left = onDuplicate ? REVEAL : 0;
   const offsetFor = (side: SwipeSide | null) => (side === 'left' ? 0 : side === 'right' ? left + REVEAL : left);
 
+  // Where the row is headed: the stop it was last sent to.
+  const goal = useRef<SwipeSide | null>(open);
+
   // Follow the parent: opening this row closes any other, and the parent can close this one.
   const target = offsetFor(open);
   useEffect(() => {
+    goal.current = open;
     scrollRef.current?.scrollTo({ x: target, animated: true });
-  }, [target]);
+  }, [open, target]);
 
-  // Settles once the row has come to rest: after its snap, or straight away if let go without a flick (then
-  // there's no snap to wait for). Settling on release, before the snap, could fight a flick the other way.
-  const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const x = e.nativeEvent.contentOffset.x;
-    const side: SwipeSide | null = onDuplicate && x < left / 2 ? 'left' : x > left + REVEAL / 2 ? 'right' : null;
-    // Wherever it came to rest, it settles exactly on that side's stop.
-    if (x !== offsetFor(side)) scrollRef.current?.scrollTo({ x: offsetFor(side), animated: true });
+  // The row snaps itself, rather than with the scroll view's snap points, which can stall part way when let go
+  // slowly (leaving the row stuck between stops) or carry a flick on past the next stop.
+  const go = (side: SwipeSide | null) => {
+    goal.current = side;
+    scrollRef.current?.scrollTo({ x: offsetFor(side), animated: true });
     if (side === open) return;
     // A tick as a button clicks into view.
     if (side) haptics.tick();
     onOpenChange(side);
+  };
+
+  // Let go: to the stop nearest where it would have coasted to, but no further than the next one along.
+  const release = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const n = e.nativeEvent as NativeScrollEvent & { targetContentOffset?: { x: number } };
+    const rest = n.targetContentOffset?.x ?? n.contentOffset.x;
+    const stops: (SwipeSide | null)[] = onDuplicate ? ['left', null, 'right'] : [null, 'right'];
+    const from = stops.indexOf(open);
+    const nearest = stops.reduce((best, s, i) => (Math.abs(offsetFor(s) - rest) < Math.abs(offsetFor(stops[best]) - rest) ? i : best), 0);
+    go(stops[Math.min(from + 1, Math.max(from - 1, nearest))]);
+  };
+
+  // Come to rest anywhere but where it was sent (say a coast that outran the snap): on to its stop.
+  const rested = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const to = offsetFor(goal.current);
+    if (Math.abs(e.nativeEvent.contentOffset.x - to) > 0.5) scrollRef.current?.scrollTo({ x: to, animated: true });
   };
 
   const action = (label: string, icon: SymbolViewProps['name'], color: string, onPress: () => void, gap: ViewStyle) => (
@@ -86,14 +104,9 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
           bounces={false}
           showsHorizontalScrollIndicator={false}
           contentOffset={{ x: offsetFor(open), y: 0 }}
-          // Only the stops next to where it is: a flick from one button towards closed stops at closed, rather
-          // than carrying on past it to the other button. Past the last (or first) stop, it snaps back to it.
-          snapToOffsets={open === 'left' ? [0, left] : open === 'right' ? [left, left + REVEAL] : onDuplicate ? [0, left, left + REVEAL] : [0, REVEAL]}
-          snapToStart={false}
-          snapToEnd={false}
           decelerationRate="fast"
-          onScrollEndDrag={(e) => !e.nativeEvent.velocity?.x && settle(e)}
-          onMomentumScrollEnd={settle}>
+          onScrollEndDrag={release}
+          onMomentumScrollEnd={rested}>
           {onDuplicate
             ? action('Duplicate', { ios: 'plus.square.on.square', android: 'content_copy', web: 'content_copy' }, colors.accent, onDuplicate, {
                 marginRight: GAP,

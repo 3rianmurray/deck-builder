@@ -57,6 +57,8 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
   const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
     const side: SwipeSide | null = onDuplicate && x < left / 2 ? 'left' : x > left + REVEAL / 2 ? 'right' : null;
+    // Wherever it came to rest, it settles exactly on that side's stop.
+    if (x !== offsetFor(side)) scrollRef.current?.scrollTo({ x: offsetFor(side), animated: true });
     if (side === open) return;
     // A tick as a button clicks into view.
     if (side) haptics.tick();
@@ -84,7 +86,11 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
           bounces={false}
           showsHorizontalScrollIndicator={false}
           contentOffset={{ x: offsetFor(open), y: 0 }}
-          snapToOffsets={onDuplicate ? [0, left, left + REVEAL] : [0, REVEAL]}
+          // Only the stops next to where it is: a flick from one button towards closed stops at closed, rather
+          // than carrying on past it to the other button. Past the last (or first) stop, it snaps back to it.
+          snapToOffsets={open === 'left' ? [0, left] : open === 'right' ? [left, left + REVEAL] : onDuplicate ? [0, left, left + REVEAL] : [0, REVEAL]}
+          snapToStart={false}
+          snapToEnd={false}
           decelerationRate="fast"
           onScrollEndDrag={(e) => !e.nativeEvent.velocity?.x && settle(e)}
           onMomentumScrollEnd={settle}>

@@ -922,12 +922,13 @@ function Table({
   /** How the deck or discard pile leans, from where its top card lies on the (flat) table. */
   const pileLean = (z: 'deck' | 'discard'): Lean => {
     const r = zoneRects.find(([zone]) => zone === z)?.[1];
-    if (!r) return { x: 0, y: 0 };
+    // Not until the table's been measured: before then its middle isn't known, and the lean would be wild.
+    if (!r || !rootSize.w) return { x: 0, y: 0 };
     return leanAt({ x: r.x + PILE_INSET + pileWidth / 2, y: r.y + PILE_INSET + pileWidth / ratio / 2 }, viewCenter, leanReach);
   };
   /** How a stack in this grid spot leans, from where it lies on the (flat) table, scrolling included. */
   const spotLean = (s: Spot): Lean => {
-    if (!playRect) return { x: 0, y: 0 };
+    if (!playRect || !rootSize.w) return { x: 0, y: 0 };
     const { left, top } = spotPlace(s);
     return leanAt(
       { x: playRect.x + PLAY_BORDER + left + tableCardWidth / 2, y: playRect.y + PLAY_BORDER + top - scroll.play + cellH / 2 },
@@ -1478,8 +1479,30 @@ function Table({
     }
     // Piles keep their rules: the deck is always face down and the discard pile always face up.
     const faceUp = zone === 'deck' ? false : zone === 'discard' || zone === 'trash' ? true : d.faceUp;
-    if (zone === 'discard' && !d.faceUp) setRevealed(d.stack[0].iid);
     apply((t) => T.moveCards(t, ids, zone, faceUp), zone === 'trash' ? 'Moved to the trash' : undefined);
+    // Onto the deck or discard pile: the top card flies from the finger onto the pile, turning to the pile's way
+    // up on the way (the rest go straight in, out of sight inside the pile).
+    if ((zone === 'deck' || zone === 'discard') && liftedFrom && !prefersReducedMotion()) {
+      launch([
+        {
+          iid: d.stack[0].iid,
+          cardId: d.stack[0].cardId,
+          from: {
+            x: liftedFrom.x - d.offX * LIFTED_SCALE + lastPan.get().x,
+            y: liftedFrom.y - d.offY * LIFTED_SCALE + lastPan.get().y,
+            w: d.width * LIFTED_SCALE,
+          },
+          fromFaceUp: heldFaceUp(d, d.stack[0]),
+          toFaceUp: faceUp,
+          delay: 0,
+          zone,
+          batch: flightBatch.next(),
+        },
+      ]);
+    } else if (zone === 'discard' && !d.faceUp) {
+      // Without the flight, it turns face up where it lands.
+      setRevealed(d.stack[0].iid);
+    }
   };
 
   /** Where a card in the hand or on the table sits on the (flat) table, counting how far its row is scrolled. */

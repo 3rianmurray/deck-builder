@@ -232,6 +232,9 @@ export function pileRise(width: number, count: number): number {
   return Math.round(thickness / EDGE_STEP) * EDGE_STEP;
 }
 
+/** How long a pile takes to settle into a new lean. */
+const LEAN_GLIDE_MS = 260;
+
 /** Up and to the left: how a pile leans when nothing says otherwise. */
 const DEFAULT_LEAN: Lean = { x: -0.7, y: -0.7 };
 
@@ -268,10 +271,21 @@ export function PileDepth({
   const height = width / cardRatio(deck);
   const radius = Math.max(4, width * 0.06);
   const tabletop = useOnTabletop();
+  // The lean glides to a new value rather than jumping, e.g. while the screen is still measuring where the pile
+  // is (as it opens), or as a stack's spot scrolls. JS-driven, like the tilt it's added to.
+  const [leanX] = useState(() => new Animated.Value(lean.x));
+  const [leanY] = useState(() => new Animated.Value(lean.y));
+  useEffect(() => {
+    const glide = (v: Animated.Value, to: number) =>
+      Animated.timing(v, { toValue: to, duration: LEAN_GLIDE_MS, easing: Easing.out(Easing.cubic), useNativeDriver: false });
+    const anim = Animated.parallel([glide(leanX, lean.x), glide(leanY, lean.y)]);
+    anim.start();
+    return () => anim.stop();
+  }, [lean.x, lean.y, leanX, leanY]);
   // The top card's offset from the spot, following the tilt; each edge is part of the way there.
   const offsets = useMemo(() => {
     if (!rise) return null;
-    const axis = (tilt: Animated.Value, base: number) =>
+    const axis = (tilt: Animated.Value, base: Animated.Value) =>
       Animated.add(tilt, base).interpolate({
         inputRange: [-MAX_LEAN, MAX_LEAN],
         outputRange: [-MAX_LEAN * rise, MAX_LEAN * rise],
@@ -279,7 +293,7 @@ export function PileDepth({
       });
     // Lowered as the pile goes (see `height`).
     const lowered = (v: Animated.AnimatedInterpolation<number>) => (present ? Animated.multiply(v, present) : v);
-    const top = { x: lowered(axis(viewTilt.x, lean.x)), y: lowered(axis(viewTilt.y, lean.y)) };
+    const top = { x: lowered(axis(viewTilt.x, leanX)), y: lowered(axis(viewTilt.y, leanY)) };
     const part = (f: number) => [{ translateX: Animated.multiply(top.x, f) }, { translateY: Animated.multiply(top.y, f) }];
     return {
       top: [{ translateX: top.x }, { translateY: top.y }],
@@ -287,7 +301,7 @@ export function PileDepth({
       // The edges fade out as the pile all but goes, so only its spot is left.
       opacity: present?.interpolate({ inputRange: [0, 0.35], outputRange: [0, 1], extrapolate: 'clamp' }),
     };
-  }, [rise, edges, lean.x, lean.y, present]);
+  }, [rise, edges, leanX, leanY, present]);
   return (
     <View style={{ width, height }}>
       {offsets?.edge.map((transform, i) => (

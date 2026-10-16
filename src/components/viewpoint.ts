@@ -5,7 +5,7 @@
 // at the table through a window, so the piles shift as the phone turns and feel like real objects.
 import { Accelerometer } from 'expo-sensors';
 import { useEffect } from 'react';
-import { Animated, Platform } from 'react-native';
+import { Animated, AppState, Platform } from 'react-native';
 
 /**
  * How far the eye has moved with the phone's tilt, in the same units as `Lean`: (1, 0) leans every pile by
@@ -48,14 +48,31 @@ export function leanOffset(lean: Lean, rise: number): { x: number; y: number } {
 
 let users = 0;
 let subscription: { remove: () => void } | null = null;
+let appState: { remove: () => void } | null = null;
+// How the phone is usually held, adapting slowly: only turning it away from that moves the eye. Null until
+// it's known (from the first good reading), and forgotten whenever the app comes back to the foreground, since
+// the phone may well be held differently by then.
+let rest: { x: number; y: number } | null = null;
+let smoothed = { x: 0, y: 0 };
+
+/** Starts over: the next good reading is taken as how the phone is held, with the eye straight above. */
+function rebase() {
+  rest = null;
+  smoothed = { x: 0, y: 0 };
+  current = { x: 0, y: 0 };
+  viewTilt.setValue(current);
+}
 
 function start() {
   if (subscription) return;
-  // How the phone is usually held, adapting slowly: only turning it away from that moves the eye.
-  let rest: { x: number; y: number } | null = null;
-  let smoothed = { x: 0, y: 0 };
+  rebase();
+  appState = AppState.addEventListener('change', (state) => state === 'active' && rebase());
   Accelerometer.setUpdateInterval(33);
   subscription = Accelerometer.addListener((a) => {
+    // The first readings after starting (or waking) can be junk, e.g. all zeros: only a reading that's about
+    // the pull of gravity (1 g) is trusted.
+    const strength = Math.hypot(a.x, a.y, a.z);
+    if (strength < 0.6 || strength > 1.5) return;
     // Android reports the opposite way round from iOS.
     const sign = Platform.OS === 'android' ? -1 : 1;
     const g = { x: a.x * sign, y: a.y * sign };
@@ -73,8 +90,9 @@ function start() {
 function stop() {
   subscription?.remove();
   subscription = null;
-  current = { x: 0, y: 0 };
-  viewTilt.setValue(current);
+  appState?.remove();
+  appState = null;
+  rebase();
 }
 
 /** Follows the phone's tilt while enabled: a table is on screen, and motion isn't turned down. */

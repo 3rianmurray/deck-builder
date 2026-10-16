@@ -446,14 +446,9 @@ function Table({
     const now = { x: 0, y: 0 };
     return { get: () => now, set: (p: { x: number; y: number }) => Object.assign(now, p) };
   }, []);
-  /**
-   * Over a stack target the held stack leaves the finger and settles onto the target, at table size, exactly
-   * where it would land (see `snapTo`). `on` is while it's settled there; `returning` while it springs back to
-   * the finger. Either way the finger doesn't move it. `x`, `y`, `scale` are where and how big it's shown.
-   */
   // `leftSource`: the finger has been off the stack the held card came from, so it may now go back onto it.
   const snap = useMemo(() => {
-    const now = { on: false, returning: false, x: 0, y: 0, scale: 1, leftSource: false };
+    const now = { leftSource: false };
     return { get: () => now, set: (p: Partial<typeof now>) => Object.assign(now, p) };
   }, []);
   // Cards dropped into the hand or onto the table glide from where they were let go into their new place. The
@@ -479,8 +474,6 @@ function Table({
     lift: new Animated.Value(1),
   }));
   const [pan] = useState(() => new Animated.ValueXY());
-  /** Where the finger has dragged to, always: what the held stack chases as it comes off a stack target. */
-  const [fingerPan] = useState(() => new Animated.ValueXY());
   /**
    * Where the held cards are headed right now, as worked out from the finger: the zone it's over, the gap or
    * spot they'd land in, and the stack they'd go on. Kept here as well as in state, because the table redraws
@@ -678,7 +671,7 @@ function Table({
     if (!held.length) return;
     pan.setValue({ x: 0, y: 0 });
     lastPan.set({ x: 0, y: 0 });
-    snap.set({ on: false, returning: false, leftSource: false });
+    snap.set({ leftSource: false });
     const w = tableCardWidth;
     // Starts at the size it was held at in the search, and grows (or shrinks) to the held size here once it's
     // on screen (see `drag.shown`).
@@ -1386,20 +1379,11 @@ function Table({
     // there's no new layout to wait for before gliding.
     const glideIn = (to: 'hand' | 'table', rise = { x: 0, y: 0 }, settled = false, pile = false) => {
       if (!liftedFrom) return;
-      const w = d.width * LIFTED_SCALE;
-      const s = snap.get();
-      if (s.on) {
-        // Already settled on the stack, at table size: start there. (The stand-in scales about its centre, so
-        // put its unscaled box where that shows it at s.x, s.y.)
-        landingAnim.pos.setValue({ x: s.x - (w * (1 - s.scale)) / 2, y: s.y - ((w / ratio) * (1 - s.scale)) / 2 });
-        landingAnim.scale.setValue(s.scale);
-      } else {
-        landingAnim.pos.setValue({
-          x: liftedFrom.x - d.offX * LIFTED_SCALE + lastPan.get().x,
-          y: liftedFrom.y - d.offY * LIFTED_SCALE + lastPan.get().y,
-        });
-        landingAnim.scale.setValue(1);
-      }
+      landingAnim.pos.setValue({
+        x: liftedFrom.x - d.offX * LIFTED_SCALE + lastPan.get().x,
+        y: liftedFrom.y - d.offY * LIFTED_SCALE + lastPan.get().y,
+      });
+      landingAnim.scale.setValue(1);
       landingAnim.lift.setValue(1);
       setLanding({
         zone: to,
@@ -1599,62 +1583,11 @@ function Table({
     return shownOf(g)?.iid ?? null;
   };
 
-  /**
-   * Where the held stack would sit on the stack it's over, once dropped: the target's top card spot, risen by
-   * the stack's new height, at table-card size. Also the pan and scale that put the held stack there: it scales
-   * about its grab point, so its top-left lands at base + pan + origin·(1 − scale).
-   */
-  const snapPlacement = (onto: string) => {
-    const i = tableGroups.findIndex((grp) => grp.some((c) => c.iid === onto));
-    const g = tableGroups[i];
-    const r = g && groupRect(g);
-    if (!drag || !liftedFrom || !g || !r) return null;
-    const total = g.filter((c) => !isHeld(c.iid)).length + drag.stack.length;
-    const rise = leanOffset(spotLean(groupSpots[i]), pileRise(tableCardWidth, total));
-    const scale = r.w / liftedWidth;
-    const x = r.x + rise.x;
-    const y = r.y + rise.y;
-    const base = { x: liftedFrom.x - drag.offX * LIFTED_SCALE, y: liftedFrom.y - drag.offY * LIFTED_SCALE };
-    const origin = { x: drag.offX * LIFTED_SCALE, y: drag.offY * LIFTED_SCALE };
-    return { x, y, scale, pan: { x: x - base.x - origin.x * (1 - scale), y: y - base.y - origin.y * (1 - scale) } };
-  };
-
-  /** Settles the held stack onto a stack target, with a light tap so it can be felt as well as seen. */
-  const snapTo = (onto: string) => {
-    const place = snapPlacement(onto);
-    if (!place) return;
-    snap.set({ on: true, returning: false, x: place.x, y: place.y, scale: place.scale });
-    Animated.parallel([
-      Animated.spring(pan, { toValue: place.pan, speed: 28, bounciness: 4, useNativeDriver: true }),
-      Animated.spring(liftGrow, { toValue: place.scale, speed: 28, bounciness: 4, useNativeDriver: true }),
-    ]).start();
-    haptics.tick();
-  };
-
-  /** Springs the held stack back up to the finger after leaving a stack target. */
-  const unsnap = () => {
-    snap.set({ on: false, returning: true });
-    fingerPan.setValue(lastPan.get());
-    // It chases the finger as it goes, wherever the finger is by then (rather than heading for where it was and
-    // ignoring it meanwhile), so it never stalls; once it's caught up, it simply follows again.
-    Animated.spring(pan, { toValue: fingerPan, speed: 40, bounciness: 0, overshootClamping: true, useNativeDriver: true }).start(
-      ({ finished }) => {
-        if (!finished || snap.get().on) return;
-        snap.set({ returning: false });
-        pan.setValue(lastPan.get());
-      },
-    );
-    Animated.spring(liftGrow, { toValue: 1, speed: 28, bounciness: 4, useNativeDriver: true }).start();
-    haptics.tick();
-  };
-
   const followFinger = (finger: NativeTouchEvent) => {
     if (!drag) return;
     const delta = tableDelta(drag.startX, drag.startY, finger);
     lastPan.set(delta);
-    // While settled on a stack target (or springing back from one) the held stack doesn't follow the finger.
-    fingerPan.setValue(delta);
-    if (!snap.get().on && !snap.get().returning) pan.setValue(delta);
+    pan.setValue(delta);
     const zone = zoneAt(finger.pageX, finger.pageY);
     // Over the middle of a table card it's a stack; anywhere else on the table, a free spot; in the hand, a gap.
     const onto = zone === 'table' ? stackTargetAt(finger.pageX, finger.pageY) : null;
@@ -1669,11 +1602,8 @@ function Table({
     // Compared with the latest targets, not the rendered ones, which may be a moment behind (see below).
     const was = target.get();
     if (zone === was.hover && onto === was.stackTarget && sameInsert(next, was.insertAt)) return;
-    // Snapping on or off a stack starts at once: it's all native animation, so it doesn't wait for the table.
-    if (onto !== was.stackTarget) {
-      if (onto) snapTo(onto);
-      else unsnap();
-    }
+    // A light tick on moving onto (or off) a card or stack the held cards would join, which lights up gold.
+    if (onto !== was.stackTarget) haptics.tick();
     target.set({ hover: zone, insertAt: next, stackTarget: onto });
     const update = () => {
       setHover(zone);
@@ -1742,7 +1672,7 @@ function Table({
         pan.setValue({ x: 0, y: 0 });
         lastPan.set({ x: 0, y: 0 });
         // Reset here rather than when the last drag ended: dropping reads it after the drag has been cleared.
-        snap.set({ on: false, returning: false, leftSource: false });
+        snap.set({ leftSource: false });
         onTouchingCard?.(true);
         const s = opts.stack;
         const whole = !!s && n.locationX > s.w - STACK_HANDLE && n.locationY > s.h - STACK_HANDLE;

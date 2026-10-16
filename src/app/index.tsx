@@ -1,5 +1,6 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { Stack, router } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
+import { useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -14,6 +15,7 @@ import { deleteDeckWarning } from '../lib/deckInUse';
 import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
+import { loadSettings, saveSettings } from '../lib/storage';
 import { deckSize } from '../lib/types';
 import { colors } from '../theme';
 import { Text } from '../components/Text';
@@ -39,6 +41,15 @@ export default function HomeScreen() {
     arrangeDecks,
   } = useDecks();
   const insets = useSafeAreaInsets();
+
+  // The welcome shows by itself the first time the app opens; after that, from the help button.
+  useEffect(() => {
+    const settings = loadSettings();
+    if (settings.welcomed) return;
+    saveSettings({ ...settings, welcomed: true });
+    router.push('/welcome');
+  }, []);
+
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   /**
@@ -208,6 +219,24 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.screen}>
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable
+              onPress={() => router.push('/welcome')}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="How to use Shufflevale"
+              style={({ pressed }) => pressed && { opacity: 0.6 }}>
+              <SymbolView
+                name={{ ios: 'questionmark.circle', android: 'help', web: 'help' }}
+                size={22}
+                tintColor={colors.accent}
+              />
+            </Pressable>
+          ),
+        }}
+      />
       <ReorderableList
         rows={rows}
         keyOf={(r) => `${r.kind}:${r.id}`}

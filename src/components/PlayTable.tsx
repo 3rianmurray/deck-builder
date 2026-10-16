@@ -103,6 +103,8 @@ const REVEAL_CHROME = 100;
 const REVEAL_RAIL = 72;
 /** How far down the table the eye sits, for which way piles lean (0 is the top, 1 the bottom). */
 const VIEW_DOWN = 0.78;
+/** How long the hand's tray takes to fold away or open. */
+const HAND_SLIDE_MS = 420;
 /** How much of the hand's cards shows when its tray is folded away. */
 const HAND_PEEK = 26;
 /** How far the hand's pull tab stands up above its tray. */
@@ -2502,7 +2504,12 @@ function Table({
                 table more room) or opens it again. */}
             <Pressable
               onPress={() => {
-                animateLayout();
+                // A springy slide, settling with a slight overshoot, rather than the quick slide other layout
+                // changes get.
+                LayoutAnimation.configureNext({
+                  duration: HAND_SLIDE_MS,
+                  update: { type: LayoutAnimation.Types.spring, springDamping: 0.72 },
+                });
                 setHandFolded(handOpen);
                 haptics.tick();
               }}

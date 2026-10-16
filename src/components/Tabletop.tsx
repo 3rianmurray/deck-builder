@@ -19,7 +19,7 @@ export const tabletopShadow = {
 
 /**
  * The cloth the game is played on: a felt texture on a plane tilted away from the viewer (so the weave
- * shrinks into the distance, as if seen from a seat at the table), lit from above with darker edges.
+ * shrinks into the distance, as if seen from a seat at the table), lit from above, darker far off and close up.
  * Purely decorative: it sits behind the play area and never takes touches.
  */
 export function TabletopSurface() {
@@ -37,21 +37,9 @@ export function TabletopSurface() {
           <Image source={FELT_TEXTURE} resizeMode="repeat" style={styles.texture} />
         </View>
       </View>
-      {/* Vignette: the cloth darkens towards every edge. */}
+      {/* Vignette: the cloth darkens towards the far edge and towards the player (not at the sides). */}
       <LinearGradient colors={['rgba(0,0,0,0.45)', 'transparent']} style={[styles.edge, { top: 0, height: '22%' }]} />
       <LinearGradient colors={['transparent', 'rgba(0,0,0,0.5)']} style={[styles.edge, { bottom: 0, height: '25%' }]} />
-      <LinearGradient
-        colors={['rgba(0,0,0,0.4)', 'transparent']}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        style={[styles.side, { left: 0 }]}
-      />
-      <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.4)']}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        style={[styles.side, { right: 0 }]}
-      />
     </View>
   );
 }
@@ -91,6 +79,5 @@ const styles = StyleSheet.create({
   },
   texture: { width: '100%', height: '100%' },
   edge: { position: 'absolute', left: 0, right: 0 },
-  side: { position: 'absolute', top: 0, bottom: 0, width: '12%' },
   railHighlight: { height: 1.5, backgroundColor: 'rgba(255,220,180,0.35)' },
 });

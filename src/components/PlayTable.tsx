@@ -2465,7 +2465,13 @@ function Table({
           <View
             style={[
               styles.hand,
-              { paddingBottom: insets.bottom + 4 + handDrop, marginHorizontal: -handReach, marginBottom: -handDrop },
+              {
+                // Open, a little into the home indicator's space; folded, right down at the bottom, its cards
+                // running off the screen.
+                paddingBottom: (handOpen ? Math.max(4, insets.bottom - 14) : 0) + handDrop,
+                marginHorizontal: -handReach,
+                marginBottom: -handDrop,
+              },
               highlight('hand'),
             ]}
             onLayout={measure('hand')}>
@@ -3212,7 +3218,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    padding: 16,
+    // Close under the top bar, leaving the table the room.
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 12,
     backgroundColor: colors.feltDark,
   },
   pile: { alignItems: 'center', gap: 6 },
@@ -3269,7 +3278,8 @@ const styles = StyleSheet.create({
   },
   handCards: { paddingHorizontal: 14, paddingVertical: 9, gap: 8 },
   // The folded tray's glimpse of the hand: the tops of its cards, cut off, and not to be touched.
-  handPeek: { flexDirection: 'row', gap: 8, height: HAND_PEEK, paddingTop: 6, overflow: 'hidden', pointerEvents: 'none' },
+  // Only as tall as the glimpse: the cards themselves are full size, running off the bottom of the screen.
+  handPeek: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, height: HAND_PEEK, paddingTop: 6, pointerEvents: 'none' },
   lifted: {
     position: 'absolute',
     pointerEvents: 'none',

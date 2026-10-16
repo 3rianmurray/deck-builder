@@ -57,8 +57,6 @@ const HOLD_TO_ZOOM_MS = 450;
  * the first finger often slides a little before the second touches down.
  */
 const LIFT_DELAY_MS = 90;
-/** The flip button's diameter, shown while cards are dragged. */
-const FLIP_SIZE = 64;
 /** Extra hit area around the small piles and the FLIP button. */
 const PILE_PAD = 16;
 
@@ -1048,6 +1046,20 @@ function Table({
   // While cards are dragged, the flip button takes the place of the buttons between the piles: all of that space
   // turns them over (tapped with another finger), the button itself drawn in its middle.
   const flipRect: Rect | undefined = !reveal ? within(layout.piles, layout.pileButtons) : undefined;
+  /**
+   * Where the flip button is drawn on screen (it's drawn flat, over the tilted table): its middle, and its size,
+   * the height the decks beside it appear on screen.
+   */
+  const flipButton = (() => {
+    const deckSpot = zoneRects.find(([z]) => z === 'deck')?.[1];
+    if (!flipRect || !deckSpot || !rootSize.w) return null;
+    const top = deckSpot.y + PILE_INSET;
+    const bottom = top + pileWidth / ratio;
+    const mid = flipRect.x + flipRect.w / 2;
+    const a = project(mid, top, rootSize, tilt);
+    const b = project(mid, bottom, rootSize, tilt);
+    return { x: a.x, y: (a.y + b.y) / 2, size: b.y - a.y };
+  })();
 
   /**
    * The trash can that appears while cards are being dragged in reveal mode, in the bottom-right corner of the
@@ -2762,20 +2774,7 @@ function Table({
       ) : null}
 
       {/* Can't be pressed normally while a finger holds a card; the drag handler checks for a second finger here. */}
-      {drag?.active && flipRect ? (
-        <FadeIn
-          style={[
-            styles.flip,
-            {
-              left: flipRect.x + (flipRect.w - FLIP_SIZE) / 2,
-              top: flipRect.y + (flipRect.h - FLIP_SIZE) / 2,
-              width: FLIP_SIZE,
-              height: FLIP_SIZE,
-            },
-          ]}>
-          <SymbolView name={FLIP_ICON} size={30} weight="semibold" tintColor={colors.accentText} />
-        </FadeIn>
-      ) : null}
+
 
       {/* Drop cards here to trash them; it lights up while they're over it. */}
       {drag?.active && trashRect ? <TrashTarget rect={trashRect} hot={hover === 'trash'} /> : null}
@@ -2789,6 +2788,26 @@ function Table({
 
       </View>
       </View>
+
+      {/*
+        The flip button, while cards are dragged: drawn flat over the table rather than on it, so it's a true
+        circle, as tall on screen as the decks it sits between.
+      */}
+      {drag?.active && flipButton ? (
+        <FadeIn
+          style={[
+            styles.flip,
+            {
+              left: flipButton.x - flipButton.size / 2,
+              top: flipButton.y - flipButton.size / 2,
+              width: flipButton.size,
+              height: flipButton.size,
+              borderRadius: flipButton.size / 2,
+            },
+          ]}>
+          <SymbolView name={FLIP_ICON} size={Math.round(flipButton.size * 0.42)} weight="semibold" tintColor={colors.accentText} />
+        </FadeIn>
+      ) : null}
 
       {searchMounted ? (
         <SearchPanel
@@ -3413,7 +3432,6 @@ const styles = StyleSheet.create({
     pointerEvents: 'none',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: FLIP_SIZE / 2,
     backgroundColor: colors.accent,
     shadowColor: '#000',
     shadowOpacity: 0.4,

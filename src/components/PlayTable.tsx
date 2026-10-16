@@ -497,6 +497,11 @@ function Table({
    * screen catches up, more finger movements still arrive for the press as it was before it lifted, and they
    * mustn't pick it up again (another haptic, the lift restarting).
    */
+  /** How far the held card is scaled down from the size it's drawn at, right now (see `heldSizeOver`). */
+  const heldSize = useMemo(() => {
+    const now = { f: 1 };
+    return { get: () => now.f, set: (f: number) => Object.assign(now, { f }) };
+  }, []);
   const liftedPress = useMemo(() => {
     const now = { at: -1 };
     return { get: () => now.at, set: (at: number) => Object.assign(now, { at }) };
@@ -625,12 +630,17 @@ function Table({
   const rowStep = cellH + GRID_GAP;
   /** Where a grid spot's card goes, within the play area's content. */
   const spotPlace = (s: Spot) => ({ position: 'absolute' as const, left: GRID_PAD + s.col * colStep, top: GRID_PAD + s.row * rowStep });
-  /**
-   * How much bigger a held card is drawn than it was where it was picked up. Held cards are all one size, a
-   * little bigger than a table card, wherever they came from (the hand's cards are bigger, the piles' about the
-   * same), so they look the same against the table. In reveal mode, just a little bigger than its pile's cards.
-   */
-  const heldScale = (d: { width: number }) => (reveal || !d.width ? LIFTED_SCALE : (tableCardWidth * LIFTED_SCALE) / d.width);
+  // ---- How big a held card is ----
+  // A held card is a little bigger (LIFTED_SCALE) than the cards around it: over the hand, than a hand card;
+  // over the table or a pile, than a table card. It springs between the two as it crosses (heldSize). It's
+  // drawn at the bigger size and scaled down, so its art stays sharp. In reveal mode, a little bigger than its
+  // pile's cards.
+  /** The size a held card is drawn at, as a multiple of the card it was picked up as. */
+  const heldScale = (d: { width: number }) =>
+    reveal || !d.width ? LIFTED_SCALE : (Math.max(handWidth, tableCardWidth) * LIFTED_SCALE) / d.width;
+  /** How far a held card is scaled down from that while over this zone (1 over the hand, which is biggest). */
+  const heldSizeOver = (zone: Zone | null) =>
+    reveal ? 1 : ((zone === 'hand' ? handWidth : tableCardWidth) * LIFTED_SCALE) / (Math.max(handWidth, tableCardWidth) * LIFTED_SCALE);
   const cardsById = new Map(deck.cards.map((c) => [c.id, c]));
   const missing = T.missingCards(table, deck).length;
 
@@ -708,7 +718,7 @@ function Table({
     const w = tableCardWidth;
     // Starts at the size it was held at in the search, and grows (or shrinks) to the held size here once it's
     // on screen (see `drag.shown`).
-    liftGrow.setValue(grip.width / (w * LIFTED_SCALE));
+    liftGrow.setValue(grip.width / (w * heldScale({ width: w })));
     setDrag({
       iid: held[0].iid,
       cardId: held[0].cardId,
@@ -1444,7 +1454,12 @@ function Table({
   }, [liftKey]);
   useEffect(() => {
     if (shownKey === null) return;
-    Animated.spring(liftGrow, { toValue: 1, speed: 24, bounciness: 5, useNativeDriver: true }).start();
+    // To its size where it is (see `heldSize`).
+    const size = heldSizeOver(target.get().hover ?? drag?.from ?? null);
+    heldSize.set(size);
+    Animated.spring(liftGrow, { toValue: size, speed: 24, bounciness: 5, useNativeDriver: true }).start();
+    // Once per lift.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shownKey, liftGrow]);
 
   // While a card is zoomed, its sideways swipes step through cards; a session's deck pager must hold still,
@@ -1478,11 +1493,16 @@ function Table({
     // there's no new layout to wait for before gliding.
     const glideIn = (to: 'hand' | 'table', rise = { x: 0, y: 0 }, settled = false, pile = false) => {
       if (!liftedFrom) return;
+      // Exactly as the held card is drawn: scaled to its size where it was let go about the finger's grip, which
+      // the stand-in (scaled about its middle) matches by sitting where that leaves its corner.
+      const f = heldSize.get();
+      const w = d.width * heldScale(d);
+      const grip = { x: d.offX * heldScale(d), y: d.offY * heldScale(d) };
       landingAnim.pos.setValue({
-        x: liftedFrom.x - d.offX * heldScale(d) + lastPan.get().x,
-        y: liftedFrom.y - d.offY * heldScale(d) + lastPan.get().y,
+        x: liftedFrom.x - grip.x + lastPan.get().x + grip.x * (1 - f) - (w * (1 - f)) / 2,
+        y: liftedFrom.y - grip.y + lastPan.get().y + grip.y * (1 - f) - ((w / ratio) * (1 - f)) / 2,
       });
-      landingAnim.scale.setValue(1);
+      landingAnim.scale.setValue(f);
       landingAnim.lift.setValue(1);
       setLanding({
         zone: to,
@@ -1590,9 +1610,10 @@ function Table({
           iid: d.stack[0].iid,
           cardId: d.stack[0].cardId,
           from: {
-            x: liftedFrom.x - d.offX * heldScale(d) + lastPan.get().x,
-            y: liftedFrom.y - d.offY * heldScale(d) + lastPan.get().y,
-            w: d.width * heldScale(d),
+            // The held card's corner and size as drawn (scaled about the grip; see `heldSize`).
+            x: liftedFrom.x - d.offX * heldScale(d) * heldSize.get() + lastPan.get().x,
+            y: liftedFrom.y - d.offY * heldScale(d) * heldSize.get() + lastPan.get().y,
+            w: d.width * heldScale(d) * heldSize.get(),
           },
           // Where the pile's top will be once these are on it: known now, so it sets off at once.
           to: pileTopAt(zone, table[zone].filter((c) => !ids.includes(c.iid)).length + ids.length) ?? undefined,
@@ -1694,8 +1715,8 @@ function Table({
     // which usually holds it below its middle.
     const f = toTable(finger.pageX, finger.pageY);
     const held = f && {
-      x: f.x + (drag.width / 2 - drag.offX) * heldScale(drag),
-      y: f.y + (drag.width / ratio / 2 - drag.offY) * heldScale(drag),
+      x: f.x + (drag.width / 2 - drag.offX) * heldScale(drag) * heldSize.get(),
+      y: f.y + (drag.width / ratio / 2 - drag.offY) * heldScale(drag) * heldSize.get(),
     };
     const onto = zone === 'table' ? stackTargetAt(held) : null;
     let next: InsertAt | null = null;
@@ -1708,6 +1729,15 @@ function Table({
     }
     // Compared with the latest targets, not the rendered ones, which may be a moment behind (see below).
     const was = target.get();
+    // Crossing between the hand and the rest, it springs to its size there (see `heldSize`). Off everything,
+    // it stays as it was.
+    if (zone && drag.shown) {
+      const size = heldSizeOver(zone);
+      if (Math.abs(size - heldSize.get()) > 0.001) {
+        heldSize.set(size);
+        Animated.spring(liftGrow, { toValue: size, speed: 22, bounciness: 4, useNativeDriver: true }).start();
+      }
+    }
     if (zone === was.hover && onto === was.stackTarget && sameInsert(next, was.insertAt)) return;
     // A light tick on moving onto (or off) a card or stack the held cards would join, which lights up gold.
     if (onto !== was.stackTarget) haptics.tick();
@@ -2701,9 +2731,13 @@ function Table({
               from={p.from}
               fromFaceUp={p.faceUp}
               faceUp={heldFaceUp(drag, p.card)}
-              to={{ x: liftedFrom.x - drag.offX * heldScale(drag), y: liftedFrom.y - drag.offY * heldScale(drag) }}
+              // Onto the held card as it's drawn now (scaled about the grip to its size where it is).
+              to={{
+                x: liftedFrom.x - drag.offX * heldScale(drag) * heldSize.get(),
+                y: liftedFrom.y - drag.offY * heldScale(drag) * heldSize.get(),
+              }}
               pan={pan}
-              width={liftedWidth}
+              width={liftedWidth * heldSize.get()}
               onLanded={() => setPickups((all) => all.filter((q) => q.card.iid !== p.card.iid))}
             />
           ))

@@ -133,18 +133,20 @@ export function CardScanModal({ uri, cardRatio, onDone, onCropByHand, onCancel, 
     : null;
 
   // The outline, and everything outside it shaded.
-  const outline = Skia.Path.Make();
-  const shade = Skia.Path.Make();
+  const outlineBuilder = Skia.PathBuilder.Make();
+  const shadeBuilder = Skia.PathBuilder.Make();
   if (corners && box) {
     const pts = corners.map(onScreen);
-    outline.moveTo(pts[0].x, pts[0].y);
-    pts.slice(1).forEach((p) => outline.lineTo(p.x, p.y));
-    outline.close();
-    shade.addRect(Skia.XYWHRect(0, 0, box.w, box.h));
-    shade.addPath(outline);
-    shade.setFillType(1); // even-odd: the card's outline is a hole in the shading
+    outlineBuilder.moveTo(pts[0].x, pts[0].y);
+    pts.slice(1).forEach((p) => outlineBuilder.lineTo(p.x, p.y));
+    outlineBuilder.close();
   }
-
+  const outline = outlineBuilder.build();
+  if (corners && box) {
+    shadeBuilder.addRect(Skia.XYWHRect(0, 0, box.w, box.h)).addPath(outline);
+    shadeBuilder.setFillType(1); // even-odd: the card's outline is a hole in the shading
+  }
+  const shade = shadeBuilder.build();
   const held = dragging !== null && corners ? corners[dragging] : null;
   // The magnifier: over the side of the photo away from the corner being dragged, so the finger isn't over it.
   const loupeAt = held && box ? { x: onScreen(held).x < box.w / 2 ? box.w - LOUPE - 8 : 8, y: 8 } : null;

@@ -59,8 +59,6 @@ const HOLD_TO_ZOOM_MS = 450;
 const LIFT_DELAY_MS = 90;
 /** The flip button's diameter, shown while cards are dragged. */
 const FLIP_SIZE = 64;
-/** The size of the round buttons between the piles. */
-const PILE_BUTTON_SIZE = 48;
 /** Extra hit area around the small piles and the FLIP button. */
 const PILE_PAD = 16;
 
@@ -2331,35 +2329,15 @@ function Table({
   /** Opens the search on the deck, or on the discard pile if the deck is empty. */
   const openSearch = () => setSearchZone(table.deck.length ? 'deck' : 'discard');
 
-  // Between the piles, round icon buttons as in reveal mode. While cards are dragged they step aside for the
-  // flip button, the only one that does anything then (see lipRect).
+  // Between the piles. While cards are dragged they step aside for the flip button, the only one that does
+  // anything then (see lipRect).
   const pileButtons = (
     <>
-      <IconButton
-        icon={{ ios: 'arrow.down.to.line', android: 'vertical_align_bottom', web: 'vertical_align_bottom' }}
-        label="Draw a card"
-        variant="primary"
-        size={PILE_BUTTON_SIZE}
-        onPress={drawOne}
-        disabled={!table.deck.length}
-      />
-      <IconButton
-        icon={{ ios: 'shuffle', android: 'shuffle', web: 'shuffle' }}
-        label="Shuffle the deck"
-        size={PILE_BUTTON_SIZE}
-        onPress={() => shuffleDeck()}
-        disabled={table.deck.length < 2}
-      />
-      <IconButton
-        icon={{ ios: 'magnifyingglass', android: 'search', web: 'search' }}
-        label="Search the deck and discard pile"
-        size={PILE_BUTTON_SIZE}
-        onPress={openSearch}
-        disabled={!table.deck.length && !table.discard.length}
-      />
+      <Button label="Draw" variant="primary" onPress={drawOne} disabled={!table.deck.length} />
+      <Button label="Shuffle" onPress={() => shuffleDeck()} disabled={table.deck.length < 2} />
+      <Button label="Search" onPress={openSearch} disabled={!table.deck.length && !table.discard.length} />
     </>
   );
-
   // Reveal mode's way to start over once every card has been turned up.
   const canReshuffle = reveal && table.deck.length === 0 && table.discard.length > 0;
   const reshuffle = () => shuffleDeck(T.shuffleDiscardIntoDeck, 'Shuffled into deck');
@@ -3368,7 +3346,7 @@ const styles = StyleSheet.create({
   above: { zIndex: 2 },
   pileSlot: { borderRadius: 10, borderWidth: 2, borderColor: 'transparent', padding: 2 },
   pileLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: '600' },
-  pileButtons: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, alignSelf: 'stretch' },
+  pileButtons: { flex: 1, gap: 8, paddingHorizontal: 12, justifyContent: 'center', alignSelf: 'stretch' },
   // Out of sight and out of reach while cards are dragged, its place taken by the flip button.
   steppedAside: { opacity: 0, pointerEvents: 'none' },
   reveal: { flex: 1, flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12 },

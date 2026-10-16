@@ -1247,8 +1247,9 @@ function Table({
   const moveCards = (fn: (t: TableState) => TableState, msg?: string, thud = false) => {
     // Worked out once, so a shuffle comes out the same for the flights as for the table.
     const next = fn(table);
-    // Cards making room (or closing up) in the hand slide over.
-    animateLayout();
+    // Cards making room (or closing up) in the hand slide over. Only then: a layout animation runs on everything
+    // laid out next, and would shift whatever else happened to move.
+    if (next.hand.length !== table.hand.length || next.hand.some((c, i) => c.iid !== table.hand[i]?.iid)) animateLayout();
     apply(() => next, msg);
     const planned = prefersReducedMotion() ? [] : planFlights(table, next, thud);
     if (planned.length) launch(planned);
@@ -1862,9 +1863,11 @@ function Table({
     onLayout?: (e: LayoutChangeEvent) => void,
     collapsed?: boolean,
     place?: ViewStyle,
+    /** Its view's key, if not the card's own: e.g. a pile's top, which keeps its view whichever card is on top. */
+    viewKey?: string,
   ) => (
     <View
-      key={inst.iid}
+      key={viewKey ?? inst.iid}
       ref={(view) => cardViews.track(inst.iid, view)}
       onLayout={onLayout}
       {...dragHandlers(inst, from, cardWidth, opts).panHandlers}
@@ -2307,6 +2310,12 @@ function Table({
               ) : (
                 <EmptySlot deck={deck} width={pileWidth} />
               ),
+              undefined,
+              undefined,
+              undefined,
+              // Always just the deck's back, whichever card is on top: kept as it is when that changes (as in a
+              // shuffle), rather than rebuilt and shown blank while its picture reloads.
+              'deck-top',
             )
           ) : canReshuffle ? (
             <Pressable onPress={reshuffle} accessibilityRole="button" style={({ pressed }) => pressed && { opacity: 0.7 }}>

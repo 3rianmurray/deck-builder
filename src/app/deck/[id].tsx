@@ -14,6 +14,7 @@ import { CropModal } from '../../components/CropModal';
 import { ReorderableGrid } from '../../components/ReorderableGrid';
 import { SpriteSheetModal } from '../../components/SpriteSheetModal';
 import { useDecks } from '../../lib/DecksContext';
+import { appleScannerAvailable, fitScan, scanCards } from '../../lib/appleScanner';
 import { shareDecks } from '../../lib/deckExport';
 import { deleteDeckWarning } from '../../lib/deckInUse';
 import { sampleBack, sampleCards } from '../../lib/sampleDeck';
@@ -110,6 +111,21 @@ export default function DeckEditorScreen() {
   // the cropper, except sprite sheets, which have their own screen.
   const fromCamera = (target: ArtTarget) =>
     withBusy(async () => {
+      // Apple's scanner, where the app has it: it finds and straightens each card itself, several in a row,
+      // and they're fitted to the deck's card size. (Just the first, for the back.)
+      if (appleScannerAvailable()) {
+        const scans = await scanCards();
+        if (!scans.length) return;
+        const ratio = cardRatio(deck);
+        if (target === 'back') {
+          const back = await fitScan(scans[0], ratio);
+          decks.setCardBack(deck.id, back, back);
+        } else {
+          const cards = await Promise.all(scans.map((s) => fitScan(s, ratio)));
+          decks.addCards(deck.id, cards, undefined, cards);
+        }
+        return;
+      }
       const uri = await takePhoto();
       // The card is found in the photo and straightened (or cropped by hand, if the player prefers).
       if (uri) setScan({ uri, target });
@@ -146,7 +162,12 @@ export default function DeckEditorScreen() {
 
   // The pickers are system screens, which iOS can only show once this menu has gone (hence opensModal).
   const sourceActions = (target: ArtTarget) => [
-    { label: 'Take photo', opensModal: true, onPress: () => fromCamera(target) },
+    {
+      // With Apple's scanner, it scans (several cards in a row, for new cards); otherwise a plain photo.
+      label: appleScannerAvailable() ? (target === 'cards' ? 'Scan cards' : 'Scan card back') : 'Take photo',
+      opensModal: true,
+      onPress: () => fromCamera(target),
+    },
     { label: 'Choose from Photos', opensModal: true, onPress: () => fromPhotos(target) },
     { label: 'Choose from Files', opensModal: true, onPress: () => fromFiles(target) },
     // A sprite sheet is a way of using a picture, not a place it comes from: so ask where it is next.

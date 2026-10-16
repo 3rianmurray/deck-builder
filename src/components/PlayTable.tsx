@@ -258,6 +258,11 @@ interface Pickup {
   from: { x: number; y: number; w: number };
   /** Which way up it lay there; it turns to the held stack's way on the way over. */
   faceUp: boolean;
+  /**
+   * It has reached the held stack, which now shows it, while the flying card stays over it a moment longer
+   * (see PickupFlight), so the stack's new top card has drawn before it's uncovered.
+   */
+  landed?: boolean;
 }
 
 /** The icon for turning a card or stack over. */
@@ -265,6 +270,8 @@ const FLIP_ICON: SheetTile['icon'] = { ios: 'arrow.triangle.2.circlepath', andro
 
 /** How long a card picked up mid-drag takes to fly onto the held stack. */
 const PICKUP_MS = 260;
+/** How long a picked-up card stays over the held stack after landing, while the stack draws it underneath. */
+const PICKUP_LINGER_MS = 150;
 
 /**
  * A card flying to its new place after a change made without dragging it: drawn, moved from a menu, a hand
@@ -2383,7 +2390,7 @@ function Table({
   /** The held stack's card size while it's being carried. */
   const liftedWidth = drag ? drag.width * heldScale(drag) : 0;
   /** The held stack as drawn: without cards still flying onto it, which join it (and its count) as they land. */
-  const heldShown = drag ? drag.stack.filter((h) => !pickups.some((p) => p.card.iid === h.iid)) : [];
+  const heldShown = drag ? drag.stack.filter((h) => !pickups.some((p) => p.card.iid === h.iid && !p.landed)) : [];
   /**
    * With a stack target: the corner of the stack where its count sits (bottom right of its spot), so the
    * preview count shows exactly where the stack's own count does.
@@ -2932,7 +2939,9 @@ function Table({
               }}
               pan={pan}
               width={liftedWidth * heldSize.get()}
-              onLanded={() => setPickups((all) => all.filter((q) => q.card.iid !== p.card.iid))}
+              landed={!!p.landed}
+              onLanded={() => setPickups((all) => all.map((q) => (q.card.iid === p.card.iid ? { ...q, landed: true } : q)))}
+              onGone={() => setPickups((all) => all.filter((q) => q.card.iid !== p.card.iid))}
             />
           ))
         : null}
@@ -3024,7 +3033,9 @@ function PickupFlight({
   to,
   pan,
   width,
+  landed,
   onLanded,
+  onGone,
 }: {
   deck: Deck;
   card: Card | undefined;
@@ -3034,9 +3045,19 @@ function PickupFlight({
   to: { x: number; y: number };
   pan: Animated.ValueXY;
   width: number;
+  landed: boolean;
   onLanded: () => void;
+  onGone: () => void;
 }) {
   const [t] = useState(() => new Animated.Value(0));
+  // Landed: it stays over the held stack a moment while that draws its new top card, then goes.
+  useEffect(() => {
+    if (!landed) return;
+    const timer = setTimeout(onGone, PICKUP_LINGER_MS);
+    return () => clearTimeout(timer);
+    // Once, when it lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landed]);
   useEffect(() => {
     // Started once mounted: the native driver needs its view to exist first.
     Animated.timing(t, { toValue: 1, duration: PICKUP_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }).start(

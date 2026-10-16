@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
   Alert,
@@ -481,6 +481,19 @@ function Table({
   const [pan] = useState(() => new Animated.ValueXY());
   /** Where the finger has dragged to, always: what the held stack chases as it comes off a stack target. */
   const [fingerPan] = useState(() => new Animated.ValueXY());
+  /**
+   * Where the held cards are headed right now, as worked out from the finger: the zone it's over, the gap or
+   * spot they'd land in, and the stack they'd go on. Kept here as well as in state, because the table redraws
+   * for them at low priority (see ollowFinger), so the rendered ones can be a moment behind the finger.
+   */
+  const target = useMemo(() => {
+    const now: { hover: Zone | null; insertAt: InsertAt | null; stackTarget: string | null } = {
+      hover: null,
+      insertAt: null,
+      stackTarget: null,
+    };
+    return { get: () => now, set: (patch: Partial<typeof now>) => Object.assign(now, patch) };
+  }, []);
   /** The held stack's growth from its own size to the lifted size, as a fraction of the lifted size. */
   const [liftGrow] = useState(() => new Animated.Value(1));
   /** The stack-target preview count's size as it pops in. */
@@ -1298,6 +1311,7 @@ function Table({
     setDrag(null);
     // Any cards still flying to the held stack just go with it (they're already in it).
     setPickups([]);
+    target.set({ hover: null, insertAt: null, stackTarget: null });
     setHover(null);
     setInsertAt(null);
     setStackTarget(null);
@@ -1642,7 +1656,6 @@ function Table({
     fingerPan.setValue(delta);
     if (!snap.get().on && !snap.get().returning) pan.setValue(delta);
     const zone = zoneAt(finger.pageX, finger.pageY);
-    if (zone !== hover) setHover(zone);
     // Over the middle of a table card it's a stack; anywhere else on the table, a free spot; in the hand, a gap.
     const onto = zone === 'table' ? stackTargetAt(finger.pageX, finger.pageY) : null;
     let next: InsertAt | null = null;
@@ -1653,15 +1666,27 @@ function Table({
       const spot = spotAt(finger.pageX, finger.pageY);
       if (spot) next = { zone, spot };
     }
-    const moved = !sameInsert(next, insertAt);
-    // The blank space moves (or opens, or closes): the cards around it slide over rather than jump.
-    if (moved || onto !== stackTarget) animateLayout();
-    if (onto !== stackTarget) {
+    // Compared with the latest targets, not the rendered ones, which may be a moment behind (see below).
+    const was = target.get();
+    if (zone === was.hover && onto === was.stackTarget && sameInsert(next, was.insertAt)) return;
+    // Snapping on or off a stack starts at once: it's all native animation, so it doesn't wait for the table.
+    if (onto !== was.stackTarget) {
       if (onto) snapTo(onto);
       else unsnap();
-      setStackTarget(onto);
     }
-    if (moved) setInsertAt(next);
+    target.set({ hover: zone, insertAt: next, stackTarget: onto });
+    const update = () => {
+      setHover(zone);
+      setInsertAt(next);
+      setStackTarget(onto);
+    };
+    // In the hand, a gap opens or moves and the cards beside it slide over: that's the next layout, so it's done
+    // now. Anywhere else the table's redrawn as a low-priority update, which React can pause to handle the
+    // finger, so the held cards keep up with it however busy the table is.
+    if (next?.zone === 'hand' || was.insertAt?.zone === 'hand') {
+      animateLayout();
+      update();
+    } else startTransition(update);
   };
 
   /** A release or terminate that arrives while the holding finger is still down came from another finger. */
@@ -1690,8 +1715,10 @@ function Table({
         return;
       }
       const d = drag;
+      // Where it's going, by the latest targets (the rendered ones may be a moment behind).
+      const t = target.get();
       endDrag();
-      drop(d, hover, insertAt, stackTarget);
+      drop(d, t.hover, t.insertAt, t.stackTarget);
     },
     onTouchCancel: (e: GestureResponderEvent) => {
       if (drag?.orphaned && e.nativeEvent.changedTouches.some((t) => t.identifier === drag.touchId)) endDrag();
@@ -1793,9 +1820,11 @@ function Table({
       onPanResponderRelease: (e) => {
         if (stillHeld(e)) return keepHolding();
         const d = drag;
+        // Where it's going, by the latest targets (the rendered ones may be a moment behind).
+        const t = target.get();
         endDrag();
         if (!d || d.abandoned || d.pinch) return;
-        if (d.active) return drop(d, hover, insertAt, stackTarget);
+        if (d.active) return drop(d, t.hover, t.insertAt, t.stackTarget);
         const longPress = Date.now() - d.pressedAt >= LONG_PRESS_MS && opts.onLongPress;
         if (longPress) opts.onLongPress?.();
         else opts.onPress?.(d.wholeStack);

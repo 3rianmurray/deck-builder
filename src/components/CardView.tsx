@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
@@ -103,8 +103,11 @@ interface Props {
   style?: StyleProp<ViewStyle>;
 }
 
-/** Renders a card face, or the deck's back when `faceUp` is false or there is no card. */
-export function CardView({
+/**
+ * Renders a card face, or the deck's back when `faceUp` is false or there is no card. Memoised: a busy table
+ * redraws often while cards are dragged, and most of its cards haven't changed, so they're skipped.
+ */
+export const CardView = memo(function CardView({
   deck,
   card: cardProp,
   faceUp = true,
@@ -200,7 +203,7 @@ export function CardView({
     </Animated.View>
     </View>
   );
-}
+});
 
 function DefaultBack({ radius }: { radius: number }) {
   return (

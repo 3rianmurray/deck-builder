@@ -378,6 +378,7 @@ export default function DeckEditorScreen() {
       <SpriteSheetModal
         uri={spriteSheet?.uri ?? null}
         pickOne={spriteSheet?.target === 'back'}
+        cardRatio={cardRatio(deck)}
         onDone={(uris) => {
           if (spriteSheet?.target === 'back') decks.setCardBack(deck.id, uris[0]);
           else decks.addCards(deck.id, uris);

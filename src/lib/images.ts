@@ -1,4 +1,6 @@
+import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import { decode as decodeJpeg } from 'jpeg-js';
 
 /** Saved cards are scaled down to this height, which is plenty for any phone screen. */
 const MAX_OUTPUT_HEIGHT = 1400;
@@ -41,6 +43,26 @@ export async function saveCrop(uri: string, rect: CropRect, turn: QuarterTurn = 
   const ref = await ctx.renderAsync();
   const out = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 0.85 });
   return out.uri;
+}
+
+/** How wide an image is made for looking at its pixels (see `smallPixels`): plenty to find a grid of cards in. */
+const ANALYSIS_WIDTH = 480;
+
+/**
+ * A small copy of an image, decoded to raw pixels (4 bytes per pixel: red, green, blue, alpha), for working
+ * things out from what's in it, like a sprite sheet's grid.
+ */
+export async function smallPixels(uri: string, width: number): Promise<{ width: number; height: number; data: Uint8Array }> {
+  let ctx = ImageManipulator.manipulate(uri);
+  if (width > ANALYSIS_WIDTH) ctx = ctx.resize({ width: ANALYSIS_WIDTH });
+  const ref = await ctx.renderAsync();
+  const small = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 0.9 });
+  const file = new File(small.uri);
+  try {
+    return decodeJpeg(await file.bytes(), { useTArray: true, formatAsRGBA: true });
+  } finally {
+    if (file.exists) file.delete();
+  }
 }
 
 /** Turns a whole image a quarter turn and returns the new file, keeping full quality for further editing. */

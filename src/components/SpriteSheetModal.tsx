@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,10 +16,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { loadUpright, saveCrop } from '../lib/images';
+import * as haptics from '../lib/haptics';
+import { loadUpright, saveCrop, smallPixels } from '../lib/images';
+import { guessSheet } from '../lib/sheetGuess';
 import type { LoadedImage, QuarterTurn } from '../lib/images';
 import { cellNumber, cellRects } from '../lib/spriteSheet';
 import type { Grid, SheetOrder } from '../lib/spriteSheet';
+import type { SheetGuess } from '../lib/sheetGuess';
 import { colors } from '../theme';
 import { Button } from './Button';
 import { MAX_TEXT_SCALE, Text } from './Text';
@@ -39,13 +44,15 @@ interface Props {
    * choosing how many cells to cut into cards.
    */
   pickOne?: boolean;
+  /** The deck's card shape (width over height), which helps guess the sheet's grid. */
+  cardRatio: number;
   /** Called with one image uri per card, in card order (just the one, when picking one). */
   onDone: (cards: string[]) => void;
   onCancel: () => void;
 }
 
 /** Slices one image laid out as a grid of cards into separate card images, or takes one card from it. */
-export function SpriteSheetModal({ uri, pickOne = false, onDone, onCancel }: Props) {
+export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCancel }: Props) {
   const insets = useSafeAreaInsets();
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [loaded, setLoaded] = useState<(LoadedImage & { source: string }) | null>(null);
@@ -58,6 +65,9 @@ export function SpriteSheetModal({ uri, pickOne = false, onDone, onCancel }: Pro
   const [progress, setProgress] = useState<number | null>(null);
   /** When picking one card: the cell chosen, as row and column. */
   const [chosen, setChosen] = useState({ r: 0, c: 0 });
+  /** The grid worked out from the sheet itself (filled in for the player to check), and while it's being worked out. */
+  const [guess, setGuess] = useState<(SheetGuess & { source: string }) | null>(null);
+  const [guessing, setGuessing] = useState(false);
 
   const image = loaded && loaded.source === uri ? loaded : null;
 
@@ -65,12 +75,35 @@ export function SpriteSheetModal({ uri, pickOne = false, onDone, onCancel }: Pro
     if (!uri) return;
     let cancelled = false;
     loadUpright(uri)
-      .then((img) => !cancelled && setLoaded({ ...img, source: uri }))
+      .then(async (img) => {
+        if (cancelled) return;
+        setLoaded({ ...img, source: uri });
+        // Then an educated guess at its grid, filled in as a start. If it can't be worked out, the numbers
+        // stay as they were (sheets from one game usually share a layout).
+        setGuessing(true);
+        try {
+          const found = guessSheet(await smallPixels(img.uri, img.width), cardRatio);
+          if (cancelled) return;
+          setRowsText(String(found.rows));
+          setColsText(String(found.columns));
+          if (pickOne) {
+            // Choosing a card back: if the sheet has one in its last cell, that's the one.
+            if (found.backInLastCell) setChosen({ r: found.rows - 1, c: found.columns - 1 });
+          } else {
+            setCountText(found.count < found.rows * found.columns ? String(found.count) : '');
+          }
+          setGuess({ ...found, source: uri });
+        } catch {
+          // Not worth bothering the player about: they set the grid by hand, as before.
+        } finally {
+          if (!cancelled) setGuessing(false);
+        }
+      })
       .catch((e) => !cancelled && Alert.alert('Could not open image', String(e)));
     return () => {
       cancelled = true;
     };
-  }, [uri]);
+  }, [uri, cardRatio, pickOne]);
 
   const rows = parseCount(rowsText, 1, MAX_CELLS_PER_SIDE);
   const columns = parseCount(colsText, 1, MAX_CELLS_PER_SIDE);
@@ -80,6 +113,19 @@ export function SpriteSheetModal({ uri, pickOne = false, onDone, onCancel }: Pro
     : { rows, columns, count: parseCount(countText, cells, cells), order };
   // The chosen cell, kept inside the grid if it shrinks.
   const pick = { r: Math.min(chosen.r, rows - 1), c: Math.min(chosen.c, columns - 1) };
+
+  // What was found in the sheet, while the grid is still as guessed (once the player changes it, it's theirs).
+  const shownGuess = guess && guess.source === uri && guess.rows === rows && guess.columns === columns ? guess : null;
+  const guessNote = shownGuess
+    ? (shownGuess.confidence === 'high'
+        ? `Found ${columns} columns and ${rows} rows`
+        : `Best guess: ${columns} columns and ${rows} rows. Check the lines sit between the cards, or slide the numbers to fix them`) +
+      (shownGuess.backInLastCell
+        ? pickOne
+          ? '. The last cell looks like a card back, so it’s chosen.'
+          : '. The last cell looks like a card back, so it’s left out.'
+        : '.')
+    : null;
 
   // Fit the preview inside the screen width and a bit under half its height.
   const box = { w: screenW - PADDING * 2, h: screenH * 0.42 };
@@ -155,11 +201,27 @@ export function SpriteSheetModal({ uri, pickOne = false, onDone, onCancel }: Pro
             )}
           </View>
 
+          {guessing ? (
+            <View style={styles.guessRow}>
+              <ActivityIndicator color={colors.accent} size="small" />
+              <Text style={styles.help}>Finding the grid…</Text>
+            </View>
+          ) : guessNote ? (
+            <Text style={styles.guessNote}>{guessNote}</Text>
+          ) : null}
+
           <View style={styles.fields}>
-            <NumberField label="Rows" value={rowsText} onChange={setRowsText} />
-            <NumberField label="Columns" value={colsText} onChange={setColsText} />
+            <NumberField label="Rows" value={rowsText} onChange={setRowsText} max={MAX_CELLS_PER_SIDE} fallback={rows} />
+            <NumberField label="Columns" value={colsText} onChange={setColsText} max={MAX_CELLS_PER_SIDE} fallback={columns} />
             {pickOne ? null : (
-              <NumberField label="Cards" value={countText} onChange={setCountText} placeholder={String(cells)} />
+              <NumberField
+                label="Cards"
+                value={countText}
+                onChange={setCountText}
+                placeholder={String(cells)}
+                max={cells}
+                fallback={cells}
+              />
             )}
           </View>
           {pickOne ? null : (
@@ -245,37 +307,88 @@ function Segment<T extends string | number>({
   );
 }
 
+/** How far a finger slides across a number field to change it by one. */
+const SCRUB_STEP_PX = 18;
+
+/**
+ * A whole-number field that can be typed in, or changed by sliding a finger sideways across it: right to go up,
+ * left to go down, one step per short slide, with a tick for each. Faint arrows either side hint at the slide.
+ */
 function NumberField({
   label,
   value,
   onChange,
   placeholder,
+  max,
+  fallback,
 }: {
   label: string;
   value: string;
   onChange: (text: string) => void;
   placeholder?: string;
+  /** The most it can be slid up to. */
+  max: number;
+  /** What an empty field counts as when sliding starts (e.g. every cell, for a blank card count). */
+  fallback: number;
 }) {
+  const [sliding, setSliding] = useState(false);
+  // What the slide needs that changes from render to render; the slide's own handlers are made once.
+  const [latest] = useState(() => {
+    const box = { value: 1, max, onChange, start: 1, shown: 1 };
+    return { set: (next: Partial<typeof box>) => Object.assign(box, next), get: () => box };
+  });
+  latest.set({ value: parseCount(value, fallback, max), max, onChange });
+  const [responder] = useState(() =>
+    PanResponder.create({
+      // A sideways slide takes over from the text field (a tap still types, and an up-and-down one scrolls).
+      onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dx) > 8 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        Keyboard.dismiss();
+        const { value: now } = latest.get();
+        latest.set({ start: now, shown: now });
+        setSliding(true);
+      },
+      onPanResponderMove: (_, g) => {
+        const { start, shown, max: most, onChange: change } = latest.get();
+        const next = Math.min(most, Math.max(1, start + Math.round(g.dx / SCRUB_STEP_PX)));
+        if (next === shown) return;
+        latest.set({ shown: next });
+        change(String(next));
+        haptics.tick();
+      },
+      onPanResponderRelease: () => setSliding(false),
+      onPanResponderTerminate: () => setSliding(false),
+    }),
+  );
   return (
     <View style={{ flex: 1, gap: 6 }}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        maxFontSizeMultiplier={MAX_TEXT_SCALE}
-        value={value}
-        onChangeText={(t) => onChange(t.replace(/\D/g, ''))}
-        keyboardType="number-pad"
-        returnKeyType="done"
-        maxLength={3}
-        selectTextOnFocus
-        placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
-        style={styles.input}
-        accessibilityLabel={label}
-      />
+      <View {...responder.panHandlers} style={[styles.scrub, sliding && styles.scrubbing]}>
+        <Text style={styles.scrubArrow} accessible={false}>
+          ‹
+        </Text>
+        <TextInput
+          maxFontSizeMultiplier={MAX_TEXT_SCALE}
+          value={value}
+          onChangeText={(t) => onChange(t.replace(/\D/g, ''))}
+          keyboardType="number-pad"
+          returnKeyType="done"
+          maxLength={3}
+          selectTextOnFocus
+          placeholder={placeholder}
+          placeholderTextColor={colors.textMuted}
+          style={styles.input}
+          accessibilityLabel={label}
+          accessibilityHint="Type a number, or slide sideways across it to change it."
+        />
+        <Text style={styles.scrubArrow} accessible={false}>
+          ›
+        </Text>
+      </View>
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   title: { color: colors.text, fontSize: 22, fontWeight: '700' },
@@ -301,16 +414,29 @@ const styles = StyleSheet.create({
   },
   fields: { flexDirection: 'row', gap: 12 },
   label: { color: colors.textMuted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  input: {
+  // A number field: the number in the middle, faint arrows either side hinting it can be slid.
+  scrub: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    paddingHorizontal: 6,
+  },
+  scrubbing: { borderColor: colors.accent },
+  scrubArrow: { color: colors.textMuted, fontSize: 20, fontWeight: '600', opacity: 0.6 },
+  input: {
+    flex: 1,
     color: colors.text,
     fontSize: 18,
     fontWeight: '600',
     textAlign: 'center',
-    borderRadius: 10,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   help: { color: colors.textMuted, fontSize: 13, marginTop: -6 },
+  guessRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: -4 },
+  guessNote: { color: colors.accent, fontSize: 14, fontWeight: '500', marginTop: -6 },
   segment: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 10, padding: 3, marginTop: 6 },
   segmentItem: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
   segmentSelected: { backgroundColor: colors.accent },

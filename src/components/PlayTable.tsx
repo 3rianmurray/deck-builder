@@ -1419,8 +1419,10 @@ function Table({
   };
 
   const endDrag = () => {
-    // Cards dropped (or put back) slide into their new places.
-    if (drag?.active) animateLayout();
+    // Cards dropped into (or put back in) the hand, or taken out of it, slide into their new places there. Only
+    // then: the slide applies to everything laid out next, and would move whatever else had shifted (the buttons
+    // between the piles, as a pile's count changes width).
+    if (drag?.active && (drag.from === 'hand' || target.get().hover === 'hand')) animateLayout();
     setDrag(null);
     // Any cards still flying to the held stack just go with it (they're already in it).
     setPickups([]);

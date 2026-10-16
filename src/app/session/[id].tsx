@@ -10,15 +10,16 @@ import * as haptics from '../../lib/haptics';
 import { useDecks } from '../../lib/DecksContext';
 import { colors } from '../../theme';
 
-/** Plays several decks at once: swipe sideways (or tap a tab) to move between them. */
+/**
+ * Plays several decks at once: tap a deck's tab to move to it. (Not by swiping: sideways swipes on the table are
+ * for its cards and its hand, and iOS couldn't be stopped in time from turning them into page swipes.)
+ */
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { getSession, getDeck } = useDecks();
   const { width } = useWindowDimensions();
   const pager = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
-  // The pager holds still while a finger is on a card, so dragging a card sideways doesn't change deck.
-  const [touchingCard, setTouchingCard] = useState(false);
   /** The deck on screen's name, menu and undo, for the top bar. */
   const [controls, setControls] = useState<TableControls | null>(null);
 
@@ -95,21 +96,15 @@ export default function SessionScreen() {
         ref={pager}
         horizontal
         pagingEnabled
-        scrollEnabled={!touchingCard}
-        showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={(e) => {
-          const i = Math.round(e.nativeEvent.contentOffset.x / width);
-          // A tick on arriving at another deck.
-          if (i !== index) haptics.tick();
-          setIndex(i);
-        }}>
+        // Moved only by the tabs (see above).
+        scrollEnabled={false}
+        showsHorizontalScrollIndicator={false}>
         {decks.map((d, i) => (
           <View key={d.id} style={{ width }}>
             <DeckTable
               deckId={d.id}
               sessionId={session.id}
               active={i === current}
-              onTouchingCard={setTouchingCard}
               onControls={setControls}
             />
           </View>

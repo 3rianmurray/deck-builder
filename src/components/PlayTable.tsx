@@ -2544,12 +2544,7 @@ function Table({
               },
               highlight('hand'),
             ]}
-            onLayout={measure('hand')}
-            // A session's deck pager holds still while a finger is on the hand, so scrolling the hand (past its ends,
-            // or flicked) never turns to another deck.
-            onTouchStart={() => onTouchingCard?.(true)}
-            onTouchEnd={() => !drag?.active && onTouchingCard?.(zoomed !== null)}
-            onTouchCancel={() => !drag?.active && onTouchingCard?.(zoomed !== null)}>
+            onLayout={measure('hand')}>
             <WoodRail />
             {/* A pull tab on the tray's top edge. Tapping it folds the tray away (giving the table more room) or
                 opens it again. */}

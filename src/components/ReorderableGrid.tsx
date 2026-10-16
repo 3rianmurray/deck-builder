@@ -1,6 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { Animated, Easing, FlatList, LayoutAnimation, StyleSheet, View } from 'react-native';
+import { Animated, Easing, LayoutAnimation, ScrollView, StyleSheet, View } from 'react-native';
 import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent } from 'react-native';
 
 import * as haptics from '../lib/haptics';
@@ -148,8 +148,8 @@ export function ReorderableGrid<T>({
   onHold,
 }: Props<T>) {
   // Kept in state, not a ref, because touch handlers scroll it; created once so it isn't re-attached each render.
-  const [list, setList] = useState<FlatList<T> | null>(null);
-  const [attachList] = useState(() => (view: FlatList<T> | null) => setList(view));
+  const [list, setList] = useState<ScrollView | null>(null);
+  const [attachList] = useState(() => (view: ScrollView | null) => setList(view));
   const wrapRef = useRef<View>(null);
   const [press, setPress] = useState<Press | null>(null);
   const [target, setTarget] = useState<number | null>(null);
@@ -225,7 +225,7 @@ export function ReorderableGrid<T>({
   const maxScroll = Math.max(0, contentHeight - viewHeight + bottomInset);
   const scrollBy = (to: number) => {
     const next = Math.min(maxScroll, Math.max(0, to));
-    list?.scrollToOffset({ offset: next, animated: false });
+    list?.scrollTo({ y: next, animated: false });
     live.setScroll(next);
   };
 
@@ -455,24 +455,10 @@ export function ReorderableGrid<T>({
     if (press && holdingFinger(e.nativeEvent.changedTouches)) finish();
   };
 
-  // The grid itself stays put while dragging: reordering its data mid-drag would rebuild its rows. Instead
+  // The grid itself stays put while dragging: reordering its data mid-drag would move its cells about. Instead
   // the landing slot is outlined, and each cell only re-renders when its own state changes.
   const picked = settling ? undefined : lifted?.picked;
   const settlingKeys = settling?.keys;
-  const renderCell = useCallback(
-    ({ item, index }: { item: T; index: number }) => (
-      <Cell
-        item={item}
-        width={itemWidth}
-        picked={!!picked?.includes(index)}
-        hidden={!!settlingKeys?.includes(keyOf(item))}
-        landing={index === target && !(picked?.length === 1 && picked[0] === target)}
-        renderItem={renderItem}
-        onLayout={index === 0 ? measureItem : undefined}
-      />
-    ),
-    [itemWidth, picked, settlingKeys, keyOf, target, renderItem, measureItem],
-  );
 
   // What's carried, as it was picked up: while it settles, the items may already have moved in the list.
   const heldItems = settling ? settling.items : (lifted?.picked.map((i) => items[i]) ?? []);
@@ -494,13 +480,8 @@ export function ReorderableGrid<T>({
       onTouchMove={touchMove}
       onTouchEnd={touchEnd}
       onTouchCancel={touchCancel}>
-      <FlatList
+      <ScrollView
         ref={attachList}
-        data={items}
-        extraData={renderCell}
-        keyExtractor={keyOf}
-        numColumns={columns}
-        columnWrapperStyle={{ gap }}
         contentContainerStyle={{ padding, gap }}
         scrollEnabled={!lifted}
         onContentSizeChange={(_, h) => setContentHeight(h)}
@@ -508,11 +489,30 @@ export function ReorderableGrid<T>({
         scrollEventThrottle={16}
         onScroll={(e) => live.setScroll(e.nativeEvent.contentOffset.y)}
         onMomentumScrollBegin={() => live.setMomentum(true)}
-        onMomentumScrollEnd={() => live.setMomentum(false)}
-        ListHeaderComponent={headerEl}
-        ListFooterComponent={footer}
-        renderItem={renderCell}
-      />
+        onMomentumScrollEnd={() => live.setMomentum(false)}>
+        {headerEl}
+        {/*
+          Every cell in one wrapping row, keyed by its item, rather than a row of views per line: an item that
+          moves to another line is then the same view moving (so it slides there, and its picture doesn't
+          reload and blink) instead of one torn down in its old line and built anew in the next. A hair wider
+          than the columns need, so rounding can't push the last one in a line onto the next.
+        */}
+        <View style={[styles.cells, { gap, width: columns * (itemWidth + gap) - gap + 0.5 }]}>
+          {items.map((item, index) => (
+            <Cell
+              key={keyOf(item)}
+              item={item}
+              width={itemWidth}
+              picked={!!picked?.includes(index)}
+              hidden={!!settlingKeys?.includes(keyOf(item))}
+              landing={index === target && !(picked?.length === 1 && picked[0] === target)}
+              renderItem={renderItem}
+              onLayout={index === 0 ? measureItem : undefined}
+            />
+          ))}
+        </View>
+        {footer}
+      </ScrollView>
 
       {lifted ? (
         <Animated.View
@@ -547,6 +547,7 @@ export function ReorderableGrid<T>({
 }
 
 const styles = StyleSheet.create({
+  cells: { flexDirection: 'row', flexWrap: 'wrap' },
   placeholder: {
     borderWidth: 2,
     borderStyle: 'dashed',

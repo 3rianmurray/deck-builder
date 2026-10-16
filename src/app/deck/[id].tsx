@@ -13,6 +13,7 @@ import { CropModal } from '../../components/CropModal';
 import { ReorderableGrid } from '../../components/ReorderableGrid';
 import { SpriteSheetModal } from '../../components/SpriteSheetModal';
 import { useDecks } from '../../lib/DecksContext';
+import { shareDecks } from '../../lib/deckExport';
 import { deleteDeckWarning } from '../../lib/deckInUse';
 import { sampleBack, sampleCards } from '../../lib/sampleDeck';
 import { imageUri } from '../../lib/storage';
@@ -174,6 +175,8 @@ export default function DeckEditorScreen() {
     setCrop(null);
   };
 
+  const shareDeck = () => withBusy(() => shareDecks([deck]));
+
   const confirmDelete = () =>
     Alert.alert(`Delete "${deck.name}"?`, deleteDeckWarning(deck.id, decks.sessions), [
       { text: 'Cancel', style: 'cancel' },
@@ -311,7 +314,9 @@ export default function DeckEditorScreen() {
           </View>
         )}
         footer={
-          <View style={{ marginTop: 24, paddingBottom: insets.bottom + 90 }}>
+          <View style={{ marginTop: 24, gap: 10, paddingBottom: insets.bottom + 90 }}>
+            {/* To keep a copy somewhere safe, move it to another phone, or give it to a friend. */}
+            <Button label="Share or back up this deck…" onPress={shareDeck} disabled={busy || deck.cards.length === 0} />
             <Button label="Delete deck" variant="danger" onPress={confirmDelete} />
           </View>
         }

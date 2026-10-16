@@ -62,6 +62,20 @@ export function importImage(deckId: string, sourceUri: string): string {
   return `decks/${deckId}/${name}`;
 }
 
+/** Saves a picture given as base64 (e.g. from a deck file) into the deck's folder, and returns its relative path. */
+export function saveImageData(deckId: string, ext: string, base64: string): string {
+  const dir = deckDir(deckId);
+  if (!dir.exists) dir.create({ intermediates: true });
+  const name = `${newId()}.${ext.replace(/\W/g, '').toLowerCase() || 'jpg'}`;
+  const file = new File(dir, name);
+  file.create();
+  file.write(base64, { encoding: 'base64' });
+  return `decks/${deckId}/${name}`;
+}
+
+/** A saved picture's bytes, as base64 (for a deck file). */
+export const readImageData = (relativePath: string): string => new File(Paths.document, relativePath).base64Sync();
+
 export function imageUri(relativePath: string): string {
   return new File(Paths.document, relativePath).uri;
 }

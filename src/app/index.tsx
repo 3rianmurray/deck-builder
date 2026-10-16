@@ -11,6 +11,8 @@ import { LIFT_HOLD_MS, ReorderableList } from '../components/ReorderableList';
 import { SwipeRow } from '../components/SwipeRow';
 import type { SwipeSide } from '../components/SwipeRow';
 import { useDecks } from '../lib/DecksContext';
+import { DeckFileError } from '../lib/deckFile';
+import { pickDeckFile, shareDecks } from '../lib/deckExport';
 import { deleteDeckWarning } from '../lib/deckInUse';
 import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
@@ -34,6 +36,7 @@ export default function HomeScreen() {
     createDeck,
     deleteDeck,
     resetDeck,
+    importDecks,
     duplicateDeck,
     sessions,
     deleteSession,
@@ -119,6 +122,30 @@ export default function HomeScreen() {
   const askName = (title: string, current: string, done: (name: string) => void) => {
     if (Platform.OS !== 'ios') return done(current);
     Alert.prompt(title, undefined, (name) => name.trim() && done(name.trim()), 'plain-text', current);
+  };
+
+  // Decks to and from files: a backup of them all to keep somewhere safe, and adding the decks in a file.
+  const backUpAll = async () => {
+    try {
+      await shareDecks(decks);
+    } catch (e) {
+      Alert.alert('Couldn’t back up your decks', e instanceof Error ? e.message : String(e));
+    }
+  };
+  const importFromFile = async () => {
+    try {
+      const found = await pickDeckFile();
+      if (!found) return;
+      const added = importDecks(found);
+      haptics.success();
+      Alert.alert(
+        added.length === 1 ? `Added "${added[0].name}"` : `Added ${added.length} decks`,
+        added.length === 1 ? 'It’s at the top of your decks.' : 'They’re at the top of your decks.',
+      );
+    } catch (e) {
+      haptics.warn();
+      Alert.alert('Couldn’t open that file', e instanceof DeckFileError ? e.message : 'Something went wrong reading it.');
+    }
   };
 
   const newGroup = () => askName('New group', `Group ${groups.length + 1}`, (name) => createGroup(name));
@@ -275,7 +302,7 @@ export default function HomeScreen() {
                 onPress={() => setAddMenuOpen(true)}
                 hitSlop={10}
                 accessibilityRole="button"
-                accessibilityLabel="Add a deck or group"
+                accessibilityLabel="Add, import or back up decks"
                 style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.7 }]}>
                 <Text style={styles.addButtonText}>+</Text>
               </Pressable>
@@ -310,12 +337,15 @@ export default function HomeScreen() {
 
       <ActionSheet
         visible={addMenuOpen}
-        title="Add"
+        title="Decks"
         onClose={() => setAddMenuOpen(false)}
         actions={[
           { label: 'New Deck', onPress: newDeck },
           // The name prompt is another modal, which iOS can only show once this menu has gone.
           { label: 'New Group', opensModal: true, onPress: newGroup },
+          // The file picker and share sheet are system screens too.
+          { label: 'Import decks from a file…', opensModal: true, onPress: importFromFile },
+          ...(decks.length ? [{ label: 'Back up all decks…', opensModal: true, onPress: backUpAll }] : []),
         ]}
       />
 

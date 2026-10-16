@@ -8,6 +8,7 @@ import {
   deleteImage,
   imageUri,
   importImage,
+  saveImageData,
   loadDecks,
   loadGroups,
   loadSessions,
@@ -17,6 +18,7 @@ import {
   saveSessions,
   saveTables,
 } from './storage';
+import type { UnpackedDeck } from './deckFile';
 import type { DeckGroup } from './groups';
 import { moveItems } from './order';
 import { createTable, pruneTable } from './table';
@@ -28,6 +30,8 @@ interface DecksApi {
   createDeck: (name: string) => Deck;
   /** Copies a deck, art and all, placing the copy right after it. Returns the copy. */
   duplicateDeck: (id: string) => Deck | undefined;
+  /** Adds decks read from a deck file (see deckFile.ts), pictures and all, at the top of the list. */
+  importDecks: (decks: UnpackedDeck[]) => Deck[];
   renameDeck: (id: string, name: string) => void;
   deleteDeck: (id: string) => void;
   /** Empties a deck to start it again: no cards, no back, default settings, no saved tables, under a new name. */
@@ -152,6 +156,35 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         const deck: Deck = { id: newId(), name, backImage: null, cards: [], createdAt: now, updatedAt: now };
         setDecks((all) => [deck, ...all]);
         return deck;
+      },
+      importDecks(incoming) {
+        const now = Date.now();
+        const added = incoming.map((u): Deck => {
+          const id = newId();
+          // A picture several cards share is saved once.
+          const saved = new Map<string, string>();
+          const save = (img: { ext: string; data: string }) => {
+            if (!saved.has(img.data)) saved.set(img.data, saveImageData(id, img.ext, img.data));
+            return saved.get(img.data)!;
+          };
+          return {
+            id,
+            name: u.name,
+            ...(u.cardShape ? { cardShape: u.cardShape } : {}),
+            ...(u.playMode ? { playMode: u.playMode } : {}),
+            backImage: u.back ? save(u.back) : null,
+            cards: u.cards.map((c) => ({
+              id: newId(),
+              name: c.name,
+              ...(c.copies ? { copies: c.copies } : {}),
+              image: save(c.image),
+            })),
+            createdAt: now,
+            updatedAt: now,
+          };
+        });
+        setDecks((all) => [...added, ...all]);
+        return added;
       },
       duplicateDeck(id) {
         const original = getDeck(id);

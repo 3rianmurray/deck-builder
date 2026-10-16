@@ -45,7 +45,11 @@ interface DecksApi {
   reorderCards: (deckId: string, picked: number[], to: number) => void;
   /** Swaps a card's art for a new image (e.g. the old art rotated), deleting the old file if nothing else uses it. */
   replaceCardImage: (deckId: string, cardId: string, imageUri: string) => void;
-  setCardBack: (deckId: string, imageUri: string | null) => void;
+  /**
+   * Sets the card back (null for the built-in one). `original` is the uncropped picture it was cut from, kept to
+   * cut it again if the card size changes; leave it out when the back is just cut again from the one kept.
+   */
+  setCardBack: (deckId: string, imageUri: string | null, original?: string | null) => void;
   setPlayMode: (deckId: string, mode: PlayMode) => void;
   setHandFolded: (deckId: string, folded: boolean) => void;
   setCardShape: (deckId: string, shape: CardShape) => void;
@@ -204,6 +208,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
           name: `${original.name} copy`,
           cards: original.cards.map((c) => ({ ...c, id: newId(), image: copyImage(c.image) })),
           backImage: original.backImage ? copyImage(original.backImage) : null,
+          backOriginal: original.backOriginal ? copyImage(original.backOriginal) : null,
           createdAt: now,
           updatedAt: now,
         };
@@ -274,12 +279,18 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         if (!stillUsed) deleteImage(card.image);
         updateDeck(deckId, (d) => ({ ...d, cards: d.cards.map((c) => (c.id === cardId ? { ...c, image } : c)) }));
       },
-      setCardBack(deckId, uri) {
+      setCardBack(deckId, uri, original) {
         const deck = getDeck(deckId);
         if (!deck) return;
-        if (deck.backImage && !deck.cards.some((c) => c.image === deck.backImage)) deleteImage(deck.backImage);
+        const inUse = (path: string) => deck.cards.some((c) => c.image === path);
+        if (deck.backImage && !inUse(deck.backImage)) deleteImage(deck.backImage);
         const backImage = uri ? importImage(deckId, uri) : null;
-        updateDeck(deckId, (d) => ({ ...d, backImage }));
+        // The uncropped picture: replaced when a new one is given, kept when the same one is just cut again, and
+        // gone with the back.
+        const replacing = original !== undefined || !uri;
+        if (replacing && deck.backOriginal && !inUse(deck.backOriginal)) deleteImage(deck.backOriginal);
+        const backOriginal = replacing ? (uri && original ? importImage(deckId, original) : null) : (deck.backOriginal ?? null);
+        updateDeck(deckId, (d) => ({ ...d, backImage, backOriginal }));
       },
       setPlayMode(deckId, playMode) {
         updateDeck(deckId, (d) => ({ ...d, playMode }));

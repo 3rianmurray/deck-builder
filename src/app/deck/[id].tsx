@@ -16,10 +16,11 @@ import { useDecks } from '../../lib/DecksContext';
 import { shareDecks } from '../../lib/deckExport';
 import { deleteDeckWarning } from '../../lib/deckInUse';
 import { sampleBack, sampleCards } from '../../lib/sampleDeck';
+import { cropToShape } from '../../lib/images';
 import { imageUri } from '../../lib/storage';
 import { tourEvent } from '../../lib/tour';
 import { cardRatio, copiesOf, deckSize } from '../../lib/types';
-import type { Card } from '../../lib/types';
+import type { Card, CardShape } from '../../lib/types';
 import { colors } from '../../theme';
 import { MAX_TEXT_SCALE, Text } from '../../components/Text';
 import { TourSpot } from '../../components/TourSpot';
@@ -121,7 +122,8 @@ export default function DeckEditorScreen() {
   const fromSamples = (target: ArtTarget) =>
     withBusy(async () => {
       if (target === 'back') {
-        decks.setCardBack(deck.id, await sampleBack());
+        const back = await sampleBack();
+        decks.setCardBack(deck.id, back, back);
         tourEvent('back-set');
       } else {
         const { uris, names } = await sampleCards();
@@ -167,9 +169,26 @@ export default function DeckEditorScreen() {
             ? { title: 'Sprite sheet from…', actions: sheetSourceActions('back') }
             : { actions: [] };
 
+  /** The picture the back is cut from: the uncropped original where it's kept, else the back as it is. */
+  const backSource = deck.backOriginal ? imageUri(deck.backOriginal) : deck.backImage ? imageUri(deck.backImage) : null;
+
+  // A new card size: the back is cut again from its original to fit (so a landscape photo shows whole on
+  // landscape cards, rather than the middle of a portrait crop of it). Backs set before originals were kept
+  // just show trimmed, as before.
+  const changeShape = (shape: CardShape) => {
+    const before = cardRatio(deck);
+    decks.setCardShape(deck.id, shape);
+    const after = cardRatio({ cardShape: shape });
+    const original = deck.backOriginal;
+    if (!original || Math.abs(after - before) < 0.001) return;
+    withBusy(async () => decks.setCardBack(deck.id, await cropToShape(imageUri(original), after)));
+  };
+
   const saveCropped = (uris: string[]) => {
     const target = crop?.target;
-    if (target === 'back') decks.setCardBack(deck.id, uris[0]);
+    // A back keeps the picture it was cut from, to cut again if the card size changes; cutting the kept one
+    // again (tapping the back) keeps it as it is.
+    if (target === 'back') decks.setCardBack(deck.id, uris[0], crop?.uris[0] === backSource ? undefined : crop?.uris[0]);
     else if (typeof target === 'object') decks.replaceCardImage(deck.id, target.cardId, uris[0]);
     else decks.addCards(deck.id, uris);
     setCrop(null);
@@ -255,7 +274,7 @@ export default function DeckEditorScreen() {
             />
 
             <Text style={styles.label}>Card size</Text>
-            <CardSizePicker shape={deck.cardShape ?? { kind: 'standard' }} onChange={(s) => decks.setCardShape(deck.id, s)} />
+            <CardSizePicker shape={deck.cardShape ?? { kind: 'standard' }} onChange={changeShape} />
             {deck.cards.length > 0 ? (
               <Text style={[styles.muted, { fontSize: 13 }]}>
                 Cards already in the deck are trimmed to fit a new size. New images are cropped to it.
@@ -268,7 +287,7 @@ export default function DeckEditorScreen() {
                 deck={deck}
                 faceUp={false}
                 width={64}
-                onPress={() => (deck.backImage ? setCrop({ uris: [imageUri(deck.backImage)], target: 'back' }) : openArtMenu('back'))}
+                onPress={() => (backSource ? setCrop({ uris: [backSource], target: 'back' }) : openArtMenu('back'))}
               />
               <View style={{ flex: 1, gap: 8 }}>
                 <Text style={styles.label}>Card back</Text>
@@ -380,7 +399,7 @@ export default function DeckEditorScreen() {
         pickOne={spriteSheet?.target === 'back'}
         cardRatio={cardRatio(deck)}
         onDone={(uris) => {
-          if (spriteSheet?.target === 'back') decks.setCardBack(deck.id, uris[0]);
+          if (spriteSheet?.target === 'back') decks.setCardBack(deck.id, uris[0], uris[0]);
           else decks.addCards(deck.id, uris);
           setSpriteSheet(null);
         }}

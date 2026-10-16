@@ -45,6 +45,18 @@ export async function saveCrop(uri: string, rect: CropRect, turn: QuarterTurn = 
   return out.uri;
 }
 
+/**
+ * Cuts the largest piece of the given shape (width over height) from the middle of an image, as `saveCrop`
+ * does: e.g. to fit a card back to a new card size.
+ */
+export async function cropToShape(uri: string, ratio: number): Promise<string> {
+  const ref = await ImageManipulator.manipulate(uri).renderAsync();
+  const { width, height } = ref;
+  const w = Math.min(width, Math.round(height * ratio));
+  const h = Math.min(height, Math.round(w / ratio));
+  return saveCrop(uri, { originX: Math.round((width - w) / 2), originY: Math.round((height - h) / 2), width: w, height: h });
+}
+
 /** How wide an image is made for looking at its pixels (see `smallPixels`): plenty to find a grid of cards in. */
 const ANALYSIS_WIDTH = 480;
 

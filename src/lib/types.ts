@@ -65,6 +65,12 @@ export interface Deck {
   groupId?: string;
   /** Relative image path for the card back, or null to use the built-in back. */
   backImage: string | null;
+  /**
+   * The picture the back was cut from, uncropped (relative path), so it can be cut again to fit when the card
+   * size changes (a landscape photo cropped for portrait cards has lost its sides). Missing for backs set
+   * before this was kept.
+   */
+  backOriginal?: string | null;
   cards: Card[];
   createdAt: number;
   updatedAt: number;

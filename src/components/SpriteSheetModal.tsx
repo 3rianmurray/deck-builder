@@ -108,6 +108,9 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
   const rows = parseCount(rowsText, 1, MAX_CELLS_PER_SIDE);
   const columns = parseCount(colsText, 1, MAX_CELLS_PER_SIDE);
   const cells = rows * columns;
+  // More cards than the grid has cells (it was made smaller): as many as it can hold. Set during render, React's
+  // way for state that follows other state.
+  if (countText && parseInt(countText, 10) > cells) setCountText(String(cells));
   const grid: Grid = pickOne
     ? { rows, columns, count: cells, order: 'rows' }
     : { rows, columns, count: parseCount(countText, cells, cells), order };

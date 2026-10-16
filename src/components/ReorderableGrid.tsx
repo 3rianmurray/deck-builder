@@ -7,6 +7,7 @@ import * as haptics from '../lib/haptics';
 import { gridHit, gridSlot } from '../lib/order';
 import { colors } from '../theme';
 import { Text } from './Text';
+import { FRAME_MS, useFrameLoop } from './useFrameLoop';
 
 /** Holding an item still this long picks it up. */
 const HOLD_MS = 300;
@@ -14,9 +15,8 @@ const HOLD_MS = 300;
 const SLOP = 8;
 /** Dragging within this distance of the top or bottom edge scrolls the grid that way. */
 const EDGE = 70;
-/** Points scrolled per step while dragging at an edge, and how often a step happens. */
+/** Points scrolled each (60 Hz) frame while dragging at an edge. */
 const EDGE_STEP = 14;
-const EDGE_TICK_MS = 16;
 
 /** Animates items moving to new places on the next layout change. Movement only: fading views in would make them blink. */
 const slideIntoPlace = () =>
@@ -241,45 +241,33 @@ export function ReorderableGrid<T>({
     return () => clearTimeout(timer);
   }, [holdKey]);
 
-  // Keep scrolling while the carried items sit at an edge. Each tick also moves the landing slot, since the
-  // grid slides under a finger that isn't moving.
-  const tick = useRef<() => void>(() => {});
-  useEffect(() => {
-    tick.current = () => {
-      scrollBy(live.get().scroll + edge * EDGE_STEP);
-      track();
-    };
+  // Keep scrolling while the carried items sit at an edge, in step with the screen. Each step also moves the
+  // landing slot, since the grid slides under a finger that isn't moving.
+  useFrameLoop(edge !== 0, (frames) => {
+    scrollBy(live.get().scroll + edge * EDGE_STEP * frames);
+    track();
   });
-  useEffect(() => {
-    if (!edge) return;
-    const timer = setInterval(() => tick.current(), EDGE_TICK_MS);
-    return () => clearInterval(timer);
-  }, [edge]);
 
   // Coast after a second-finger scroll: keep scrolling at the finger's last speed, slowing each frame, until
   // it's slow enough to stop or hits an end. Each step also moves the landing slot under the held items.
-  const coastStep = useRef<(v: number) => boolean>(() => false);
-  useEffect(() => {
-    coastStep.current = (v) => {
-      const before = live.get().scroll;
-      scrollBy(before + v * EDGE_TICK_MS);
-      if (press?.lifted) track();
-      return live.get().scroll !== before;
-    };
+  const coasting = useMemo(() => {
+    const box = { v: 0 };
+    return { set: (v: number) => Object.assign(box, { v }), get: () => box.v };
+  }, []);
+  // Starts at the finger's speed; anything left from a coast that was cut short is dropped.
+  if (coast === null) coasting.set(0);
+  else if (coasting.get() === 0) coasting.set(coast);
+  useFrameLoop(coast !== null, (frames) => {
+    const v = coasting.get() * COAST_FRICTION ** frames;
+    coasting.set(v);
+    const before = live.get().scroll;
+    scrollBy(before + v * FRAME_MS * frames);
+    if (press?.lifted) track();
+    if (Math.abs(v) >= COAST_MIN_SPEED && live.get().scroll !== before) return;
+    coasting.set(0);
+    setCoast(null);
+    return false;
   });
-  useEffect(() => {
-    if (coast === null) return;
-    let v = coast;
-    const timer = setInterval(() => {
-      v *= COAST_FRICTION;
-      if (Math.abs(v) < COAST_MIN_SPEED || !coastStep.current(v)) {
-        clearInterval(timer);
-        setCoast(null);
-      }
-    }, EDGE_TICK_MS);
-    return () => clearInterval(timer);
-  }, [coast]);
-
   const finish = () => {
     setPress(null);
     setTarget(null);

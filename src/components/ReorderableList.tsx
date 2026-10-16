@@ -5,6 +5,7 @@ import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent, StyleP
 
 import * as haptics from '../lib/haptics';
 import { colors } from '../theme';
+import { useFrameLoop } from './useFrameLoop';
 
 /** Holding a row still this long picks it up. Rows' own long-press delay should match, to swallow the tap. */
 export const LIFT_HOLD_MS = 350;
@@ -12,8 +13,8 @@ export const LIFT_HOLD_MS = 350;
 const SLOP = 8;
 /** Dragging within this distance of the top or bottom edge scrolls the list that way. */
 const EDGE = 70;
+/** Points scrolled each (60 Hz) frame while dragging at an edge. */
 const EDGE_STEP = 12;
-const EDGE_TICK_MS = 16;
 
 interface Press {
   index: number;
@@ -136,21 +137,13 @@ export function ReorderableList<R>({
     return () => clearTimeout(timer);
   }, [holdKey]);
 
-  // Scroll while the lifted row sits at an edge; each tick also moves the drop line.
-  const tick = useRef<() => void>(() => {});
-  useEffect(() => {
-    tick.current = () => {
-      const next = Math.min(maxScroll, Math.max(0, live.get().scroll + edge * EDGE_STEP));
-      scrollView?.scrollTo({ y: next, animated: false });
-      live.set({ scroll: next });
-      track();
-    };
+  // Scroll while the lifted row sits at an edge, in step with the screen; each step also moves the drop line.
+  useFrameLoop(edge !== 0, (frames) => {
+    const next = Math.min(maxScroll, Math.max(0, live.get().scroll + edge * EDGE_STEP * frames));
+    scrollView?.scrollTo({ y: next, animated: false });
+    live.set({ scroll: next });
+    track();
   });
-  useEffect(() => {
-    if (!edge) return;
-    const timer = setInterval(() => tick.current(), EDGE_TICK_MS);
-    return () => clearInterval(timer);
-  }, [edge]);
 
   const finish = () => {
     setPress(null);

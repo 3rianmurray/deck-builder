@@ -964,18 +964,22 @@ function Table({
   const switchMode = (next: PlayMode) => {
     setMode(next);
     haptics.tick();
-    if (next === 'reveal') tourEvent('reveal-mode');
     const outside = table.hand.length + table.table.length;
+    // The walkthrough moves on once the switch is settled: straight away, or once the question below is answered.
+    if (next === 'reveal' && outside === 0) tourEvent('reveal-mode');
     if (next !== 'reveal' || outside === 0) return;
     // Reveal mode only shows the deck and discard pile, so offer to clear cards that would be hidden.
     Alert.alert(
       `${outside} ${outside === 1 ? 'card is' : 'cards are'} in your hand or on the table`,
       'Reveal mode only shows the deck and discard pile.',
       [
-        { text: 'Keep them aside', style: 'cancel' },
+        { text: 'Keep them aside', style: 'cancel', onPress: () => tourEvent('reveal-mode') },
         {
           text: 'Discard them',
-          onPress: () => apply((t) => ({ ...t, hand: [], table: [], discard: [...t.hand, ...t.table].map((c) => ({ ...c, faceUp: true })).concat(t.discard) })),
+          onPress: () => {
+            apply((t) => ({ ...t, hand: [], table: [], discard: [...t.hand, ...t.table].map((c) => ({ ...c, faceUp: true })).concat(t.discard) }));
+            tourEvent('reveal-mode');
+          },
         },
       ],
     );
@@ -2572,8 +2576,11 @@ function Table({
       tourCard.set(table.table.find((c) => !before.has(c.iid))?.iid ?? null);
       tourEvent('to-table');
     }
-    // In reveal mode, a card dragged (or tapped) onto the discard pile.
-    if (reveal && table.discard.length > was.discard.length) tourEvent('revealed');
+    // In reveal mode, a card dragged (or tapped) onto the discard pile: not the hand and table being cleared
+    // onto it (see switchMode).
+    if (reveal && table.discard.length > was.discard.length && table.hand.length >= was.hand.length && table.table.length >= was.table.length) {
+      tourEvent('revealed');
+    }
     if (table.hand.length > was.hand.length) tourEvent('to-hand');
     const faces = new Map(was.table.map((c) => [c.iid, c.faceUp]));
     if (table.table.some((c) => faces.has(c.iid) && faces.get(c.iid) !== c.faceUp)) tourEvent('flipped');

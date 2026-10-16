@@ -26,10 +26,17 @@ export const MAX_LEAN = 1.5;
 const TILT_GAIN = 1;
 /** The most the tilt can add to (or take from) a pile's lean, in thicknesses: a subtle shift, not a swing. */
 const MAX_TILT = 0.5;
-/** How quickly the eye settles back to wherever the phone is being held, per reading (about every 33ms). */
-const SETTLE = 0.006;
+/**
+ * How often the sensor is read. Each reading moves every pile's edges, so not too often: the effect is slow and
+ * subtle, and this is smooth enough for it while keeping the phone cool.
+ */
+const READ_EVERY_MS = 60;
+/** How quickly the eye settles back to wherever the phone is being held, per reading. */
+const SETTLE = 0.011;
 /** Smoothing of each reading, so the piles don't jitter with the sensor's noise. */
-const SMOOTH = 0.25;
+const SMOOTH = 0.4;
+/** A change in tilt smaller than this (in thicknesses, well under a point) isn't worth moving the piles for. */
+const STILL = 0.004;
 
 const clamp = (v: number) => Math.max(-MAX_LEAN, Math.min(MAX_LEAN, v));
 
@@ -63,11 +70,18 @@ function rebase() {
   viewTilt.setValue(current);
 }
 
+/** Starts following the tilt, for as long as a table is on screen (see useViewTilt). */
 function start() {
+  if (appState) return;
+  // The sensor rests while the app is in the background, and starts afresh when it comes back.
+  appState = AppState.addEventListener('change', (state) => (state === 'active' ? listen() : unlisten()));
+  listen();
+}
+
+function listen() {
   if (subscription) return;
   rebase();
-  appState = AppState.addEventListener('change', (state) => state === 'active' && rebase());
-  Accelerometer.setUpdateInterval(33);
+  Accelerometer.setUpdateInterval(READ_EVERY_MS);
   subscription = Accelerometer.addListener((a) => {
     // The first readings after starting (or waking) can be junk, e.g. all zeros: only a reading that's about
     // the pull of gravity (1 g) is trusted.
@@ -82,14 +96,21 @@ function start() {
     const target = { x: (g.x - rest.x) * TILT_GAIN, y: -(g.y - rest.y) * TILT_GAIN };
     smoothed = { x: smoothed.x + (target.x - smoothed.x) * SMOOTH, y: smoothed.y + (target.y - smoothed.y) * SMOOTH };
     const limit = (v: number) => Math.max(-MAX_TILT, Math.min(MAX_TILT, v));
-    current = { x: limit(smoothed.x), y: limit(smoothed.y) };
+    const next = { x: limit(smoothed.x), y: limit(smoothed.y) };
+    // Held still, nothing needs to move: no work at all until the phone does.
+    if (Math.abs(next.x - current.x) < STILL && Math.abs(next.y - current.y) < STILL) return;
+    current = next;
     viewTilt.setValue(current);
   });
 }
 
-function stop() {
+function unlisten() {
   subscription?.remove();
   subscription = null;
+}
+
+function stop() {
+  unlisten();
   appState?.remove();
   appState = null;
   rebase();

@@ -1,4 +1,3 @@
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -50,68 +49,6 @@ export function TourTip({ index, step, onNext = nextTourStep }: { index: number;
   );
 }
 
-/** The flourish's cards: one of each of three sample suits. */
-const FLOURISH_CARDS = [
-  require('../../assets/sample/sun-1.png'),
-  require('../../assets/sample/moon-1.png'),
-  require('../../assets/sample/star-1.png'),
-];
-const FLOURISH_WIDTH = 92;
-/** How far apart the fanned cards sit, and how far each turns. */
-const FAN_STEP = 64;
-const FAN_TURN = 14;
-
-/**
- * A little celebration for finishing the walkthrough: three cards spring up and fan out in the middle of the
- * screen, hold a moment, then drift up and fade. It doesn't take touches, and goes once it's played.
- */
-function Flourish() {
-  const [fan] = useState(() => new Animated.Value(0));
-  const [leave] = useState(() => new Animated.Value(0));
-  const [done, setDone] = useState(false);
-  useEffect(() => {
-    Animated.sequence([
-      Animated.spring(fan, { toValue: 1, friction: 6, tension: 70, useNativeDriver: true }),
-      Animated.delay(650),
-      Animated.timing(leave, { toValue: 1, duration: 420, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-    ]).start(() => setDone(true));
-  }, [fan, leave]);
-  if (done) return null;
-  return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flourish]}>
-      {FLOURISH_CARDS.map((art, i) => {
-        const side = i - 1;
-        return (
-          <Animated.View
-            key={i}
-            style={[
-              styles.flourishCard,
-              {
-                opacity: Animated.multiply(
-                  fan.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 1, 1] }),
-                  leave.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-                ),
-                transform: [
-                  { translateX: fan.interpolate({ inputRange: [0, 1], outputRange: [0, side * FAN_STEP] }) },
-                  {
-                    translateY: Animated.add(
-                      fan.interpolate({ inputRange: [0, 1], outputRange: [60, Math.abs(side) * 10] }),
-                      leave.interpolate({ inputRange: [0, 1], outputRange: [0, -80] }),
-                    ),
-                  },
-                  { rotate: fan.interpolate({ inputRange: [0, 1], outputRange: ['0deg', `${side * FAN_TURN}deg`] }) },
-                  { scale: fan.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }) },
-                ],
-              },
-            ]}>
-            <Image source={art} style={styles.flourishArt} contentFit="cover" />
-          </Animated.View>
-        );
-      })}
-    </View>
-  );
-}
-
 /** A gold ring that gently pulses round a control. */
 function Ring({ rect }: { rect: { x: number; y: number; w: number; h: number } }) {
   const [pulse] = useState(() => new Animated.Value(0));
@@ -151,8 +88,6 @@ function Ring({ rect }: { rect: { x: number; y: number; w: number; h: number } }
 export function TourOverlay() {
   const tour = useTourStep();
   const decks = useDecks();
-  /** Counts finishes, so each one plays the flourish afresh. */
-  const [finished, setFinished] = useState(0);
   const rect = useTourTargetRect(tour?.step.target);
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -183,7 +118,7 @@ export function TourOverlay() {
   }, []);
 
   // The end: back to the home screen, the Sample Deck set back to table mode (the walkthrough leaves it in
-  // reveal mode), and a little flourish.
+  // reveal mode), and a tap to feel it's done.
   const finish = () => {
     endTour();
     if (router.canDismiss()) router.dismissAll();
@@ -191,19 +126,14 @@ export function TourOverlay() {
     // Once the table has slid away, so it isn't seen changing on its way out.
     if (sample && decks.getDeck(sample)) setTimeout(() => decks.setPlayMode(sample, 'table'), MODE_RESET_MS);
     haptics.success();
-    setFinished((n) => n + 1);
   };
-  const flourish = finished ? <Flourish key={finished} /> : null;
 
   // Not showing a step (between steps, or waiting for its control to come on screen): the last one fades away.
   if (!live || !tour) {
     return (
-      <>
-        <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]} pointerEvents="none">
-          {last.get()}
-        </Animated.View>
-        {flourish}
-      </>
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]} pointerEvents="none">
+        {last.get()}
+      </Animated.View>
     );
   }
   const { step, index } = tour;
@@ -256,28 +186,14 @@ export function TourOverlay() {
   );
   last.keep(frame);
   return (
-    <>
-      <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]} pointerEvents="box-none">
-        {frame}
-      </Animated.View>
-      {flourish}
-    </>
+    <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]} pointerEvents="box-none">
+      {frame}
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   dim: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.55)' },
-  flourish: { alignItems: 'center', justifyContent: 'center' },
-  flourishCard: {
-    position: 'absolute',
-    width: FLOURISH_WIDTH,
-    height: (FLOURISH_WIDTH * 7) / 5,
-    borderRadius: 8,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(224,179,84,0.8)',
-  },
-  flourishArt: { width: '100%', height: '100%' },
   ring: { position: 'absolute', borderWidth: 3, borderColor: colors.accent, borderRadius: 14 },
   tipWrap: { position: 'absolute', left: 16, right: 16 },
   tip: {

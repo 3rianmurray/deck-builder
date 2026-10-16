@@ -64,7 +64,6 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
   // slide runs on the native animation thread while a recentre would come from here, and the two landing on
   // different frames is what made the art flicker between the old and new card.
   const [slot, setSlot] = useState(0);
-  const rest = -slot * spacing;
 
   useEffect(() => {
     Animated.parallel([
@@ -74,15 +73,36 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
     ]).start(({ finished }) => finished && setShowNeighbours(true));
   }, [anim]);
 
+  // What the gesture handling needs that changes from render to render, read when it's needed. The handler
+  // itself is made once, so a gesture that's under way when the card changes carries on unbroken.
+  const [latest] = useState(() => {
+    const box = { spacing, hasPrev, hasNext, onStep, onClose, area };
+    return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
+  });
+  latest.set({ spacing, hasPrev, hasNext, onStep, onClose, area });
+
   const responder = useMemo(() => {
+    // Where the strip is headed: its slot (ahead of the rendered one while a step is still sliding), and the
+    // step under way, if any.
+    const strip: { slot: number; stepping: { dir: 1 | -1 } | null } = { slot: 0, stepping: null };
+    const rest = () => -strip.slot * latest.get().spacing;
+    /** A step's slide is over (or cut short by a new touch): the card it slid to becomes the zoomed one. */
+    const landStep = () => {
+      const step = strip.stepping;
+      if (!step) return;
+      Object.assign(strip, { stepping: null });
+      setSlot(strip.slot);
+      latest.get().onStep?.(step.dir);
+    };
+
     const close = (to: { x: number; y: number; scale: number }) => {
       // A swipe away keeps its neighbours in view as it slides; anything that shrinks hides them first.
       if (to.scale < 1) setShowNeighbours(false);
       return Animated.parallel([
-        Animated.timing(anim.pan, { toValue: { x: rest + to.x, y: to.y }, duration: 180, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+        Animated.timing(anim.pan, { toValue: { x: rest() + to.x, y: to.y }, duration: 180, easing: Easing.in(Easing.quad), useNativeDriver: true }),
         Animated.timing(anim.scale, { toValue: to.scale, duration: 180, useNativeDriver: true }),
         Animated.timing(anim.opacity, { toValue: 0, duration: 180, useNativeDriver: true }),
-      ]).start(onClose);
+      ]).start(() => latest.get().onClose());
     };
 
     // Tracking for the gesture in progress, replaced at the start of each one; never part of rendering.
@@ -96,6 +116,13 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
       onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
         Object.assign(s, fresh());
+        // A touch while the last step is still sliding: it finishes there and then, so this gesture starts from
+        // the card it was going to, rather than snapping the strip back to the one it left.
+        if (strip.stepping) {
+          anim.pan.stopAnimation();
+          anim.pan.setValue({ x: rest(), y: 0 });
+          landStep();
+        }
       },
       onPanResponderMove: (e, g) => {
         const touches = e.nativeEvent.touches;
@@ -104,7 +131,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
           if (!s.pinching) {
             s.pinching = true;
             s.pinchStart = distance(touches[0], touches[1]);
-            anim.pan.setValue({ x: rest, y: 0 });
+            anim.pan.setValue({ x: rest(), y: 0 });
             setShowNeighbours(false);
           }
           const k = s.pinchStart > 0 ? distance(touches[0], touches[1]) / s.pinchStart : 1;
@@ -118,7 +145,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
           s.swiping = true;
           s.axis = Math.abs(g.dx) >= Math.abs(g.dy) ? 'x' : 'y';
         }
-        anim.pan.setValue(s.axis === 'x' ? { x: rest + g.dx, y: 0 } : { x: rest, y: g.dy });
+        anim.pan.setValue(s.axis === 'x' ? { x: rest() + g.dx, y: 0 } : { x: rest(), y: g.dy });
       },
       onPanResponderRelease: (_, g) => {
         if (s.pinching) {
@@ -131,22 +158,21 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
         const d = s.axis === 'x' ? g.dx : g.dy;
         const v = s.axis === 'x' ? g.vx : g.vy;
         const far = Math.abs(d) > DISMISS_DISTANCE || Math.abs(v) > DISMISS_SPEED;
-        if (!far) return Animated.spring(anim.pan, { toValue: { x: rest, y: 0 }, useNativeDriver: true }).start();
+        if (!far) return Animated.spring(anim.pan, { toValue: { x: rest(), y: 0 }, useNativeDriver: true }).start();
         // A sideways swipe steps to the card that way, like turning pages: swiping left shows the next card
         // (to the right), swiping right the previous one. With no card that way, it puts the zoom away.
         const dir: 1 | -1 = d < 0 ? 1 : -1;
+        const { hasNext, hasPrev, onStep, area } = latest.get();
         if (s.axis === 'x' && onStep && (dir === 1 ? hasNext : hasPrev)) {
           // Slide the strip one spot along, so the neighbour is in the middle, then make it the zoomed card.
           // The strip stays where it ends up; the new card's spot is simply one further along.
+          Object.assign(strip, { slot: strip.slot + dir, stepping: { dir } });
           Animated.timing(anim.pan, {
-            toValue: { x: rest - dir * spacing, y: 0 },
+            toValue: { x: rest(), y: 0 },
             duration: 200,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
-          }).start(() => {
-            setSlot((n) => n + dir);
-            onStep(dir);
-          });
+          }).start(landStep);
           return;
         }
         // Carry on straight along the locked direction until it's off screen.
@@ -154,8 +180,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
         close(s.axis === 'x' ? { x: reach, y: 0, scale: 1 } : { x: 0, y: reach, scale: 1 });
       },
     });
-  }, [anim, area.w, area.h, onClose, onStep, hasPrev, hasNext, spacing, rest]);
-
+  }, [anim, latest]);
   return (
     <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: anim.opacity }]} {...responder.panHandlers}>
       {/* Growing and shrinking happens around the middle of the screen, whichever card is there... */}

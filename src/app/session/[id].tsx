@@ -71,6 +71,8 @@ export default function SessionScreen() {
         {/* Sized from the text size setting, so changing it (even while the app is open) re-fits the row: the pills
             stay centred in it and it can't be nudged up and down. */}
         <ScrollView
+          // Rebuilt when the text size changes: iOS keeps the old text measurements otherwise, leaving names off centre.
+          key={fontScale}
           ref={tabsRef}
           horizontal
           showsHorizontalScrollIndicator={false}

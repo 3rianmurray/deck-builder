@@ -9,6 +9,7 @@ import { ActionSheet } from '../../components/ActionSheet';
 import { Button } from '../../components/Button';
 import { CardSizePicker } from '../../components/CardSizePicker';
 import { CardView } from '../../components/CardView';
+import { CardScanModal } from '../../components/CardScanModal';
 import { CropModal } from '../../components/CropModal';
 import { ReorderableGrid } from '../../components/ReorderableGrid';
 import { SpriteSheetModal } from '../../components/SpriteSheetModal';
@@ -77,6 +78,10 @@ export default function DeckEditorScreen() {
   const [menu, setMenu] = useState<ArtTarget | `sheet-${ArtTarget}` | null>(null);
   /** Images waiting in the cropper, and what they become once cropped. */
   const [crop, setCrop] = useState<{ uris: string[]; target: ArtTarget | { cardId: string } } | null>(null);
+  /** A photo of a card being found and straightened, and what it's for. */
+  const [scan, setScan] = useState<{ uri: string; target: ArtTarget } | null>(null);
+  /** Cropping by hand instead, once the scan screen has gone (iOS shows one full-screen view at a time). */
+  const [cropNext, setCropNext] = useState<{ uris: string[]; target: ArtTarget } | null>(null);
   /** A sprite sheet being cut into cards, or picked from for the card back. */
   const [spriteSheet, setSpriteSheet] = useState<{ uri: string; target: ArtTarget } | null>(null);
 
@@ -106,7 +111,8 @@ export default function DeckEditorScreen() {
   const fromCamera = (target: ArtTarget) =>
     withBusy(async () => {
       const uri = await takePhoto();
-      if (uri) setCrop({ uris: [uri], target });
+      // The card is found in the photo and straightened (or cropped by hand, if the player prefers).
+      if (uri) setScan({ uri, target });
     });
   const fromPhotos = (target: ArtTarget) =>
     withBusy(async () => {
@@ -396,6 +402,26 @@ export default function DeckEditorScreen() {
       />
 
       <ActionSheet visible={menu !== null} {...menuProps} onClose={() => setMenu(null)} />
+
+      <CardScanModal
+        uri={scan?.uri ?? null}
+        cardRatio={cardRatio(deck)}
+        onDone={(card) => {
+          // Already exactly card shaped: it's its own original, should the card size change.
+          if (scan?.target === 'back') decks.setCardBack(deck.id, card, card);
+          else decks.addCards(deck.id, [card], undefined, [card]);
+          setScan(null);
+        }}
+        onCropByHand={(uri) => {
+          if (scan) setCropNext({ uris: [uri], target: scan.target });
+          setScan(null);
+        }}
+        onCancel={() => setScan(null)}
+        onClosed={() => {
+          if (cropNext) setCrop(cropNext);
+          setCropNext(null);
+        }}
+      />
 
       <CropModal uris={crop?.uris ?? []} ratio={cardRatio(deck)} onDone={saveCropped} onCancel={() => setCrop(null)} />
 

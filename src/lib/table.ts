@@ -268,6 +268,44 @@ export function placeStackOnTable(state: TableState, iids: string[], spot: Spot,
   return pinSpots({ ...next, table: [...next.table, ...moving.map((c) => ({ ...c, faceUp: face, stack, spot: free }))] }, cols);
 }
 
+/**
+ * Spreads a table stack out into single cards, top card first, starting in the stack's own spot and going on
+ * along the grid (`cols` wide). Cards in the way are pushed on down the grid, in order, only as far as they
+ * need to go; cards before the stack stay where they are.
+ */
+export function spreadStack(state: TableState, stackIid: string, cols: number): TableState {
+  const groups = stackGroups(state.table);
+  const spots = gridSpots(state.table, cols);
+  const i = groups.findIndex((g) => g.some((c) => c.iid === stackIid));
+  if (i === -1 || groups[i].length < 2) return state;
+  const at = (s: Spot) => s.row * cols + s.col;
+  const spotOf = (n: number): Spot => ({ row: Math.floor(n / cols), col: n % cols });
+  const start = at(spots[i]);
+  const taken = new Set<number>();
+  // Everything before the stack (in reading order) stays put.
+  groups.forEach((_, j) => {
+    if (j !== i && at(spots[j]) < start) taken.add(at(spots[j]));
+  });
+  const placed: CardInstance[] = [];
+  // The stack's cards, top first, each in the next free spot from the stack's own.
+  let next = start;
+  for (const c of groups[i].slice().reverse()) {
+    while (taken.has(next)) next++;
+    taken.add(next);
+    placed.push({ ...unstacked(c), spot: spotOf(next) });
+  }
+  // Then everything after it, in order: where it was, or pushed on to the next free spot.
+  groups.forEach((g, j) => {
+    if (j === i || at(spots[j]) < start) return;
+    let n = at(spots[j]);
+    while (taken.has(n)) n++;
+    taken.add(n);
+    for (const c of g) placed.push({ ...c, spot: spotOf(n) });
+  });
+  const kept = groups.flatMap((g, j) => (j !== i && at(spots[j]) < start ? g.map((c) => ({ ...c, spot: spots[j] })) : []));
+  return pinSpots({ ...state, table: [...kept, ...placed] }, cols);
+}
+
 /** `faceUp` overrides the zone's usual facing, e.g. a card dragged from the deck and not yet revealed. */
 export function moveCard(state: TableState, iid: string, to: Zone, position?: Position, faceUp?: boolean): TableState {
   const found = findCard(state, iid);

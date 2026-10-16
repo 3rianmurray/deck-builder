@@ -798,6 +798,11 @@ function Table({
     // A face-down card on the table or in the hand can't be looked at; in the search every card is face up.
     const found = T.findCard(table, iid);
     const canView = from === 'deck' || from === 'discard' || from === 'trash' || !!(found && table[found.zone][found.index].faceUp);
+    const spreadTile: SheetTile = {
+      label: 'Spread out',
+      icon: { ios: 'rectangle.split.3x1', android: 'view_column', web: 'view_column' },
+      onPress: go((t) => T.spreadStack(t, iid, cols)),
+    };
     const tiles: SheetTile[] = [
       {
         label: 'Full size',
@@ -818,7 +823,8 @@ function Table({
         ? []
         : [
             tile('Hand', { ios: 'hand.raised', android: 'back_hand', web: 'back_hand' }, 'hand'),
-            tile('Table', { ios: 'square.grid.2x2', android: 'grid_view', web: 'grid_view' }, 'table'),
+            // A whole stack is on the table already: instead it can be spread out into single cards.
+            stack ? spreadTile : tile('Table', { ios: 'square.grid.2x2', android: 'grid_view', web: 'grid_view' }, 'table'),
           ]),
       tile('Deck top', { ios: 'arrow.up.to.line', android: 'vertical_align_top', web: 'vertical_align_top' }, 'deck', 'top'),
       tile('Deck bottom', { ios: 'arrow.down.to.line', android: 'vertical_align_bottom', web: 'vertical_align_bottom' }, 'deck', 'bottom'),
@@ -1107,7 +1113,14 @@ function Table({
     for (const zone of ['deck', 'hand', 'table', 'discard'] as Zone[]) {
       for (const c of after[zone]) {
         const was = T.findCard(before, c.iid);
-        if (!was || was.zone === zone) continue;
+        if (!was) continue;
+        // Staying in the same place, except on the table, where a card can move to another spot (or off a
+        // stack), e.g. a stack spread out, or cards pushed along to make room.
+        if (was.zone === zone) {
+          const old = before.table[was.index];
+          const moved = zone === 'table' && (old.spot?.row !== c.spot?.row || old.spot?.col !== c.spot?.col || old.stack !== c.stack);
+          if (!moved) continue;
+        }
         if (was.zone === 'deck' || was.zone === 'discard') {
           const route = `${was.zone}>${zone}`;
           fromPile[route] = (fromPile[route] ?? 0) + 1;

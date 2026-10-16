@@ -24,6 +24,7 @@ import {
   reorderPile,
   resetTable,
   shuffleDiscardIntoDeck,
+  spreadStack,
   stackGroups,
   stackOnto,
   takeTopOfDiscard,
@@ -231,6 +232,29 @@ test('a held stack turned over lands turned over, whatever its size', () => {
     const moved = placeStackOnTable(flipAll(t, held), held, { row: 1, col: 1 }, 3);
     assert.ok(moved.table.every((c) => !c.faceUp), `stack of ${size}`);
   }
+});
+
+test('a stack spreads out into single cards, pushing cards in the way down the grid', () => {
+  let t = draw(createTable(makeDeck(6), noShuffle), 6); // hand: c0..c5
+  // A stack of c0, c1, c2 (c2 on top) at (0,0); c3 at (0,1); a gap at (0,2); c4 at (1,0).
+  t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 0 }, 3);
+  t = stackOnto(t, [t.hand[1].iid, t.hand[0].iid], t.table[0].iid);
+  t = placeOnTable(t, [t.hand[0].iid], { row: 0, col: 1 }, 3); // c3
+  t = placeOnTable(t, [t.hand[0].iid], { row: 1, col: 0 }, 3); // c4
+  const spread = spreadStack(t, t.table[0].iid, 3);
+  assert.ok(spread.table.every((c) => c.stack === undefined));
+  // Top card first, from the stack's spot, filling (0,2) too; c3 pushed on to (1,0), then c4 on to (1,1).
+  assert.deepEqual(
+    spread.table.map((c) => [c.cardId, c.spot]),
+    [
+      ['c2', { row: 0, col: 0 }],
+      ['c1', { row: 0, col: 1 }],
+      ['c0', { row: 0, col: 2 }],
+      ['c3', { row: 1, col: 0 }],
+      ['c4', { row: 1, col: 1 }],
+    ],
+  );
+  assert.equal(cardCount(spread), 6);
 });
 
 test('stacks saved with mixed faces are evened out to the bottom card when loaded', () => {

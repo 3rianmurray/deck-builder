@@ -33,7 +33,7 @@ import type { Lean } from './viewpoint';
 import { useDecks } from '../lib/DecksContext';
 import * as haptics from '../lib/haptics';
 import * as T from '../lib/table';
-import { fitTilt, tiltTransform, unproject } from '../lib/tilt';
+import { fitTilt, project, tiltTransform, unproject } from '../lib/tilt';
 import { cardRatio } from '../lib/types';
 import type { Card, CardInstance, Deck, PlayMode, Spot, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
@@ -103,6 +103,8 @@ const REVEAL_CHROME = 100;
 const REVEAL_RAIL = 72;
 /** How far down the table the eye sits, for which way piles lean (0 is the top, 1 the bottom). */
 const VIEW_DOWN = 0.78;
+/** How much of the hand's cards shows when its tray is folded away. */
+const HAND_PEEK = 26;
 /** How far the hand's pull tab stands up above its tray. */
 const HAND_TAB_HEIGHT = 24;
 /** Size of the trash can that appears while dragging. */
@@ -1947,6 +1949,16 @@ function Table({
     const enlarged = tilt.perspective / (tilt.perspective - dy * Math.sin((tilt.angle * Math.PI) / 180));
     return Math.ceil(rootSize.w / 2 / (tilt.scale * enlarged) - rootSize.w / 2) + 2;
   })();
+  /**
+   * How far below the table the tray reaches, so it meets the bottom of the screen: tilted back, the table's
+   * bottom edge sits a little above it.
+   */
+  const handDrop = (() => {
+    if (!tilt.angle || !rootSize.h) return 0;
+    let extra = 0;
+    while (extra < 80 && project(rootSize.w / 2, rootSize.h + extra, rootSize, tilt).y < rootSize.h + 1) extra += 2;
+    return extra;
+  })();
 
   /** A flight from one table spot to another, drawn inside the play area (see where it's drawn). */
   const onTable = (f: Flight) => !reveal && f.zone === 'table' && f.fromZone === 'table';
@@ -2451,7 +2463,11 @@ function Table({
 
           {/* Hand */}
           <View
-            style={[styles.hand, { paddingBottom: insets.bottom + 4, marginHorizontal: -handReach }, highlight('hand')]}
+            style={[
+              styles.hand,
+              { paddingBottom: insets.bottom + 4 + handDrop, marginHorizontal: -handReach, marginBottom: -handDrop },
+              highlight('hand'),
+            ]}
             onLayout={measure('hand')}>
             <WoodRail />
             {/* A small tab on the rail, over the groove the cards sit in. Tapping it folds the tray away (giving the
@@ -2493,7 +2509,15 @@ function Table({
                 <EmptySlot deck={deck} width={handWidth} label="Tap or drag the deck to draw" />
               )}
             </ScrollView>
-            ) : null}
+            ) : (
+              // Folded away, just the tops of the cards peek out of the tray: a reminder of what's there, not
+              // something to tap or drag (open the tray for that).
+              <View style={[styles.handPeek, { paddingHorizontal: 14 + handReach }]}>
+                {table.hand.map((c) => (
+                  <CardView key={c.iid} deck={deck} card={cardsById.get(c.cardId)} faceUp={c.faceUp} width={handWidth} />
+                ))}
+              </View>
+            )}
           </View>
         </>
       )}
@@ -3244,6 +3268,8 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255,220,180,0.12)',
   },
   handCards: { paddingHorizontal: 14, paddingVertical: 9, gap: 8 },
+  // The folded tray's glimpse of the hand: the tops of its cards, cut off, and not to be touched.
+  handPeek: { flexDirection: 'row', gap: 8, height: HAND_PEEK, paddingTop: 6, overflow: 'hidden', pointerEvents: 'none' },
   lifted: {
     position: 'absolute',
     pointerEvents: 'none',

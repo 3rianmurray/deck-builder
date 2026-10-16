@@ -33,7 +33,7 @@ import { useDecks } from '../lib/DecksContext';
 import * as haptics from '../lib/haptics';
 import * as T from '../lib/table';
 import { fitTilt, project, tiltTransform, unproject } from '../lib/tilt';
-import { setTourTarget, tourEvent, tourRunning } from '../lib/tour';
+import { setTourTarget, tourEvent, tourRunning, useTourStep } from '../lib/tour';
 import { cardRatio } from '../lib/types';
 import type { Card, CardInstance, Deck, PlayMode, Spot, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
@@ -571,6 +571,8 @@ function Table({
   /** A card shown full size over its menu (see `cardMenu`). */
   const [menuZoom, setMenuZoom] = useState<string | null>(null);
   const [rootSize, setRootSize] = useState({ w: 0, h: 0 });
+  /** The empty hand's blank spot, within the hand's row, for the walkthrough to point at. */
+  const [handSlot, setHandSlot] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
   // The tabletop's camera tilt. Everything on the table is laid out flat and drawn tilted, so screen positions
   // (fingers) are converted back onto the flat table before comparing them with any layout.
@@ -702,11 +704,11 @@ function Table({
    * in) and plays a riffle over it. With motion turned down there's just a tap to feel it happen.
    */
   const shuffleDeck = (fn: (t: TableState) => TableState = (t) => T.shuffleZone(t, 'deck'), msg = 'Shuffled') => {
-    tourEvent('shuffled');
     // The riffle shows it happened, so there's no message, unless motion is turned down and it can't play.
     if (prefersReducedMotion()) {
       apply(fn, msg);
       haptics.success();
+      tourEvent('shuffled');
       return;
     }
     // Any cards coming back to the deck fly there first; then it's riffled (see `riffleWaiting`).
@@ -2396,6 +2398,10 @@ function Table({
   /** Where on the (flat) table the lifted stack was picked up. */
   const liftedFrom = drag?.active ? toTable(drag.startX, drag.startY) : null;
 
+  // While the walkthrough asks for a shuffle, Shuffle is the only one of the buttons that works.
+  const tourStep = useTourStep();
+  const shuffleStep = tourStep?.step.until === 'shuffled';
+
   /** Opens the search on the deck, or on the discard pile if the deck is empty. */
   const openSearch = () => setSearchZone(table.deck.length ? 'deck' : 'discard');
 
@@ -2403,9 +2409,9 @@ function Table({
   // anything then (see lipRect).
   const pileButtons = (
     <>
-      <Button label="Draw" variant="primary" onPress={drawOne} disabled={!table.deck.length} />
+      <Button label="Draw" variant="primary" onPress={drawOne} disabled={!table.deck.length || shuffleStep} />
       <Button label="Shuffle" onPress={() => shuffleDeck()} disabled={table.deck.length < 2} />
-      <Button label="Search" onPress={openSearch} disabled={!table.deck.length && !table.discard.length} />
+      <Button label="Search" onPress={openSearch} disabled={(!table.deck.length && !table.discard.length) || shuffleStep} />
     </>
   );
   // Reveal mode's way to start over once every card has been turned up.
@@ -2450,7 +2456,11 @@ function Table({
               width={pileWidth}
               // The deck's pile drops away and builds back up with the riffle, from when it actually starts.
               onStart={() => riffleHeight(deckHeight).start()}
-              onDone={() => setShuffling(null)}
+              onDone={() => {
+                setShuffling(null);
+                // Only once it's been seen: the walkthrough's next tip waits for the riffle.
+                tourEvent('shuffled');
+              }}
             /> : null}
         </PileDepth>
       </View>
@@ -2509,6 +2519,13 @@ function Table({
   }, [active, deck.name, canUndo, dragging, onControls, controlStandIns]);
 
   // ---- The walkthrough ----
+  // What the table was last time (to see what changed), and the card the player put down for the walkthrough,
+  // which its next step points at.
+  const lastTable = useRef(table);
+  const tourCard = useMemo(() => {
+    const box: { iid: string | null } = { iid: null };
+    return { get: () => box.iid, set: (iid: string | null) => Object.assign(box, { iid }) };
+  }, []);
   // Where the table's parts are on screen (seen through the tilt), for its steps to point at.
   useEffect(() => {
     if (!active || !tourRunning() || !rootOrigin || !rootSize.w) return;
@@ -2523,26 +2540,44 @@ function Table({
     };
     setTourTarget('table.deck', onScreen(zoneRects.find(([z]) => z === 'deck')?.[1]));
     setTourTarget('table.play', onScreen(playRect));
-    setTourTarget('table.hand', onScreen(handZone));
+    // The card put down for the walkthrough (or, failing that, the first on the table).
+    const card = tableGroups.find((g) => g.some((c) => c.iid === tourCard.get())) ?? tableGroups[0];
+    setTourTarget('table.card', onScreen(card && groupRect(card)));
+    // The empty hand's blank spot, while it's empty; otherwise the tray.
+    const slot =
+      !table.hand.length && handSlot && handRect && layout.handScroll
+        ? {
+            x: handRect.x + layout.handScroll.x + handSlot.x - scroll.hand,
+            y: handRect.y + layout.handScroll.y + handSlot.y + (handOpen ? 0 : foldShift),
+            w: handSlot.width,
+            h: handSlot.height,
+          }
+        : undefined;
+    setTourTarget('table.hand', onScreen(slot ?? handZone));
     setTourTarget('table.buttons', onScreen(flipRect));
   });
   // Gone with the table.
   useEffect(
-    () => () => (['table.deck', 'table.play', 'table.hand', 'table.buttons'] as const).forEach((t) => setTourTarget(t, null)),
+    () => () => (['table.deck', 'table.play', 'table.card', 'table.hand', 'table.buttons'] as const).forEach((t) => setTourTarget(t, null)),
     [],
   );
   // What the player does that steps wait for: cards put on the table or in the hand, a card turned over, a
   // card's menu opened. (Shuffles and undos are told where they happen.)
-  const lastTable = useRef(table);
   useEffect(() => {
     const was = lastTable.current;
     lastTable.current = table;
     if (!active || was === table) return;
-    if (table.table.length > was.table.length) tourEvent('to-table');
+    if (table.table.length > was.table.length) {
+      const before = new Set(was.table.map((c) => c.iid));
+      tourCard.set(table.table.find((c) => !before.has(c.iid))?.iid ?? null);
+      tourEvent('to-table');
+    }
+    // In reveal mode, a card dragged (or tapped) onto the discard pile.
+    if (reveal && table.discard.length > was.discard.length) tourEvent('revealed');
     if (table.hand.length > was.hand.length) tourEvent('to-hand');
     const faces = new Map(was.table.map((c) => [c.iid, c.faceUp]));
     if (table.table.some((c) => faces.has(c.iid) && faces.get(c.iid) !== c.faceUp)) tourEvent('flipped');
-  }, [table, active]);
+  }, [table, active, reveal, tourCard]);
   useEffect(() => {
     if (active && sheetOpen && sheet.kind === 'card') tourEvent('card-menu');
     if (active && sheetOpen && sheet.kind === 'table') tourEvent('table-menu');
@@ -2769,7 +2804,9 @@ function Table({
               {table.hand.length ? (
                 handRow().map((r) => (r.kind === 'gap' ? gap(handWidth) : renderCard(r.item, handWidth, 'hand')))
               ) : (
-                <EmptySlot deck={deck} width={handWidth} label="Tap or drag the deck to draw" />
+                <View onLayout={(e) => setHandSlot(e.nativeEvent.layout)}>
+                  <EmptySlot deck={deck} width={handWidth} label="Tap or drag the deck to draw" />
+                </View>
               )}
             </ScrollView>
           </Animated.View>

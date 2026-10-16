@@ -89,9 +89,9 @@ export function TourOverlay() {
   const top = insets.top + 8;
   const bottom = height - insets.bottom - 8;
   // Beside the control: below it if it's in the top half of the screen, above it if not; kept on screen.
-  // Without a control, in the middle.
+  // Without a control, in the middle (or near the top, for steps that ask).
   const tipTop = (() => {
-    if (!pointing) return (height - tipHeight) / 2;
+    if (!pointing) return step.place === 'top' ? top + height * 0.08 : (height - tipHeight) / 2;
     const below = pointing.y + pointing.h / 2 < height / 2;
     const want = below ? pointing.y + pointing.h + RING_PAD + TIP_GAP : pointing.y - RING_PAD - TIP_GAP - tipHeight;
     return Math.min(Math.max(want, top), bottom - tipHeight);

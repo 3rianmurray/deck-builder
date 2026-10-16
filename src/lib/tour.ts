@@ -37,6 +37,7 @@ export type TourTarget =
   | 'deck.play'
   | 'table.deck'
   | 'table.play'
+  | 'table.card'
   | 'table.hand'
   | 'table.buttons'
   | 'table.undo'
@@ -53,6 +54,8 @@ export interface TourStep {
   next?: string;
   /** Inside a menu (which draws over everything): the menu itself shows the tip, by this tile. */
   tile?: string;
+  /** Without a target: where the tip sits (the middle of the screen unless it's 'top'). */
+  place?: 'top';
   /** Darken everything but the target. Off where the player needs to see the table to drag across it. */
   dim?: boolean;
 }
@@ -112,12 +115,12 @@ export const TOUR: TourStep[] = [
   {
     title: 'Tap a card',
     text: 'Tap the card you put down to see what you can do with it.',
-    target: 'table.play',
+    target: 'table.card',
     until: 'card-menu',
   },
   {
     title: 'Flip it over',
-    text: 'Tap Flip over to turn the card face down.',
+    text: "Tap Flip over to reveal the card. Cards can also be flipped while they're being dragged.",
     tile: 'Flip over',
     until: 'flipped',
   },
@@ -129,15 +132,9 @@ export const TOUR: TourStep[] = [
   },
   {
     title: 'Shuffle',
-    text: 'Draw, Shuffle and Search sit between the piles. Tap Shuffle.',
+    text: 'Draw, Shuffle and Search sit between the piles. Tap Shuffle and watch the deck get shuffled.',
     target: 'table.buttons',
     until: 'shuffled',
-  },
-  {
-    title: 'Undo',
-    text: 'Changed your mind? Undo takes back the last thing you did. Try it.',
-    target: 'table.undo',
-    until: 'undone',
   },
   {
     title: 'Reveal mode',
@@ -154,7 +151,7 @@ export const TOUR: TourStep[] = [
   },
   {
     title: 'Turn over a card',
-    text: 'Tap the deck to turn its top card face up onto the discard pile. You can drag cards between the two piles too.',
+    text: 'Tap the deck, or drag a card to the discard pile, to reveal it.',
     target: 'table.deck',
     until: 'revealed',
   },
@@ -162,6 +159,7 @@ export const TOUR: TourStep[] = [
     title: "You're all set",
     text: 'Switch back to table mode from the same menu any time. Start a session to play several decks at once. To see this again, tap ? on the home screen.',
     next: 'Done',
+    place: 'top',
   },
 ];
 interface State {

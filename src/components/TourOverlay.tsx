@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -15,6 +16,9 @@ import { Text } from './Text';
 
 /** How long after leaving the table the Sample Deck goes back to table mode (once the table's out of sight). */
 const MODE_RESET_MS = 700;
+/** How long a step takes to fade in, and out. */
+const FADE_IN_MS = 220;
+const FADE_OUT_MS = 140;
 /** How long a step waits, and its control stays still, before it shows. */
 const SETTLE_MS = 450;
 /** Room left round a highlighted control. */
@@ -155,12 +159,28 @@ export function TourOverlay() {
   const [tipHeight, setTipHeight] = useState(0);
   // Shown only once things have settled: a moment after the step changes (the next screen sliding in and
   // filling up), and while its control stays put (not mid-scroll or mid-slide).
-  const settleKey = tour ? `:` : null;
+  const settleKey = tour ? `${tour.index}:${rect ? [rect.x, rect.y, rect.w, rect.h].join(',') : ''}` : null;
   const [settled, setSettled] = useState<string | null>(null);
   useEffect(() => {
     const timer = setTimeout(() => setSettled(settleKey), SETTLE_MS);
     return () => clearTimeout(timer);
   }, [settleKey]);
+  // Each step fades in once settled, and out as soon as the player has done it (or the screen starts to move):
+  // what was showing stays drawn, fading, until the next is ready.
+  const live = !!tour && !tour.step.tile && (!tour.step.target || !!rect) && settled === settleKey;
+  const [fade] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    Animated.timing(fade, {
+      toValue: live ? 1 : 0,
+      duration: live ? FADE_IN_MS : FADE_OUT_MS,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [live, fade]);
+  const last = useMemo(() => {
+    const box: { frame: ReactNode } = { frame: null };
+    return { keep: (frame: ReactNode) => Object.assign(box, { frame }), get: () => box.frame };
+  }, []);
 
   // The end: back to the home screen, the Sample Deck set back to table mode (the walkthrough leaves it in
   // reveal mode), and a little flourish.
@@ -175,11 +195,19 @@ export function TourOverlay() {
   };
   const flourish = finished ? <Flourish key={finished} /> : null;
 
-  if (!tour || tour.step.tile) return flourish;
+  // Not showing a step (between steps, or waiting for its control to come on screen): the last one fades away.
+  if (!live || !tour) {
+    return (
+      <>
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]} pointerEvents="none">
+          {last.get()}
+        </Animated.View>
+        {flourish}
+      </>
+    );
+  }
   const { step, index } = tour;
-  // Waiting for its control to come on screen (say, while the next screen slides in).
   const pointing = step.target ? rect : undefined;
-  if ((step.target && !pointing) || settled !== settleKey) return flourish;
 
   const top = insets.top + 8;
   const bottom = height - insets.bottom - 8;
@@ -202,7 +230,7 @@ export function TourOverlay() {
     h: pointing.h + RING_PAD * 2,
   };
 
-  return (
+  const frame = (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       {/* Without a control to point at, the whole screen dims behind the tip. */}
       {!pointing ? <View style={[StyleSheet.absoluteFill, styles.dim]} /> : null}
@@ -225,6 +253,15 @@ export function TourOverlay() {
         <TourTip index={index} step={step} onNext={index === TOUR.length - 1 ? finish : nextTourStep} />
       </View>
     </View>
+  );
+  last.keep(frame);
+  return (
+    <>
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]} pointerEvents="box-none">
+        {frame}
+      </Animated.View>
+      {flourish}
+    </>
   );
 }
 

@@ -54,8 +54,13 @@ export interface TourStep {
   next?: string;
   /** Inside a menu (which draws over everything): the menu itself shows the tip, by this tile. */
   tile?: string;
-  /** Without a target: where the tip sits (the middle of the screen unless it's 'top'). */
-  place?: 'top';
+  /**
+   * Where the tip sits: by default beside its control (above or below), or in the middle without one. 'top' puts
+   * it at the top of the screen, 'right' to the control's right (narrower), to keep clear of what's needed.
+   */
+  place?: 'top' | 'right';
+  /** How long to wait after the step's event before moving on, so its result can be seen. */
+  after?: number;
   /** Darken everything but the target. Off where the player needs to see the table to drag across it. */
   dim?: boolean;
 }
@@ -111,24 +116,29 @@ export const TOUR: TourStep[] = [
     text: 'Drag the top card off the deck and drop it anywhere on the table.',
     target: 'table.deck',
     until: 'to-table',
+    place: 'right',
   },
   {
     title: 'Tap a card',
     text: 'Tap the card you put down to see what you can do with it.',
     target: 'table.card',
     until: 'card-menu',
+    place: 'top',
   },
   {
     title: 'Flip it over',
     text: "Tap Flip over to reveal the card. Cards can also be flipped while they're being dragged.",
     tile: 'Flip over',
     until: 'flipped',
+    // Time to watch it turn over.
+    after: 1300,
   },
   {
     title: 'Your hand',
     text: 'Drag a card from the table or the deck down into your hand. Tap the tab on top to tuck it away.',
     target: 'table.hand',
     until: 'to-hand',
+    place: 'top',
   },
   {
     title: 'Shuffle',
@@ -165,11 +175,13 @@ export const TOUR: TourStep[] = [
 interface State {
   /** The step showing, or null when the tour isn't running. */
   step: number | null;
+  /** A step whose result is being shown before the next (see `after`): the tour is still on. */
+  pausedAt: number | null;
   /** Where the controls steps point at are on screen, as their screens report them. */
   targets: Partial<Record<TourTarget, Rect>>;
 }
 
-let state: State = { step: null, targets: {} };
+let state: State = { step: null, pausedAt: null, targets: {} };
 const listeners = new Set<() => void>();
 const set = (next: Partial<State>) => {
   state = { ...state, ...next };
@@ -180,8 +192,8 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 
-export const startTour = () => set({ step: 0 });
-export const endTour = () => set({ step: null });
+export const startTour = () => set({ step: 0, pausedAt: null });
+export const endTour = () => set({ step: null, pausedAt: null });
 /** On to the next step, or the end. */
 export const nextTourStep = () => {
   if (state.step === null) return;
@@ -195,7 +207,15 @@ export const previousTourStep = () => {
 
 /** The player did something: if it's what the current step waits for, the tour moves on. */
 export function tourEvent(event: TourEvent) {
-  if (state.step !== null && TOUR[state.step].until === event) nextTourStep();
+  const at = state.step;
+  if (at === null || TOUR[at].until !== event) return;
+  const wait = TOUR[at].after;
+  if (!wait) return nextTourStep();
+  // Meanwhile the tip goes, so the result is in plain view; then on, unless the tour has moved since.
+  set({ step: null, pausedAt: at });
+  setTimeout(() => {
+    if (state.pausedAt === at) set({ step: at + 1 < TOUR.length ? at + 1 : null, pausedAt: null });
+  }, wait);
 }
 
 /** Reports where a control is on screen (null once it's gone), for steps that point at it. */
@@ -210,7 +230,7 @@ export function setTourTarget(target: TourTarget, rect: Rect | null) {
 }
 
 /** Whether the tour is running (a cheap check, outside React). */
-export const tourRunning = () => state.step !== null;
+export const tourRunning = () => state.step !== null || state.pausedAt !== null;
 
 /** The current step (and its number), or null. Redraws only when the step changes. */
 export function useTourStep(): { index: number; step: TourStep } | null {

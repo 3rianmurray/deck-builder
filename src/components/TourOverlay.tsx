@@ -15,6 +15,8 @@ import { Text } from './Text';
 
 /** How long after leaving the table the Sample Deck goes back to table mode (once the table's out of sight). */
 const MODE_RESET_MS = 700;
+/** How long a step waits, and its control stays still, before it shows. */
+const SETTLE_MS = 450;
 /** Room left round a highlighted control. */
 const RING_PAD = 8;
 /** Space between the tip and the control it points at. */
@@ -151,6 +153,14 @@ export function TourOverlay() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [tipHeight, setTipHeight] = useState(0);
+  // Shown only once things have settled: a moment after the step changes (the next screen sliding in and
+  // filling up), and while its control stays put (not mid-scroll or mid-slide).
+  const settleKey = tour ? `:` : null;
+  const [settled, setSettled] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(settleKey), SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [settleKey]);
 
   // The end: back to the home screen, the Sample Deck set back to table mode (the walkthrough leaves it in
   // reveal mode), and a little flourish.
@@ -169,14 +179,17 @@ export function TourOverlay() {
   const { step, index } = tour;
   // Waiting for its control to come on screen (say, while the next screen slides in).
   const pointing = step.target ? rect : undefined;
-  if (step.target && !pointing) return flourish;
+  if ((step.target && !pointing) || settled !== settleKey) return flourish;
 
   const top = insets.top + 8;
   const bottom = height - insets.bottom - 8;
   // Beside the control: below it if it's in the top half of the screen, above it if not; kept on screen.
-  // Without a control, in the middle (or near the top, for steps that ask).
+  // Without a control, in the middle. Steps can ask for the top of the screen instead, or for beside the control
+  // on its right, to keep clear of what the player needs to reach.
   const tipTop = (() => {
-    if (!pointing) return step.place === 'top' ? top + height * 0.08 : (height - tipHeight) / 2;
+    if (step.place === 'top') return pointing ? top : top + height * 0.08;
+    if (step.place === 'right' && pointing) return Math.min(Math.max(pointing.y - RING_PAD, top), bottom - tipHeight);
+    if (!pointing) return (height - tipHeight) / 2;
     const below = pointing.y + pointing.h / 2 < height / 2;
     const want = below ? pointing.y + pointing.h + RING_PAD + TIP_GAP : pointing.y - RING_PAD - TIP_GAP - tipHeight;
     return Math.min(Math.max(want, top), bottom - tipHeight);
@@ -203,7 +216,11 @@ export function TourOverlay() {
       ) : null}
       {pointing ? <Ring rect={pointing} /> : null}
       <View
-        style={[styles.tipWrap, { top: tipTop, opacity: tipHeight ? 1 : 0 }]}
+        style={[
+          styles.tipWrap,
+          { top: tipTop, opacity: tipHeight ? 1 : 0 },
+          step.place === 'right' && pointing && { left: pointing.x + pointing.w + RING_PAD + TIP_GAP / 2 },
+        ]}
         onLayout={(e) => setTipHeight(e.nativeEvent.layout.height)}>
         <TourTip index={index} step={step} onNext={index === TOUR.length - 1 ? finish : nextTourStep} />
       </View>

@@ -2465,10 +2465,6 @@ function Table({
       }}>
 
       {/*
-        The table itself, laid out flat and drawn leaning back on the tabletop. It exactly covers this view, so
-        layouts measured inside it are in the same (flat) coordinates that `toTable` maps fingers into.
-      */}
-      {/*
         The flip button, while cards are dragged: drawn flat rather than on the tilted table, so it's a true
         circle, as tall on screen as the decks it sits between. Drawn under the table's layer, which is clear
         between the piles, so held cards pass over it.
@@ -2489,6 +2485,10 @@ function Table({
         </FadeIn>
       ) : null}
 
+      {/*
+        The table itself, laid out flat and drawn leaning back on the tabletop. It exactly covers this view, so
+        layouts measured inside it are in the same (flat) coordinates that `toTable` maps fingers into.
+      */}
       {/*
         The clipping wrapper matters: iOS sorts 3D layers by depth, so the half of the table leaning away from
         the viewer would otherwise be hidden behind the cloth. Clipping flattens the tilted table into this

@@ -181,12 +181,16 @@ export function ActionSheet(props: Props) {
                 key={a.label}
                 onPress={() => run(a)}
                 disabled={isOff(a)}
+                accessibilityRole="button"
                 accessibilityState={{ disabled: isOff(a) }}
                 style={({ pressed }) => [styles.action, isGuided(a) && styles.guided, pressed && styles.pressed, isOff(a) && styles.tileDisabled]}>
                 <Text style={[styles.actionText, a.destructive && { color: colors.danger }]}>{a.label}</Text>
               </Pressable>
             ))}
-            <Pressable onPress={onClose} style={({ pressed }) => [styles.action, styles.cancel, pressed && styles.pressed]}>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.action, styles.cancel, pressed && styles.pressed]}>
               <Text style={[styles.actionText, { fontWeight: '600' }]}>Cancel</Text>
             </Pressable>
           </ScrollView>

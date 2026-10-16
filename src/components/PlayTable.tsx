@@ -1983,6 +1983,19 @@ function Table({
     });
 
   /** Wraps a card so the wrapper, not the card's own children, receives touches. */
+  /**
+   * What VoiceOver says for a card: which card (or that it's face down), and where it is. A pile says how many
+   * cards it holds, and a stack how many are in it.
+   */
+  const spokenCard = (inst: CardInstance, from: Zone, stacked?: number) => {
+    const name = inst.faceUp ? (cardsById.get(inst.cardId)?.name ?? 'Card') : 'Face-down card';
+    const count = (n: number) => `${n} ${n === 1 ? 'card' : 'cards'}`;
+    if (from === 'deck') return `Deck, ${count(table.deck.length)}`;
+    if (from === 'discard') return `Discard pile, ${count(table.discard.length)}, top card ${name}`;
+    if (stacked && stacked > 1) return `Stack of ${stacked} on the table, top card ${name}`;
+    return from === 'hand' ? `${name}, in your hand` : `${name}, on the table`;
+  };
+
   const draggable = (
     inst: CardInstance,
     from: Zone,
@@ -2002,7 +2015,10 @@ function Table({
       {...dragHandlers(inst, from, cardWidth, opts).panHandlers}
       accessible
       accessibilityRole="button"
-      accessibilityLabel={inst.faceUp ? cardsById.get(inst.cardId)?.name : 'Face-down card'}
+      accessibilityLabel={spokenCard(inst, from, opts.stack?.cards.length)}
+      accessibilityHint={
+        from === 'deck' ? (reveal ? 'Turns over the top card.' : 'Draws a card into your hand.') : 'Opens its options, to flip or move it.'
+      }
       onAccessibilityTap={opts.onPress}
       style={[{ pointerEvents: 'box-only' }, place, collapsed && styles.collapsed]}>
       {children}
@@ -2650,7 +2666,7 @@ function Table({
       <View style={[StyleSheet.absoluteFill, styles.stage]}>
       <View ref={stageRef} style={[StyleSheet.absoluteFill, tilt.angle ? { transform: tiltTransform(tilt) } : null]}>
       {missing > 0 ? (
-        <Pressable style={styles.banner} onPress={() => {
+        <Pressable style={styles.banner} accessibilityRole="button" onPress={() => {
             shuffleDeck((t) => T.addMissingCards(t, deck));
             flash('Added to deck');
           }}>

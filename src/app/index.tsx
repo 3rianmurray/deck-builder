@@ -2,6 +2,7 @@ import { Stack, router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
+import type { AccessibilityActionEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '../components/ActionSheet';
@@ -159,6 +160,15 @@ export default function HomeScreen() {
     }
   };
 
+  /**
+   * A row is one button to VoiceOver, so the buttons inside it (Play, •••) and its swipe buttons can't be reached
+   * one by one. They're offered as the row's actions instead: swipe up or down on it to pick one.
+   */
+  const rowActions = (actions: { name: string; label: string; run: () => void }[]) => ({
+    accessibilityActions: actions.map(({ name, label }) => ({ name, label })),
+    onAccessibilityAction: (e: AccessibilityActionEvent) => actions.find((a) => a.name === e.nativeEvent.actionName)?.run(),
+  });
+
   const renderRow = (row: Row, lifted = false) => {
     if (row.kind === 'group') {
       const group = groups.find((g) => g.id === row.id);
@@ -174,14 +184,18 @@ export default function HomeScreen() {
           onLongPress={() => {}}
           delayLongPress={LIFT_HOLD_MS}
           accessibilityRole="button"
-          accessibilityLabel={`${group.name}, ${count} ${count === 1 ? 'deck' : 'decks'}, ${group.collapsed ? 'collapsed' : 'expanded'}`}
+          accessibilityLabel={`${group.name}, group of ${count} ${count === 1 ? 'deck' : 'decks'}, ${group.collapsed ? 'collapsed' : 'expanded'}`}
+          {...rowActions([
+            { name: 'options', label: 'Options', run: () => setGroupMenu(group.id) },
+            { name: 'delete', label: 'Delete group', run: () => deleteGroup(group.id) },
+          ])}
           style={[styles.groupRow, lifted && styles.liftedRow]}>
           <Text style={styles.chevron}>{group.collapsed ? '▸' : '▾'}</Text>
           <Text style={styles.groupName} numberOfLines={1}>
             {group.name}
           </Text>
           <Text style={styles.groupCount}>{count}</Text>
-          <Pressable onPress={() => setGroupMenu(group.id)} hitSlop={12} accessibilityLabel={`${group.name} options`}>
+          <Pressable onPress={() => setGroupMenu(group.id)} hitSlop={12} accessibilityRole="button" accessibilityLabel={`${group.name} options`}>
             <Text style={styles.groupMenu}>•••</Text>
           </Pressable>
         </Pressable>
@@ -202,7 +216,17 @@ export default function HomeScreen() {
         onPress={() => router.push({ pathname: '/deck/[id]', params: { id: deck.id } })}
         // Matches the list's hold-to-lift, so letting go after lifting doesn't also open the deck.
         onLongPress={() => {}}
-        delayLongPress={LIFT_HOLD_MS}>
+        delayLongPress={LIFT_HOLD_MS}
+        accessibilityRole="button"
+        accessibilityLabel={`${deck.name}, ${deckSize(deck)} ${deckSize(deck) === 1 ? 'card' : 'cards'}`}
+        accessibilityHint="Opens the deck to edit it."
+        {...rowActions([
+          ...(deck.cards.length
+            ? [{ name: 'play', label: 'Play', run: () => router.push({ pathname: '/play/[id]', params: { id: deck.id } }) }]
+            : []),
+          { name: 'duplicate', label: 'Duplicate', run: () => copyDeck(deck.id) },
+          { name: 'delete', label: 'Delete', run: () => confirmDeleteDeck(deck.id, deck.name) },
+        ])}>
         <CardView deck={deck} card={deck.cards[0]} faceUp={!deck.backImage && !!deck.cards[0]} width={48} />
         <View style={{ flex: 1 }}>
           <Text style={styles.name} numberOfLines={1}>
@@ -241,7 +265,16 @@ export default function HomeScreen() {
           <SwipeRow key={s.id} {...swipe(`session:${s.id}`, () => confirmDeleteSession(s.id, s.name))}>
             <Pressable
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
-              onPress={() => router.push({ pathname: '/session/edit', params: { id: s.id } })}>
+              onPress={() => router.push({ pathname: '/session/edit', params: { id: s.id } })}
+              accessibilityRole="button"
+              accessibilityLabel={`${s.name}, session: ${names.length ? names.join(', ') : 'no decks'}`}
+              accessibilityHint="Opens the session to choose its decks."
+              {...rowActions([
+                ...(names.length
+                  ? [{ name: 'play', label: 'Play', run: () => router.push({ pathname: '/session/[id]', params: { id: s.id } }) }]
+                  : []),
+                { name: 'delete', label: 'Delete', run: () => confirmDeleteSession(s.id, s.name) },
+              ])}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.name} numberOfLines={1}>
                   {s.name}

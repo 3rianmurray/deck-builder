@@ -94,7 +94,7 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
         renderRightActions={() => action('Delete', { ios: 'trash', android: 'delete', web: 'delete' }, colors.danger, onDelete, { paddingLeft: GAP })}>
         <View>
           {children}
-          {open ? <Pressable style={StyleSheet.absoluteFill} onPress={() => ref.current?.close()} accessibilityLabel="Close" /> : null}
+          {open ? <Pressable style={StyleSheet.absoluteFill} onPress={() => ref.current?.close()} accessibilityRole="button" accessibilityLabel="Close" /> : null}
         </View>
       </ReanimatedSwipeable>
     </View>

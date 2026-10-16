@@ -48,7 +48,7 @@ export default function SessionScreen() {
         <View style={[styles.felt, styles.center]}>
         <Text style={styles.muted}>{session ? 'This session has no decks left.' : 'This session no longer exists.'}</Text>
         {session ? (
-          <Pressable onPress={() => router.push({ pathname: '/session/edit', params: { id: session.id } })} hitSlop={12}>
+          <Pressable onPress={() => router.push({ pathname: '/session/edit', params: { id: session.id } })} hitSlop={12} accessibilityRole="button">
             <Text style={styles.link}>Choose decks</Text>
           </Pressable>
         ) : null}
@@ -99,6 +99,7 @@ export default function SessionScreen() {
           <Pressable
             onPress={() => router.push({ pathname: '/session/edit', params: { id: session.id } })}
             disabled={!!controls?.busy}
+            accessibilityRole="button"
             accessibilityLabel="Edit session"
             style={[styles.tab, { height: tabHeight }]}>
             <Text style={styles.tabText}>Edit</Text>

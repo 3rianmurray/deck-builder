@@ -95,6 +95,7 @@ const Cell = memo(function Cell<T>({
   landing,
   renderItem,
   onLayout,
+  onActivate,
 }: {
   item: T;
   width: number;
@@ -104,9 +105,16 @@ const Cell = memo(function Cell<T>({
   landing: boolean;
   renderItem: (item: T) => ReactNode;
   onLayout?: (e: LayoutChangeEvent) => void;
+  /** VoiceOver's double-tap: the same as tapping it (taps themselves come through the grid's touch handling). */
+  onActivate: (item: T) => void;
 }) {
   return (
-    <View onLayout={onLayout} style={[{ width, pointerEvents: 'box-only' }, picked && styles.placeholder, hidden && { opacity: 0 }]}>
+    <View
+      onLayout={onLayout}
+      accessible
+      accessibilityRole="button"
+      onAccessibilityTap={() => onActivate(item)}
+      style={[{ width, pointerEvents: 'box-only' }, picked && styles.placeholder, hidden && { opacity: 0 }]}>
       <View style={picked && { opacity: 0 }}>{renderItem(item)}</View>
       {landing ? <View style={styles.landing} /> : null}
     </View>
@@ -120,6 +128,7 @@ const Cell = memo(function Cell<T>({
   landing: boolean;
   renderItem: (item: T) => ReactNode;
   onLayout?: (e: LayoutChangeEvent) => void;
+  onActivate: (item: T) => void;
 }) => ReactElement;
 
 /**
@@ -447,6 +456,13 @@ export function ReorderableGrid<T>({
   // the landing slot is outlined, and each cell only re-renders when its own state changes.
   const picked = settling ? undefined : lifted?.picked;
   const settlingKeys = settling?.keys;
+  // VoiceOver's double-tap on a cell, made once so the cells needn't re-render; it reads the latest onPress.
+  const [pressing] = useState(() => {
+    const box = { onPress };
+    return { set: (next: typeof onPress) => Object.assign(box, { onPress: next }), get: () => box.onPress };
+  });
+  pressing.set(onPress);
+  const [activate] = useState(() => (item: T) => pressing.get()(item));
 
   // What's carried, as it was picked up: while it settles, the items may already have moved in the list.
   const heldItems = settling ? settling.items : (lifted?.picked.map((i) => items[i]) ?? []);
@@ -496,6 +512,7 @@ export function ReorderableGrid<T>({
               landing={index === target && !(picked?.length === 1 && picked[0] === target)}
               renderItem={renderItem}
               onLayout={index === 0 ? measureItem : undefined}
+              onActivate={activate}
             />
           ))}
         </View>

@@ -13,6 +13,7 @@ import { CropModal } from '../../components/CropModal';
 import { ReorderableGrid } from '../../components/ReorderableGrid';
 import { SpriteSheetModal } from '../../components/SpriteSheetModal';
 import { useDecks } from '../../lib/DecksContext';
+import { deleteDeckWarning } from '../../lib/deckInUse';
 import { imageUri } from '../../lib/storage';
 import { cardRatio, copiesOf, deckSize } from '../../lib/types';
 import type { Card } from '../../lib/types';
@@ -152,7 +153,7 @@ export default function DeckEditorScreen() {
   };
 
   const confirmDelete = () =>
-    Alert.alert(`Delete "${deck.name}"?`, 'This removes the deck and all of its card images from this device.', [
+    Alert.alert(`Delete "${deck.name}"?`, deleteDeckWarning(deck.id, decks.sessions), [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',

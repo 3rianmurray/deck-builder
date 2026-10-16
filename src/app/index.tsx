@@ -10,6 +10,7 @@ import { LIFT_HOLD_MS, ReorderableList } from '../components/ReorderableList';
 import { SwipeRow } from '../components/SwipeRow';
 import type { SwipeSide } from '../components/SwipeRow';
 import { useDecks } from '../lib/DecksContext';
+import { deleteDeckWarning } from '../lib/deckInUse';
 import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
@@ -62,7 +63,7 @@ export default function HomeScreen() {
   // Decks and sessions take things with them, so ask first. A group's decks are kept, so it just goes.
   const confirmDeleteDeck = (id: string, name: string) => {
     haptics.warn();
-    Alert.alert(`Delete "${name}"?`, 'This removes the deck and all of its card images from this device.', [
+    Alert.alert(`Delete "${name}"?`, deleteDeckWarning(id, sessions), [
       { text: 'Cancel', style: 'cancel', onPress: closeRows },
       { text: 'Delete', style: 'destructive', onPress: () => deleteDeck(id) },
     ]);

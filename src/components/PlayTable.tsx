@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
   Alert,
@@ -342,8 +342,11 @@ interface PageProps {
 /**
  * A deck's play table: piles, play area and hand, or reveal mode. Loads and saves the deck's table state,
  * which is kept separately for each session (`sessionId`) and for playing the deck on its own.
+ *
+ * Memoised: a session's screen redraws whenever its pager is held still or let go (e.g. as a finger lands on the
+ * hand), and redrawing every deck's table then would be slow enough for the pager to start moving first.
  */
-export function DeckTable({
+export const DeckTable = memo(function DeckTable({
   deckId,
   sessionId,
   active = true,
@@ -381,7 +384,7 @@ export function DeckTable({
       />
     </OnTabletopContext.Provider>
   );
-}
+});
 
 function Table({
   deck,

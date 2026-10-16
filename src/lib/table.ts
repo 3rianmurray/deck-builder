@@ -306,6 +306,68 @@ export function spreadStack(state: TableState, stackIid: string, cols: number): 
   return pinSpots({ ...state, table: [...kept, ...placed] }, cols);
 }
 
+/**
+ * Puts cards (listed in the order they should go) into the table grid at `spot`, between the cards there:
+ * the card in that spot, and those after it in reading order, move along to make room, each only as far as it
+ * must (into the first gap it reaches). With `asStack` they go in as one stack (listed top first), taking one
+ * spot; otherwise each takes a spot of its own, one after another. They face `faceUp`, or face up.
+ */
+export function insertOnTable(
+  state: TableState,
+  iids: string[],
+  spot: Spot,
+  cols: number,
+  faceUp?: boolean,
+  asStack = false,
+): TableState {
+  const moving: CardInstance[] = [];
+  for (const iid of iids) {
+    const found = findCard(state, iid);
+    if (found) moving.push({ ...unstacked(state[found.zone][found.index]), faceUp: faceUp ?? true });
+  }
+  if (moving.length === 0) return state;
+  const ids = new Set(moving.map((c) => c.iid));
+  let next: TableState = { ...state };
+  for (const z of ZONES) next[z] = state[z].filter((c) => !ids.has(c.iid));
+  next = pinSpots(tidyStacks(next), cols);
+  const groups = stackGroups(next.table);
+  const spots = gridSpots(next.table, cols);
+  const at = (s: Spot) => s.row * cols + s.col;
+  const spotOf = (n: number): Spot => ({ row: Math.floor(n / cols), col: n % cols });
+  const start = at(spot);
+  const taken = new Set<number>();
+  // Everything before the spot stays where it is.
+  groups.forEach((_, j) => {
+    if (at(spots[j]) < start) taken.add(at(spots[j]));
+  });
+  // The new cards, from the spot on.
+  const placed: CardInstance[] = [];
+  if (asStack && moving.length > 1) {
+    const stack = moving[moving.length - 1].iid;
+    taken.add(start);
+    // Listed top first; a stack is kept bottom first, all one way up (the top card's).
+    for (const c of moving.slice().reverse()) placed.push({ ...c, faceUp: moving[0].faceUp, stack, spot: spot });
+  } else {
+    let n = start;
+    for (const c of moving) {
+      while (taken.has(n)) n++;
+      taken.add(n);
+      placed.push({ ...c, spot: spotOf(n) });
+    }
+  }
+  // Then everything from the spot on, in order: where it was, or moved along to the next free spot.
+  const after: CardInstance[] = [];
+  groups.forEach((g, j) => {
+    if (at(spots[j]) < start) return;
+    let n = at(spots[j]);
+    while (taken.has(n)) n++;
+    taken.add(n);
+    for (const c of g) after.push({ ...c, spot: spotOf(n) });
+  });
+  const before = groups.flatMap((g, j) => (at(spots[j]) < start ? g.map((c) => ({ ...c, spot: spots[j] })) : []));
+  return pinSpots({ ...next, table: [...before, ...placed, ...after] }, cols);
+}
+
 /** `faceUp` overrides the zone's usual facing, e.g. a card dragged from the deck and not yet revealed. */
 export function moveCard(state: TableState, iid: string, to: Zone, position?: Position, faceUp?: boolean): TableState {
   const found = findCard(state, iid);

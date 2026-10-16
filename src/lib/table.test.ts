@@ -13,6 +13,7 @@ import {
   flipAll,
   gridSpots,
   insertCards,
+  insertOnTable,
   missingCards,
   moveCard,
   moveCards,
@@ -255,6 +256,30 @@ test('a stack spreads out into single cards, pushing cards in the way down the g
     ],
   );
   assert.equal(cardCount(spread), 6);
+});
+
+test('cards can be put between two others, which move along only as far as they must', () => {
+  let t = draw(createTable(makeDeck(6), noShuffle), 6); // hand: c0..c5
+  // A row of c0, c1, c2 at (0,0)-(0,2); c3 at (1,1), with a gap at (1,0) and (1,2).
+  t = placeOnTable(t, [t.hand[0].iid, t.hand[1].iid, t.hand[2].iid], { row: 0, col: 0 }, 3);
+  t = placeOnTable(t, [t.hand[0].iid], { row: 1, col: 1 }, 3); // c3
+  // c4 between c0 and c1: c1, c2 move along; c2 wraps into the gap at (1,0), so c3 stays put.
+  const one = insertOnTable(t, [t.hand[0].iid], { row: 0, col: 1 }, 3);
+  assert.deepEqual(
+    one.table.map((c) => [c.cardId, c.spot]),
+    [
+      ['c0', { row: 0, col: 0 }],
+      ['c4', { row: 0, col: 1 }],
+      ['c1', { row: 0, col: 2 }],
+      ['c2', { row: 1, col: 0 }],
+      ['c3', { row: 1, col: 1 }],
+    ],
+  );
+  // Two held cards as one stack take just one spot.
+  const stacked = insertOnTable(t, [t.hand[0].iid, t.hand[1].iid], { row: 0, col: 1 }, 3, true, true);
+  assert.equal(stackGroups(stacked.table).length, 5);
+  assert.deepEqual(stackGroups(stacked.table)[1].map((c) => c.cardId), ['c5', 'c4']);
+  assert.equal(cardCount(stacked), 6);
 });
 
 test('stacks saved with mixed faces are evened out to the bottom card when loaded', () => {

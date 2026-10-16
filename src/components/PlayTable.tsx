@@ -44,7 +44,7 @@ type Sheet =
   | { kind: 'discard' }
   | { kind: 'table' }
   /** Several cards (top first) let go on an empty table spot, asking how to put them down. */
-  | { kind: 'place'; iids: string[]; spot: Spot; faceUp: boolean };
+  | { kind: 'place'; iids: string[]; spot: Spot; faceUp: boolean; insert?: boolean };
 
 /** Distance a finger must travel before a press turns into a drag. */
 const DRAG_SLOP = 8;
@@ -109,6 +109,13 @@ const HAND_FOLDED_SHOWS = 38;
 const HAND_TAB_HEIGHT = 24;
 /** Size of the trash can that appears while dragging. */
 const TRASH_SIZE = 56;
+/**
+ * Between two cards side by side, how far towards each card's middle (as a fraction of the step from one to the
+ * next) still counts as between them, for putting cards in there.
+ */
+const INSERT_REACH = 0.72;
+/** How wide the bar is that shows where cards would go in between two others. */
+const INSERT_BAR = 4;
 /** The play table's grid: space round its edge, and the least space between cards. */
 const GRID_PAD = 14;
 const GRID_GAP = 10;
@@ -228,13 +235,13 @@ const LANDING_EDGES = 6;
  * Where carried cards would go: a position between the cards in the hand (counting the cards there that
  * aren't being carried), or a free spot in the table's grid.
  */
-type InsertAt = { zone: 'hand'; index: number } | { zone: 'table'; spot: Spot };
+type InsertAt = { zone: 'hand'; index: number } | { zone: 'table'; spot: Spot; insert?: boolean };
 
 const sameSpot = (a: Spot | undefined, b: Spot | undefined) => a?.row === b?.row && a?.col === b?.col;
 function sameInsert(a: InsertAt | null, b: InsertAt | null): boolean {
   if (!a || !b) return a === b;
   if (a.zone === 'hand') return b.zone === 'hand' && a.index === b.index;
-  return b.zone === 'table' && sameSpot(a.spot, b.spot);
+  return b.zone === 'table' && sameSpot(a.spot, b.spot) && !!a.insert === !!b.insert;
 }
 
 interface HeldCard {
@@ -1570,10 +1577,19 @@ function Table({
       return;
     }
 
-    // Several cards put down on an empty spot: ask whether they go there together as a stack, or side by side.
-    // They go back where they were until the player chooses (or cancels).
+    // Several cards put down on an empty spot (or between two cards): ask whether they go there together as a
+    // stack, or side by side. They go back where they were until the player chooses (or cancels).
     if (ids.length > 1 && zone === 'table' && at?.zone === 'table') {
-      open({ kind: 'place', iids: ids, spot: at.spot, faceUp: d.faceUp });
+      open({ kind: 'place', iids: ids, spot: at.spot, faceUp: d.faceUp, insert: at.insert });
+      return;
+    }
+
+    // Between two cards: it goes in there, the cards from there on gliding along to make room.
+    if (zone === 'table' && at?.zone === 'table' && at.insert) {
+      glideIn('table');
+      const next = T.insertOnTable(table, ids, at.spot, cols, d.faceUp);
+      apply(() => next);
+      if (!prefersReducedMotion()) launch(planFlights(table, next).filter((f) => !ids.includes(f.iid)));
       return;
     }
 
@@ -1666,6 +1682,28 @@ function Table({
   };
 
   /**
+   * Between two cards side by side on the table: the spot of the second (where dropped cards would go in, the
+   * cards from there on moving along to make room), if the held card's middle is over the gap between them.
+   */
+  const gapAt = (p: { x: number; y: number } | null): Spot | null => {
+    const o = laidOutAt('table');
+    if (!o || !p || !gridReady || !colStep) return null;
+    const x = p.x - o.x - GRID_PAD - tableCardWidth / 2;
+    const y = p.y - o.y - GRID_PAD - cellH / 2;
+    const row = Math.round(y / rowStep);
+    if (row < 0 || Math.abs(y - row * rowStep) > cellH / 2) return null;
+    const along = x / colStep;
+    const col = Math.floor(along);
+    const between = along - col;
+    // The middle stretch between two spots' middles: the gap, and the near edges of the two cards.
+    if (col < 0 || col >= cols - 1 || between < 1 - INSERT_REACH || between > INSERT_REACH) return null;
+    const taken = new Set(
+      tableGroups.flatMap((g, i) => (g.some((c) => !isHeld(c.iid)) ? [`${groupSpots[i].row}:${groupSpots[i].col}`] : [])),
+    );
+    return taken.has(`${row}:${col}`) && taken.has(`${row}:${col + 1}`) ? { row, col: col + 1 } : null;
+  };
+
+  /**
    * The grid spot dropped cards would go in on the table: the one under the finger, or if a card is already
    * there, the nearest free one. Spots of cards being carried away count as free.
    */
@@ -1737,8 +1775,10 @@ function Table({
       const index = handInsertionAt(finger.pageX, finger.pageY);
       if (index !== null) next = { zone, index };
     } else if (zone === 'table' && !onto) {
-      const spot = spotAt(held);
-      if (spot) next = { zone, spot };
+      // Between two cards, it goes in between them; anywhere else, in the free spot by it.
+      const gap = gapAt(held);
+      const spot = gap ?? spotAt(held);
+      if (spot) next = { zone, spot, insert: !!gap };
     }
     // Compared with the latest targets, not the rendered ones, which may be a moment behind (see below).
     const was = target.get();
@@ -2107,7 +2147,9 @@ function Table({
   // spot it would land in (taking the top off a stack leaves the stack); an outline shows where cards will go.
 
   /** The spot carried cards would land in on the table, if that's where they're headed. */
-  const dropSpot = drag?.active && insertAt?.zone === 'table' && !stackTarget ? insertAt.spot : null;
+  const dropSpot = drag?.active && insertAt?.zone === 'table' && !insertAt.insert && !stackTarget ? insertAt.spot : null;
+  /** Where carried cards would go in between two cards: a bar in the gap before this spot (see `gapAt`). */
+  const insertSpot = drag?.active && insertAt?.zone === 'table' && insertAt.insert && !stackTarget ? insertAt.spot : null;
   /** The outlined spot: where carried cards will land, or where some are waiting to be put down (see 'place'). */
   const outlineSpot = dropSpot ?? (sheetOpen && sheet.kind === 'place' ? sheet.spot : null);
   /** Where each table group is drawn: in its spot, or for the dragged card's blank, where it would land. */
@@ -2198,15 +2240,24 @@ function Table({
           ],
         };
       case 'place': {
-        const { iids, spot, faceUp } = sheet;
+        const { iids, spot, faceUp, insert } = sheet;
         const put = (fn: (t: TableState) => TableState) => () => {
           moveCards(fn, undefined, true);
         };
         return {
           title: `Put down ${iids.length} cards`,
           actions: [
-            { label: 'As a stack', onPress: put((t) => T.placeStackOnTable(t, iids, spot, cols, faceUp)) },
-            { label: 'Side by side', onPress: put((t) => T.placeOnTable(t, iids, spot, cols, faceUp)) },
+            // Between two cards, they go in there, the cards from there on moving along; anywhere else, into the spot.
+            {
+              label: 'As a stack',
+              onPress: put((t) =>
+                insert ? T.insertOnTable(t, iids, spot, cols, faceUp, true) : T.placeStackOnTable(t, iids, spot, cols, faceUp),
+              ),
+            },
+            {
+              label: 'Side by side',
+              onPress: put((t) => (insert ? T.insertOnTable(t, iids, spot, cols, faceUp) : T.placeOnTable(t, iids, spot, cols, faceUp))),
+            },
           ],
         };
       }
@@ -2583,6 +2634,19 @@ function Table({
             onMomentumScrollEnd={(e) => trackScroll('play', e.nativeEvent.contentOffset.y)}>
             {table.table.length || outlineSpot ? null : <Text style={styles.hint}>Drag a card anywhere here to play it.</Text>}
             {gridReady ? tableGroups.map((g, i) => renderStack(g, drawnSpot(g, i))) : null}
+            {insertSpot ? (
+              <View
+                style={[
+                  styles.insertBar,
+                  {
+                    // In the middle of the gap before the spot's card.
+                    left: spotPlace(insertSpot).left - (colStep - tableCardWidth) / 2 - INSERT_BAR / 2,
+                    top: spotPlace(insertSpot).top,
+                    height: cellH,
+                  },
+                ]}
+              />
+            ) : null}
             {outlineSpot ? (
               <View
                 style={[
@@ -3377,6 +3441,8 @@ const styles = StyleSheet.create({
   playArea: { flex: 1, borderWidth: 2, borderColor: 'transparent' },
   // The cards are placed in the grid by hand (see `spotPlace`).
   playAreaContent: { flexGrow: 1 },
+  // Where carried cards would go in between two cards.
+  insertBar: { position: 'absolute', width: INSERT_BAR, borderRadius: INSERT_BAR / 2, backgroundColor: colors.accent, pointerEvents: 'none' },
   // Where carried cards will land on the table.
   dropSpot: {
     borderWidth: 2,

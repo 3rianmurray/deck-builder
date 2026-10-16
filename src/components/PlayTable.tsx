@@ -2469,6 +2469,27 @@ function Table({
         layouts measured inside it are in the same (flat) coordinates that `toTable` maps fingers into.
       */}
       {/*
+        The flip button, while cards are dragged: drawn flat rather than on the tilted table, so it's a true
+        circle, as tall on screen as the decks it sits between. Drawn under the table's layer, which is clear
+        between the piles, so held cards pass over it.
+      */}
+      {drag?.active && flipButton ? (
+        <FadeIn
+          style={[
+            styles.flip,
+            {
+              left: flipButton.x - flipButton.size / 2,
+              top: flipButton.y - flipButton.size / 2,
+              width: flipButton.size,
+              height: flipButton.size,
+              borderRadius: flipButton.size / 2,
+            },
+          ]}>
+          <SymbolView name={FLIP_ICON} size={Math.round(flipButton.size * 0.42)} weight="semibold" tintColor={colors.accentText} />
+        </FadeIn>
+      ) : null}
+
+      {/*
         The clipping wrapper matters: iOS sorts 3D layers by depth, so the half of the table leaning away from
         the viewer would otherwise be hidden behind the cloth. Clipping flattens the tilted table into this
         wrapper first, so it's drawn whole, on top.
@@ -2790,26 +2811,6 @@ function Table({
 
       </View>
       </View>
-
-      {/*
-        The flip button, while cards are dragged: drawn flat over the table rather than on it, so it's a true
-        circle, as tall on screen as the decks it sits between.
-      */}
-      {drag?.active && flipButton ? (
-        <FadeIn
-          style={[
-            styles.flip,
-            {
-              left: flipButton.x - flipButton.size / 2,
-              top: flipButton.y - flipButton.size / 2,
-              width: flipButton.size,
-              height: flipButton.size,
-              borderRadius: flipButton.size / 2,
-            },
-          ]}>
-          <SymbolView name={FLIP_ICON} size={Math.round(flipButton.size * 0.42)} weight="semibold" tintColor={colors.accentText} />
-        </FadeIn>
-      ) : null}
 
       {searchMounted ? (
         <SearchPanel

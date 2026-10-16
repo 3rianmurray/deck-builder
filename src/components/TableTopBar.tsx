@@ -18,11 +18,17 @@ export interface TableControls {
  * The play screen's top bar, floating over the felt: a round back button, the deck's name as a pill that
  * opens the table's menu, and a round undo button. Until the table has reported in, just the back button.
  */
+/** Back to the screen before, or home if there isn't one (e.g. the app was reloaded straight onto the table). */
+function goBack() {
+  if (router.canGoBack()) router.back();
+  else router.replace('/');
+}
+
 export function TableTopBar({ controls }: { controls: TableControls | null }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.bar, { paddingTop: insets.top + 6 }]}>
-      <RoundButton icon={{ ios: 'chevron.backward', android: 'arrow_back', web: 'arrow_back' }} label="Back" onPress={() => router.back()} />
+      <RoundButton icon={{ ios: 'chevron.backward', android: 'arrow_back', web: 'arrow_back' }} label="Back" onPress={goBack} />
       {controls ? (
         <Pressable
           onPress={controls.openMenu}

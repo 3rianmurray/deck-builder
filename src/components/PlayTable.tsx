@@ -1115,6 +1115,9 @@ function Table({
           delay: 0,
           zone,
           batch,
+          // Onto a pile, where it lands is known now (its top, with these cards on it), so it needn't wait for
+          // the screen to be laid out and measured before setting off.
+          to: zone === 'deck' || zone === 'discard' ? (pileTopAt(zone, after[zone].length) ?? undefined) : undefined,
         });
         if (planned.length === MAX_FLIGHTS) break;
       }
@@ -1492,6 +1495,8 @@ function Table({
             y: liftedFrom.y - d.offY * LIFTED_SCALE + lastPan.get().y,
             w: d.width * LIFTED_SCALE,
           },
+          // Where the pile's top will be once these are on it: known now, so it sets off at once.
+          to: pileTopAt(zone, table[zone].filter((c) => !ids.includes(c.iid)).length + ids.length) ?? undefined,
           fromFaceUp: heldFaceUp(d, d.stack[0]),
           toFaceUp: faceUp,
           delay: 0,

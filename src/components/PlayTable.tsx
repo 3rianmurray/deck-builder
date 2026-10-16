@@ -479,6 +479,8 @@ function Table({
     lift: new Animated.Value(1),
   }));
   const [pan] = useState(() => new Animated.ValueXY());
+  /** Where the finger has dragged to, always: what the held stack chases as it comes off a stack target. */
+  const [fingerPan] = useState(() => new Animated.ValueXY());
   /** The held stack's growth from its own size to the lifted size, as a fraction of the lifted size. */
   const [liftGrow] = useState(() => new Animated.Value(1));
   /** The stack-target preview count's size as it pops in. */
@@ -1618,14 +1620,17 @@ function Table({
   /** Springs the held stack back up to the finger after leaving a stack target. */
   const unsnap = () => {
     snap.set({ on: false, returning: true });
-    Animated.parallel([
-      Animated.timing(pan, { toValue: lastPan.get(), duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.spring(liftGrow, { toValue: 1, speed: 28, bounciness: 4, useNativeDriver: true }),
-    ]).start(() => {
-      // The finger kept moving while it sprang back: catch up with it.
-      snap.set({ returning: false });
-      if (!snap.get().on) pan.setValue(lastPan.get());
-    });
+    fingerPan.setValue(lastPan.get());
+    // It chases the finger as it goes, wherever the finger is by then (rather than heading for where it was and
+    // ignoring it meanwhile), so it never stalls; once it's caught up, it simply follows again.
+    Animated.spring(pan, { toValue: fingerPan, speed: 40, bounciness: 0, overshootClamping: true, useNativeDriver: true }).start(
+      ({ finished }) => {
+        if (!finished || snap.get().on) return;
+        snap.set({ returning: false });
+        pan.setValue(lastPan.get());
+      },
+    );
+    Animated.spring(liftGrow, { toValue: 1, speed: 28, bounciness: 4, useNativeDriver: true }).start();
     haptics.tick();
   };
 
@@ -1634,6 +1639,7 @@ function Table({
     const delta = tableDelta(drag.startX, drag.startY, finger);
     lastPan.set(delta);
     // While settled on a stack target (or springing back from one) the held stack doesn't follow the finger.
+    fingerPan.setValue(delta);
     if (!snap.get().on && !snap.get().returning) pan.setValue(delta);
     const zone = zoneAt(finger.pageX, finger.pageY);
     if (zone !== hover) setHover(zone);

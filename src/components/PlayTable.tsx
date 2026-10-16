@@ -1645,8 +1645,9 @@ function Table({
         return;
       }
       const d = drag;
-      // Where it's going, by the latest targets (the rendered ones may be a moment behind).
-      const t = target.get();
+      // Where it's going, by the latest targets (the rendered ones may be a moment behind): a copy, as ending the
+      // drag clears them.
+      const t = { ...target.get() };
       endDrag();
       drop(d, t.hover, t.insertAt, t.stackTarget);
     },
@@ -1750,8 +1751,9 @@ function Table({
       onPanResponderRelease: (e) => {
         if (stillHeld(e)) return keepHolding();
         const d = drag;
-        // Where it's going, by the latest targets (the rendered ones may be a moment behind).
-        const t = target.get();
+        // Where it's going, by the latest targets (the rendered ones may be a moment behind): a copy, as ending the
+        // drag clears them.
+        const t = { ...target.get() };
         endDrag();
         if (!d || d.abandoned || d.pinch) return;
         if (d.active) return drop(d, t.hover, t.insertAt, t.stackTarget);

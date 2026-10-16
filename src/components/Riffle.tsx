@@ -9,6 +9,8 @@ import { CardView } from './CardView';
 
 /** Cards drawn in the riffle: enough to read as a deck splitting and weaving back together. */
 const CARDS = 8;
+/** The longest a riffle waits for its cards' pictures before playing anyway. */
+const READY_WAIT_MS = 250;
 /** How long the whole shuffle takes. */
 export const RIFFLE_MS = 720;
 /** Split: both halves are out by this point of the shuffle. */
@@ -43,15 +45,37 @@ export function riffleHeight(height: Animated.Value): Animated.CompositeAnimatio
  * A riffle shuffle drawn over the deck's top card: the deck splits into two halves, which lift and tilt apart,
  * then the cards fall back one by one from alternate halves, weaving together into one deck again. Each card
  * landing is felt as a tick, except the last, so it finishes quietly. Each card casts a faint shadow only while
- * it's in the air: landed, they'd all stack into one dark patch. It plays once when mounted and calls `onDone`
- * at the end.
+ * it's in the air: landed, they'd all stack into one dark patch.
+ *
+ * It plays once, as soon as its cards' pictures are ready (until then it's invisible, and the deck shows as it
+ * is: fresh cards are blank while their pictures load), calling `onStart` as it starts and `onDone` at the end.
  */
-export function Riffle({ deck, width, onDone }: { deck: Deck; width: number; onDone: () => void }) {
+export function Riffle({
+  deck,
+  width,
+  onStart,
+  onDone,
+}: {
+  deck: Deck;
+  width: number;
+  onStart?: () => void;
+  onDone: () => void;
+}) {
   const [t] = useState(() => new Animated.Value(0));
   const ratio = cardRatio(deck);
+  // How many of its cards have their picture showing; it starts once they all do (or after a moment regardless).
+  const [ready, setReady] = useState(0);
+  const [started, setStarted] = useState(false);
+  if (!started && ready >= CARDS) setStarted(true);
+  useEffect(() => {
+    const timer = setTimeout(() => setStarted(true), READY_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
-    // Started once mounted: the native driver needs its views to exist first.
+    if (!started) return;
+    onStart?.();
+    // Started once mounted (and ready): the native driver needs its views to exist first.
     const timers = Array.from({ length: CARDS - 1 }, (_, i) =>
       setTimeout(haptics.tick, (WEAVE_START + i * WEAVE_STEP + FALL) * RIFFLE_MS),
     );
@@ -59,13 +83,13 @@ export function Riffle({ deck, width, onDone }: { deck: Deck; width: number; onD
       if (finished) onDone();
     });
     return () => timers.forEach(clearTimeout);
-    // Plays once per mount; a new shuffle mounts a new riffle.
+    // Plays once per mount, once ready; a new shuffle mounts a new riffle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [started]);
 
   const spread = width * 0.3;
   return (
-    <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
+    <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none', opacity: started ? 1 : 0 }]}>
       {Array.from({ length: CARDS }, (_, i) => {
         // Alternate cards come from alternate halves, so falling back in order weaves them together; later
         // cards are drawn on top, as they land last.
@@ -98,7 +122,7 @@ export function Riffle({ deck, width, onDone }: { deck: Deck; width: number; onD
                 { opacity: t.interpolate({ inputRange, outputRange: [0, 1, 1, 0, 0] }) },
               ]}
             />
-            <CardView deck={deck} faceUp={false} width={width} flat />
+            <CardView deck={deck} faceUp={false} width={width} flat onReady={() => setReady((r) => r + 1)} />
           </Animated.View>
         );
       })}

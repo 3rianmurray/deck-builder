@@ -742,10 +742,6 @@ function Table({
     setRiffleWaiting(false);
     setShuffling((n) => (n ?? 0) + 1);
   }
-  // The deck's pile drops away and builds back up with each riffle.
-  useEffect(() => {
-    if (shuffling !== null) riffleHeight(deckHeight).start();
-  }, [shuffling, deckHeight]);
 
   /**
    * The deck is being shuffled, or cards are still flying onto it: it can't be drawn from or revealed until it's
@@ -2319,7 +2315,14 @@ function Table({
           ) : (
             <EmptySlot deck={deck} width={pileWidth} />
           )}
-          {shuffling !== null ? <Riffle key={shuffling} deck={deck} width={pileWidth} onDone={() => setShuffling(null)} /> : null}
+          {shuffling !== null ? <Riffle
+              key={shuffling}
+              deck={deck}
+              width={pileWidth}
+              // The deck's pile drops away and builds back up with the riffle, from when it actually starts.
+              onStart={() => riffleHeight(deckHeight).start()}
+              onDone={() => setShuffling(null)}
+            /> : null}
         </PileDepth>
       </View>
       <Text style={styles.pileLabel}>Deck · {deckShowing}</Text>

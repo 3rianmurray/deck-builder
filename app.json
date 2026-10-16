@@ -9,7 +9,11 @@
     "userInterfaceStyle": "dark",
     "backgroundColor": "#14161a",
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "com.3rianmurray.cardtable",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -32,7 +36,8 @@
           "cameraPermission": "Card Table uses your camera so you can photograph your own artwork and turn it into cards.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "router": {},

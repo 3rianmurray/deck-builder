@@ -39,18 +39,20 @@ export function TableTopBar({ controls }: { controls: TableControls | null }) {
         disabled={!!controls?.busy}
       />
       {controls ? (
-        <Pressable
-          onPress={controls.openMenu}
-          disabled={controls.busy}
-          accessibilityRole="button"
-          accessibilityLabel={`${controls.title}, table options`}
-          hitSlop={6}
-          style={({ pressed }) => [styles.glass, styles.title, pressed && styles.pressed, controls.busy && styles.disabled]}>
-          <Text style={styles.titleText} numberOfLines={1}>
-            {controls.title}
-          </Text>
-          <SymbolView name={{ ios: 'chevron.down', android: 'expand_more', web: 'expand_more' }} size={12} weight="semibold" tintColor={colors.text} />
-        </Pressable>
+        <TourSpot id="table.title" style={styles.titleSpot}>
+          <Pressable
+            onPress={controls.openMenu}
+            disabled={controls.busy}
+            accessibilityRole="button"
+            accessibilityLabel={`${controls.title}, table options`}
+            hitSlop={6}
+            style={({ pressed }) => [styles.glass, styles.title, pressed && styles.pressed, controls.busy && styles.disabled]}>
+            <Text style={styles.titleText} numberOfLines={1}>
+              {controls.title}
+            </Text>
+            <SymbolView name={{ ios: 'chevron.down', android: 'expand_more', web: 'expand_more' }} size={12} weight="semibold" tintColor={colors.text} />
+          </Pressable>
+        </TourSpot>
       ) : (
         <View />
       )}
@@ -122,6 +124,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  // Lets the name shrink to fit, as the pill itself did before it was wrapped.
+  titleSpot: { flexShrink: 1 },
   titleText: { color: colors.text, fontSize: 15, fontWeight: '600', flexShrink: 1 },
   pressed: { opacity: 0.7 },
   disabled: { opacity: 0.35 },

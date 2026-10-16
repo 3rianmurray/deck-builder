@@ -24,7 +24,10 @@ export type TourEvent =
   | 'flipped'
   | 'to-hand'
   | 'shuffled'
-  | 'undone';
+  | 'undone'
+  | 'table-menu'
+  | 'reveal-mode'
+  | 'revealed';
 
 /** A control a step can point at, on screen. */
 export type TourTarget =
@@ -36,7 +39,8 @@ export type TourTarget =
   | 'table.play'
   | 'table.hand'
   | 'table.buttons'
-  | 'table.undo';
+  | 'table.undo'
+  | 'table.title';
 
 export interface TourStep {
   title: string;
@@ -67,30 +71,30 @@ export const TOUR: TourStep[] = [
     dim: true,
   },
   {
-    title: 'Add some cards',
-    text: 'Every card is a picture: a photo, a scan, artwork. Tap + Add cards.',
-    target: 'deck.addCards',
-    until: 'add-cards-menu',
-    dim: true,
-  },
-  {
-    title: 'No pictures yet?',
-    text: 'Use our sample cards for now. Later, add your own from the camera, Photos or Files.',
-    tile: 'Sample cards',
-    until: 'cards-added',
-  },
-  {
-    title: 'Give it a back',
-    text: 'The back is what you see when a card is face down. Tap Choose image.',
+    title: 'Start with the back',
+    text: "The back is what you see when a card is face down, and it's the same on every card. Tap Choose image.",
     target: 'deck.back',
     until: 'back-menu',
     dim: true,
   },
   {
-    title: 'Pick a back',
-    text: 'Use the sample back for now.',
+    title: 'Upload your card back',
+    text: "Here you can take a photo or choose a picture. For now, we'll use the sample back.",
     tile: 'Sample back',
     until: 'back-set',
+  },
+  {
+    title: 'Now the fronts',
+    text: 'Each card gets its own picture: a photo, a scan, artwork. Tap + Add cards.',
+    target: 'deck.addCards',
+    until: 'add-cards-menu',
+    dim: true,
+  },
+  {
+    title: 'Upload your art',
+    text: "Here you can take photos, choose pictures or cut up a sprite sheet. For now, we'll use the sample cards.",
+    tile: 'Sample cards',
+    until: 'cards-added',
   },
   {
     title: 'Ready to play',
@@ -136,12 +140,30 @@ export const TOUR: TourStep[] = [
     until: 'undone',
   },
   {
+    title: 'Reveal mode',
+    text: "Some games just turn cards over one at a time. That's reveal mode. Tap the deck's name to open the table menu.",
+    target: 'table.title',
+    until: 'table-menu',
+    dim: true,
+  },
+  {
+    title: 'Switch to reveal mode',
+    text: 'Tap Switch to reveal mode. If you have cards out, you can keep them aside or discard them.',
+    tile: 'Switch to reveal mode',
+    until: 'reveal-mode',
+  },
+  {
+    title: 'Turn over a card',
+    text: 'Tap the deck to turn its top card face up onto the discard pile. You can drag cards between the two piles too.',
+    target: 'table.deck',
+    until: 'revealed',
+  },
+  {
     title: "You're all set",
-    text: 'Start a session to play several decks at once. To see this again, tap ? on the home screen.',
+    text: 'Switch back to table mode from the same menu any time. Start a session to play several decks at once. To see this again, tap ? on the home screen.',
     next: 'Done',
   },
 ];
-
 interface State {
   /** The step showing, or null when the tour isn't running. */
   step: number | null;

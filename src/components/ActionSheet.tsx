@@ -90,6 +90,8 @@ export function ActionSheet(props: Props) {
     }
   }, [guided, visible, guide]);
   const isGuided = (a: SheetAction) => guided?.step.tile === a.label;
+  // Everything else is greyed out and can't be pressed meanwhile (Cancel still closes the menu).
+  const isOff = (a: SheetAction) => !!guided && !isGuided(a);
 
   useEffect(() => {
     if (visible && !measured) return;
@@ -155,11 +157,16 @@ export function ActionSheet(props: Props) {
                   <View key={t.label} style={[styles.tileCell, { width: tiles.length > 6 ? '25%' : '33.333%' }]}>
                     <Pressable
                       onPress={() => run(t)}
-                      disabled={t.disabled}
+                      disabled={t.disabled || isOff(t)}
                       accessibilityRole="button"
                       accessibilityLabel={t.label}
-                      accessibilityState={{ disabled: t.disabled }}
-                      style={({ pressed }) => [styles.tile, isGuided(t) && styles.guided, pressed && styles.pressed, t.disabled && styles.tileDisabled]}>
+                      accessibilityState={{ disabled: t.disabled || isOff(t) }}
+                      style={({ pressed }) => [
+                        styles.tile,
+                        isGuided(t) && styles.guided,
+                        pressed && styles.pressed,
+                        (t.disabled || isOff(t)) && styles.tileDisabled,
+                      ]}>
                       <SymbolView name={t.icon} size={22} tintColor={t.destructive ? colors.danger : colors.text} />
                       <Text style={[styles.tileText, t.destructive && { color: colors.danger }]} numberOfLines={1}>
                         {t.label}
@@ -173,7 +180,9 @@ export function ActionSheet(props: Props) {
               <Pressable
                 key={a.label}
                 onPress={() => run(a)}
-                style={({ pressed }) => [styles.action, isGuided(a) && styles.guided, pressed && styles.pressed]}>
+                disabled={isOff(a)}
+                accessibilityState={{ disabled: isOff(a) }}
+                style={({ pressed }) => [styles.action, isGuided(a) && styles.guided, pressed && styles.pressed, isOff(a) && styles.tileDisabled]}>
                 <Text style={[styles.actionText, a.destructive && { color: colors.danger }]}>{a.label}</Text>
               </Pressable>
             ))}

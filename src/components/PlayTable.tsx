@@ -905,6 +905,7 @@ function Table({
   const revealNext = () => {
     const top = table.deck[0];
     if (!top || flying || deckBusy) return;
+    tourEvent('revealed');
     // Felt as it comes off the deck, and again as it lands on the discard pile.
     haptics.deal();
     const move = () => apply((t) => T.moveCard(t, top.iid, 'discard'));
@@ -961,6 +962,7 @@ function Table({
   const switchMode = (next: PlayMode) => {
     setMode(next);
     haptics.tick();
+    if (next === 'reveal') tourEvent('reveal-mode');
     const outside = table.hand.length + table.table.length;
     if (next !== 'reveal' || outside === 0) return;
     // Reveal mode only shows the deck and discard pile, so offer to clear cards that would be hidden.
@@ -2543,6 +2545,7 @@ function Table({
   }, [table, active]);
   useEffect(() => {
     if (active && sheetOpen && sheet.kind === 'card') tourEvent('card-menu');
+    if (active && sheetOpen && sheet.kind === 'table') tourEvent('table-menu');
   }, [active, sheetOpen, sheet]);
 
   return (

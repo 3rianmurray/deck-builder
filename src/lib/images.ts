@@ -45,6 +45,23 @@ export async function saveCrop(uri: string, rect: CropRect, turn: QuarterTurn = 
   return out.uri;
 }
 
+/** How big a card's kept original is, on its longest side: plenty to cut a card from again. */
+const ORIGINAL_MAX_SIDE = 1600;
+
+/**
+ * A copy of a picture to keep as the original a card was cut from (to cut it again if the card size changes),
+ * shrunk to a sensible size so keeping it doesn't take much room.
+ */
+export async function keepOriginal(uri: string): Promise<string> {
+  const size = await ImageManipulator.manipulate(uri).renderAsync();
+  let ctx = ImageManipulator.manipulate(uri);
+  if (Math.max(size.width, size.height) > ORIGINAL_MAX_SIDE) {
+    ctx = ctx.resize(size.width >= size.height ? { width: ORIGINAL_MAX_SIDE } : { height: ORIGINAL_MAX_SIDE });
+  }
+  const out = await (await ctx.renderAsync()).saveAsync({ format: SaveFormat.JPEG, compress: 0.85 });
+  return out.uri;
+}
+
 /**
  * Cuts the largest piece of the given shape (width over height) from the middle of an image, as `saveCrop`
  * does: e.g. to fit a card back to a new card size.

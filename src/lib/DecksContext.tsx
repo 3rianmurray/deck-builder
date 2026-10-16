@@ -36,15 +36,18 @@ interface DecksApi {
   deleteDeck: (id: string) => void;
   /** Empties a deck to start it again: no cards, no back, default settings, no saved tables, under a new name. */
   resetDeck: (id: string, name: string) => void;
-  /** Adds a card for each image, named by `names` where given (otherwise numbered). */
-  addCards: (deckId: string, imageUris: string[], names?: string[]) => void;
+  /**
+   * Adds a card for each image, named by `names` where given (otherwise numbered). `originals` are the uncropped
+   * pictures they were cut from, kept to cut them again if the card size changes.
+   */
+  addCards: (deckId: string, imageUris: string[], names?: string[], originals?: string[]) => void;
   setCopies: (deckId: string, cardId: string, copies: number) => void;
   renameCard: (deckId: string, cardId: string, name: string) => void;
   removeCard: (deckId: string, cardId: string) => void;
   /** Moves cards (indexes, in the order picked) together as a block to start at index `to` in the deck's order. */
   reorderCards: (deckId: string, picked: number[], to: number) => void;
   /** Swaps a card's art for a new image (e.g. the old art rotated), deleting the old file if nothing else uses it. */
-  replaceCardImage: (deckId: string, cardId: string, imageUri: string) => void;
+  replaceCardImage: (deckId: string, cardId: string, imageUri: string, original?: string) => void;
   /**
    * Sets the card back (null for the built-in one). `original` is the uncropped picture it was cut from, kept to
    * cut it again if the card size changes; leave it out when the back is just cut again from the one kept.
@@ -206,7 +209,12 @@ export function DecksProvider({ children }: { children: ReactNode }) {
           ...original,
           id: copyId,
           name: `${original.name} copy`,
-          cards: original.cards.map((c) => ({ ...c, id: newId(), image: copyImage(c.image) })),
+          cards: original.cards.map((c) => ({
+            ...c,
+            id: newId(),
+            image: copyImage(c.image),
+            ...(c.original ? { original: copyImage(c.original) } : {}),
+          })),
           backImage: original.backImage ? copyImage(original.backImage) : null,
           backOriginal: original.backOriginal ? copyImage(original.backOriginal) : null,
           createdAt: now,
@@ -233,7 +241,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         deleteDeckFiles(id);
         updateDeck(id, (d) => ({ id: d.id, name, backImage: null, cards: [], groupId: d.groupId, createdAt: d.createdAt, updatedAt: Date.now() }));
       },
-      addCards(deckId, uris, names) {
+      addCards(deckId, uris, names, originals) {
         const deck = getDeck(deckId);
         if (!deck) return;
         const start = deck.cards.length;
@@ -241,6 +249,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
           id: newId(),
           name: names?.[i] ?? `Card ${start + i + 1}`,
           image: importImage(deckId, uri),
+          ...(originals?.[i] ? { original: importImage(deckId, originals[i]) } : {}),
         }));
         updateDeck(deckId, (d) => ({ ...d, cards: [...d.cards, ...cards] }));
       },
@@ -264,12 +273,13 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         const stillUsed =
           deck.backImage === card.image || deck.cards.some((c) => c.id !== cardId && c.image === card.image);
         if (!stillUsed) deleteImage(card.image);
+        if (card.original) deleteImage(card.original);
         updateDeck(deckId, (d) => ({ ...d, cards: d.cards.filter((c) => c.id !== cardId) }));
       },
       reorderCards(deckId, picked, to) {
         updateDeck(deckId, (d) => ({ ...d, cards: moveItems(d.cards, picked, to) }));
       },
-      replaceCardImage(deckId, cardId, uri) {
+      replaceCardImage(deckId, cardId, uri, original) {
         const deck = getDeck(deckId);
         const card = deck?.cards.find((c) => c.id === cardId);
         if (!deck || !card) return;
@@ -277,7 +287,13 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         const stillUsed =
           deck.backImage === card.image || deck.cards.some((c) => c.id !== cardId && c.image === card.image);
         if (!stillUsed) deleteImage(card.image);
-        updateDeck(deckId, (d) => ({ ...d, cards: d.cards.map((c) => (c.id === cardId ? { ...c, image } : c)) }));
+        // A new original replaces the old one; without one, the card is just cut again from the one it has.
+        const kept = original === undefined ? card.original : importImage(deckId, original);
+        if (original !== undefined && card.original) deleteImage(card.original);
+        updateDeck(deckId, (d) => ({
+          ...d,
+          cards: d.cards.map((c) => (c.id === cardId ? { ...c, image, ...(kept ? { original: kept } : {}) } : c)),
+        }));
       },
       setCardBack(deckId, uri, original) {
         const deck = getDeck(deckId);

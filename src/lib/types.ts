@@ -3,6 +3,11 @@ export interface Card {
   id: string;
   name: string;
   image: string;
+  /**
+   * The picture the card was cut from, uncropped and turned as it was cropped (relative path), so the card can
+   * be cut again to fit when the card size changes. Missing for cards added before this was kept.
+   */
+  original?: string;
   /** How many copies of this card are in the deck. Missing means 1 (decks saved before this existed). */
   copies?: number;
 }

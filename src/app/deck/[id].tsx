@@ -127,7 +127,8 @@ export default function DeckEditorScreen() {
         tourEvent('back-set');
       } else {
         const { uris, names } = await sampleCards();
-        decks.addCards(deck.id, uris, names);
+        // Already card shaped; each is its own original.
+        decks.addCards(deck.id, uris, names, uris);
         tourEvent('cards-added');
       }
     });
@@ -172,28 +173,31 @@ export default function DeckEditorScreen() {
   /** The picture the back is cut from: the uncropped original where it's kept, else the back as it is. */
   const backSource = deck.backOriginal ? imageUri(deck.backOriginal) : deck.backImage ? imageUri(deck.backImage) : null;
 
-  // A new card size: the back is cut again from its original to fit (so a landscape photo shows whole on
-  // landscape cards, rather than the middle of a portrait crop of it). Backs set before originals were kept
-  // just show trimmed, as before.
+  // A new card size: everything kept with its original is cut again from it to fit (so a landscape photo
+  // shows whole on landscape cards, rather than the middle of a portrait crop of it). Cards and backs added
+  // before originals were kept just show trimmed, as before.
   const changeShape = (shape: CardShape) => {
     const before = cardRatio(deck);
     decks.setCardShape(deck.id, shape);
     const after = cardRatio({ cardShape: shape });
-    const original = deck.backOriginal;
-    if (!original || Math.abs(after - before) < 0.001) return;
-    withBusy(async () => decks.setCardBack(deck.id, await cropToShape(imageUri(original), after)));
+    const back = deck.backOriginal;
+    const cards = deck.cards.flatMap((c) => (c.original ? [{ id: c.id, original: c.original }] : []));
+    if (Math.abs(after - before) < 0.001 || (!back && !cards.length)) return;
+    withBusy(async () => {
+      if (back) decks.setCardBack(deck.id, await cropToShape(imageUri(back), after));
+      for (const c of cards) decks.replaceCardImage(deck.id, c.id, await cropToShape(imageUri(c.original), after));
+    });
   };
 
-  const saveCropped = (uris: string[]) => {
+  // Cropped pictures keep what they were cut from (as cropped: turned, if turned), to cut again if the card
+  // size changes.
+  const saveCropped = (uris: string[], originals: string[]) => {
     const target = crop?.target;
-    // A back keeps the picture it was cut from, to cut again if the card size changes; cutting the kept one
-    // again (tapping the back) keeps it as it is.
-    if (target === 'back') decks.setCardBack(deck.id, uris[0], crop?.uris[0] === backSource ? undefined : crop?.uris[0]);
-    else if (typeof target === 'object') decks.replaceCardImage(deck.id, target.cardId, uris[0]);
-    else decks.addCards(deck.id, uris);
+    if (target === 'back') decks.setCardBack(deck.id, uris[0], originals[0]);
+    else if (typeof target === 'object') decks.replaceCardImage(deck.id, target.cardId, uris[0], originals[0]);
+    else decks.addCards(deck.id, uris, undefined, originals);
     setCrop(null);
   };
-
   const shareDeck = () => withBusy(() => shareDecks([deck]));
 
   const confirmDelete = () =>
@@ -220,7 +224,8 @@ export default function DeckEditorScreen() {
         {
           label: 'Rotate or re-crop art',
           opensModal: true,
-          onPress: () => setCrop({ uris: [imageUri(selected.image)], target: { cardId: selected.id } }),
+          // From the picture it was cut from, where that's kept.
+          onPress: () => setCrop({ uris: [imageUri(selected.original ?? selected.image)], target: { cardId: selected.id } }),
         },
         { label: 'Remove from deck', destructive: true, onPress: () => decks.removeCard(deck.id, selected.id) },
       ]
@@ -277,7 +282,7 @@ export default function DeckEditorScreen() {
             <CardSizePicker shape={deck.cardShape ?? { kind: 'standard' }} onChange={changeShape} />
             {deck.cards.length > 0 ? (
               <Text style={[styles.muted, { fontSize: 13 }]}>
-                Cards already in the deck are trimmed to fit a new size. New images are cropped to it.
+                Changing the size re-fits each card from the picture it was cut from. New images are cropped to it.
               </Text>
             ) : null}
 
@@ -400,7 +405,7 @@ export default function DeckEditorScreen() {
         cardRatio={cardRatio(deck)}
         onDone={(uris) => {
           if (spriteSheet?.target === 'back') decks.setCardBack(deck.id, uris[0], uris[0]);
-          else decks.addCards(deck.id, uris);
+          else decks.addCards(deck.id, uris, undefined, uris);
           setSpriteSheet(null);
         }}
         onCancel={() => setSpriteSheet(null)}

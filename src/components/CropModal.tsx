@@ -4,7 +4,7 @@ import { ActivityIndicator, Alert, Modal, PanResponder, StyleSheet, View } from 
 import type { NativeTouchEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { loadUpright, rotateImage, saveCrop } from '../lib/images';
+import { keepOriginal, loadUpright, rotateImage, saveCrop } from '../lib/images';
 import { colors } from '../theme';
 import { Button } from './Button';
 import { Text } from './Text';
@@ -64,8 +64,11 @@ interface Props {
   uris: string[];
   /** The card's width divided by its height; the crop frame has this shape. */
   ratio: number;
-  /** Called with one cropped image uri per input, in the same order. */
-  onDone: (cropped: string[]) => void;
+  /**
+   * Called with one cropped image uri per input, in the same order, and for each the picture it was cut from as
+   * cropped (turned, if it was turned here; shrunk to keep), to cut it again from if the card size changes.
+   */
+  onDone: (cropped: string[], originals: string[]) => void;
   onCancel: () => void;
 }
 
@@ -74,6 +77,7 @@ export function CropModal({ uris, ratio, onDone, onCancel }: Props) {
   const insets = useSafeAreaInsets();
   const [index, setIndex] = useState(0);
   const [cropped, setCropped] = useState<string[]>([]);
+  const [originals, setOriginals] = useState<string[]>([]);
   const [loaded, setLoaded] = useState<Source | null>(null);
   const [area, setArea] = useState<Size | null>(null);
   const [t, setT] = useState<Transform>(INITIAL);
@@ -132,16 +136,18 @@ export function CropModal({ uris, ratio, onDone, onCancel }: Props) {
     });
   }, [source, area, ratio]);
 
-  const finish = (all: string[]) => {
+  const finish = (all: string[], kept: string[]) => {
     setIndex(0);
     setCropped([]);
+    setOriginals([]);
     setLoaded(null);
-    onDone(all);
+    onDone(all, kept);
   };
 
   const cancel = () => {
     setIndex(0);
     setCropped([]);
+    setOriginals([]);
     setLoaded(null);
     onCancel();
   };
@@ -175,11 +181,13 @@ export function CropModal({ uris, ratio, onDone, onCancel }: Props) {
     setSaving(true);
     try {
       const all = [...cropped, await saveCrop(source.uri, { originX, originY, width, height })];
+      const kept = [...originals, await keepOriginal(source.uri)];
       if (index + 1 < uris.length) {
         setCropped(all);
+        setOriginals(kept);
         setIndex(index + 1);
       } else {
-        finish(all);
+        finish(all, kept);
       }
     } catch (e) {
       Alert.alert('Could not crop image', String(e));

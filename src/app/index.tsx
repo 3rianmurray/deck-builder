@@ -16,9 +16,11 @@ import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
 import { loadSettings, saveSettings } from '../lib/storage';
+import { startTour, tourEvent } from '../lib/tour';
 import { deckSize } from '../lib/types';
 import { colors } from '../theme';
 import { Text } from '../components/Text';
+import { TourSpot } from '../components/TourSpot';
 
 /** A press this far from a row's right edge is on its Play or ••• button, so it doesn't pick the row up. */
 const BUTTON_ZONE = 100;
@@ -42,12 +44,12 @@ export default function HomeScreen() {
   } = useDecks();
   const insets = useSafeAreaInsets();
 
-  // The welcome shows by itself the first time the app opens; after that, from the help button.
+  // The walkthrough starts by itself the first time the app opens; after that, from the help button.
   useEffect(() => {
     const settings = loadSettings();
     if (settings.welcomed) return;
     saveSettings({ ...settings, welcomed: true });
-    router.push('/welcome');
+    startTour();
   }, []);
 
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
@@ -94,6 +96,7 @@ export default function HomeScreen() {
   const newDeck = () => {
     const deck = createDeck(`Deck ${decks.length + 1}`);
     router.push({ pathname: '/deck/[id]', params: { id: deck.id } });
+    tourEvent('deck-created');
   };
 
   // Naming uses the system prompt, which only iOS has; elsewhere groups get a numbered name to rename later.
@@ -223,7 +226,7 @@ export default function HomeScreen() {
         options={{
           headerRight: () => (
             <Pressable
-              onPress={() => router.push('/welcome')}
+              onPress={startTour}
               hitSlop={10}
               accessibilityRole="button"
               accessibilityLabel="How to use Shufflevale"
@@ -278,7 +281,9 @@ export default function HomeScreen() {
         }
       />
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Button label="+ New Deck" variant="primary" onPress={newDeck} style={{ flex: 1 }} />
+        <TourSpot id="home.newDeck" style={{ flex: 1 }}>
+          <Button label="+ New Deck" variant="primary" onPress={newDeck} />
+        </TourSpot>
         <Button
           label="+ New Session"
           onPress={() => router.push('/session/edit')}

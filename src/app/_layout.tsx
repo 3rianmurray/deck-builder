@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { TourOverlay } from '../components/TourOverlay';
 import { DecksProvider } from '../lib/DecksContext';
 import { colors } from '../theme';
 
@@ -36,9 +37,9 @@ export default function RootLayout() {
             options={{ headerShown: false, gestureEnabled: false }}
           />
           <Stack.Screen name="session/edit" options={{ title: 'Session' }} />
-          {/* Covers the whole screen and can't be swiped away by accident: it has its own Skip. */}
-          <Stack.Screen name="welcome" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
         </Stack>
+        {/* The walkthrough, over every screen. */}
+        <TourOverlay />
       </DecksProvider>
     </GestureHandlerRootView>
   );

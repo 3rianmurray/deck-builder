@@ -30,7 +30,8 @@ interface DecksApi {
   duplicateDeck: (id: string) => Deck | undefined;
   renameDeck: (id: string, name: string) => void;
   deleteDeck: (id: string) => void;
-  addCards: (deckId: string, imageUris: string[]) => void;
+  /** Adds a card for each image, named by `names` where given (otherwise numbered). */
+  addCards: (deckId: string, imageUris: string[], names?: string[]) => void;
   setCopies: (deckId: string, cardId: string, copies: number) => void;
   renameCard: (deckId: string, cardId: string, name: string) => void;
   removeCard: (deckId: string, cardId: string) => void;
@@ -187,13 +188,13 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         setSessions((all) => all.map((s) => ({ ...s, deckIds: s.deckIds.filter((d) => d !== id) })));
         deleteDeckFiles(id);
       },
-      addCards(deckId, uris) {
+      addCards(deckId, uris, names) {
         const deck = getDeck(deckId);
         if (!deck) return;
         const start = deck.cards.length;
         const cards: Card[] = uris.map((uri, i) => ({
           id: newId(),
-          name: `Card ${start + i + 1}`,
+          name: names?.[i] ?? `Card ${start + i + 1}`,
           image: importImage(deckId, uri),
         }));
         updateDeck(deckId, (d) => ({ ...d, cards: [...d.cards, ...cards] }));

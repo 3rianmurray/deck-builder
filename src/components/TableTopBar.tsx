@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '../theme';
 import { Text } from './Text';
+import { TourSpot } from './TourSpot';
 
 /** What the table on screen offers its top bar: its name, its menu, and undo. */
 export interface TableControls {
@@ -54,12 +55,14 @@ export function TableTopBar({ controls }: { controls: TableControls | null }) {
         <View />
       )}
       {controls ? (
-        <RoundButton
-          icon={{ ios: 'arrow.uturn.backward', android: 'undo', web: 'undo' }}
-          label="Undo"
-          onPress={controls.undo}
-          disabled={!controls.canUndo || controls.busy}
-        />
+        <TourSpot id="table.undo">
+          <RoundButton
+            icon={{ ios: 'arrow.uturn.backward', android: 'undo', web: 'undo' }}
+            label="Undo"
+            onPress={controls.undo}
+            disabled={!controls.canUndo || controls.busy}
+          />
+        </TourSpot>
       ) : (
         <View style={styles.round} />
       )}

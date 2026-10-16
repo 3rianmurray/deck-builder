@@ -14,11 +14,14 @@ import { ReorderableGrid } from '../../components/ReorderableGrid';
 import { SpriteSheetModal } from '../../components/SpriteSheetModal';
 import { useDecks } from '../../lib/DecksContext';
 import { deleteDeckWarning } from '../../lib/deckInUse';
+import { sampleBack, sampleCards } from '../../lib/sampleDeck';
 import { imageUri } from '../../lib/storage';
+import { tourEvent } from '../../lib/tour';
 import { cardRatio, copiesOf, deckSize } from '../../lib/types';
 import type { Card } from '../../lib/types';
 import { colors } from '../../theme';
 import { MAX_TEXT_SCALE, Text } from '../../components/Text';
+import { TourSpot } from '../../components/TourSpot';
 
 const COLUMNS = 3;
 const GAP = 10;
@@ -113,6 +116,18 @@ export default function DeckEditorScreen() {
       const uris = await pickFiles(target === 'cards');
       if (uris.length) setCrop({ uris, target });
     });
+  // The app's own sample art: no cropping needed, as it's already card shaped.
+  const fromSamples = (target: ArtTarget) =>
+    withBusy(async () => {
+      if (target === 'back') {
+        decks.setCardBack(deck.id, await sampleBack());
+        tourEvent('back-set');
+      } else {
+        const { uris, names } = await sampleCards();
+        decks.addCards(deck.id, uris, names);
+        tourEvent('cards-added');
+      }
+    });
   const sheetFrom = (target: ArtTarget, source: 'photos' | 'files') =>
     withBusy(async () => {
       const [uri] = source === 'photos' ? await pickImages(false) : await pickFiles(false);
@@ -129,7 +144,13 @@ export default function DeckEditorScreen() {
       label: target === 'cards' ? 'Import sprite sheet…' : 'From a sprite sheet…',
       onPress: () => setMenu(`sheet-${target}`),
     },
+    { label: target === 'cards' ? 'Sample cards' : 'Sample back', onPress: () => fromSamples(target) },
   ];
+  /** Opens the art menu for new cards or the back (and tells the walkthrough, which may be waiting for it). */
+  const openArtMenu = (target: ArtTarget) => {
+    setMenu(target);
+    tourEvent(target === 'cards' ? 'add-cards-menu' : 'back-menu');
+  };
   const sheetSourceActions = (target: ArtTarget) => [
     { label: 'From Photos', opensModal: true, onPress: () => sheetFrom(target, 'photos') },
     { label: 'From Files', opensModal: true, onPress: () => sheetFrom(target, 'files') },
@@ -244,12 +265,14 @@ export default function DeckEditorScreen() {
                 deck={deck}
                 faceUp={false}
                 width={64}
-                onPress={() => (deck.backImage ? setCrop({ uris: [imageUri(deck.backImage)], target: 'back' }) : setMenu('back'))}
+                onPress={() => (deck.backImage ? setCrop({ uris: [imageUri(deck.backImage)], target: 'back' }) : openArtMenu('back'))}
               />
               <View style={{ flex: 1, gap: 8 }}>
                 <Text style={styles.label}>Card back</Text>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Button label="Choose image" onPress={() => setMenu('back')} disabled={busy} />
+                  <TourSpot id="deck.back">
+                    <Button label="Choose image" onPress={() => openArtMenu('back')} disabled={busy} />
+                  </TourSpot>
                   {deck.backImage ? <Button label="Reset" onPress={() => decks.setCardBack(deck.id, null)} /> : null}
                 </View>
               </View>
@@ -259,7 +282,9 @@ export default function DeckEditorScreen() {
               <Text style={styles.sectionTitle}>
                 Cards <Text style={styles.muted}>({deckSize(deck)})</Text>
               </Text>
-              <Button label="+ Add cards" variant="primary" onPress={() => setMenu('cards')} disabled={busy} />
+              <TourSpot id="deck.addCards">
+                <Button label="+ Add cards" variant="primary" onPress={() => openArtMenu('cards')} disabled={busy} />
+              </TourSpot>
             </View>
             {deck.cards.length === 0 ? (
               <Text style={[styles.muted, { marginTop: 8 }]}>
@@ -293,12 +318,17 @@ export default function DeckEditorScreen() {
       />
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Button
-          label={deck.cards.length ? 'Play with this deck' : 'Add cards to play'}
-          variant="primary"
-          disabled={deck.cards.length === 0}
-          onPress={() => router.push({ pathname: '/play/[id]', params: { id: deck.id } })}
-        />
+        <TourSpot id="deck.play">
+          <Button
+            label={deck.cards.length ? 'Play with this deck' : 'Add cards to play'}
+            variant="primary"
+            disabled={deck.cards.length === 0}
+            onPress={() => {
+              router.push({ pathname: '/play/[id]', params: { id: deck.id } });
+              tourEvent('table-opened');
+            }}
+          />
+        </TourSpot>
       </View>
 
       {busy ? (

@@ -33,6 +33,7 @@ import { useDecks } from '../lib/DecksContext';
 import * as haptics from '../lib/haptics';
 import * as T from '../lib/table';
 import { fitTilt, project, tiltTransform, unproject } from '../lib/tilt';
+import { setTourTarget, tourEvent, tourRunning } from '../lib/tour';
 import { cardRatio } from '../lib/types';
 import type { Card, CardInstance, Deck, PlayMode, Spot, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
@@ -693,6 +694,7 @@ function Table({
     setRevealed(null);
     haptics.tick();
     flash('Undone');
+    tourEvent('undone');
   };
 
   /**
@@ -700,6 +702,7 @@ function Table({
    * in) and plays a riffle over it. With motion turned down there's just a tap to feel it happen.
    */
   const shuffleDeck = (fn: (t: TableState) => TableState = (t) => T.shuffleZone(t, 'deck'), msg = 'Shuffled') => {
+    tourEvent('shuffled');
     // The riffle shows it happened, so there's no message, unless motion is turned down and it can't play.
     if (prefersReducedMotion()) {
       apply(fn, msg);
@@ -2502,6 +2505,45 @@ function Table({
   useEffect(() => {
     if (active) onControls?.({ title: deck.name, canUndo, busy: dragging, ...controlStandIns });
   }, [active, deck.name, canUndo, dragging, onControls, controlStandIns]);
+
+  // ---- The walkthrough ----
+  // Where the table's parts are on screen (seen through the tilt), for its steps to point at.
+  useEffect(() => {
+    if (!active || !tourRunning() || !rootOrigin || !rootSize.w) return;
+    const onScreen = (r: Rect | undefined) => {
+      if (!r) return null;
+      const corners = [project(r.x, r.y, rootSize, tilt), project(r.x + r.w, r.y + r.h, rootSize, tilt), project(r.x + r.w, r.y, rootSize, tilt), project(r.x, r.y + r.h, rootSize, tilt)];
+      const xs = corners.map((c) => c.x);
+      const ys = corners.map((c) => c.y);
+      const x = Math.min(...xs);
+      const y = Math.min(...ys);
+      return { x: rootOrigin.x + x, y: rootOrigin.y + y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+    };
+    setTourTarget('table.deck', onScreen(zoneRects.find(([z]) => z === 'deck')?.[1]));
+    setTourTarget('table.play', onScreen(playRect));
+    setTourTarget('table.hand', onScreen(handZone));
+    setTourTarget('table.buttons', onScreen(flipRect));
+  });
+  // Gone with the table.
+  useEffect(
+    () => () => (['table.deck', 'table.play', 'table.hand', 'table.buttons'] as const).forEach((t) => setTourTarget(t, null)),
+    [],
+  );
+  // What the player does that steps wait for: cards put on the table or in the hand, a card turned over, a
+  // card's menu opened. (Shuffles and undos are told where they happen.)
+  const lastTable = useRef(table);
+  useEffect(() => {
+    const was = lastTable.current;
+    lastTable.current = table;
+    if (!active || was === table) return;
+    if (table.table.length > was.table.length) tourEvent('to-table');
+    if (table.hand.length > was.hand.length) tourEvent('to-hand');
+    const faces = new Map(was.table.map((c) => [c.iid, c.faceUp]));
+    if (table.table.some((c) => faces.has(c.iid) && faces.get(c.iid) !== c.faceUp)) tourEvent('flipped');
+  }, [table, active]);
+  useEffect(() => {
+    if (active && sheetOpen && sheet.kind === 'card') tourEvent('card-menu');
+  }, [active, sheetOpen, sheet]);
 
   return (
     <View

@@ -5,8 +5,10 @@ import type { SymbolViewProps } from 'expo-symbols';
 import { Animated, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { previousTourStep, useTourStep } from '../lib/tour';
 import { colors } from '../theme';
 import { Text } from './Text';
+import { TourTip } from './TourOverlay';
 
 export interface SheetAction {
   label: string;
@@ -69,6 +71,26 @@ export function ActionSheet(props: Props) {
   const [mounted, setMounted] = useState(visible);
   if (visible && !mounted) setMounted(true);
 
+  // The walkthrough, when its step is about one of this menu's choices: the tip shows here, by that choice.
+  const tour = useTourStep();
+  const guided = visible && tour?.step.tile && [...(tiles ?? []), ...actions].some((a) => a.label === tour.step.tile) ? tour : null;
+  const guide = useMemo(() => {
+    const box = { chosen: false, was: false };
+    return { box };
+  }, []);
+  // Closed without making that choice: back to the step that opens the menu, so the player isn't left stranded.
+  useEffect(() => {
+    if (guided) {
+      Object.assign(guide.box, { was: true, chosen: false });
+      return;
+    }
+    if (!visible && guide.box.was) {
+      if (!guide.box.chosen) previousTourStep();
+      Object.assign(guide.box, { was: false, chosen: false });
+    }
+  }, [guided, visible, guide]);
+  const isGuided = (a: SheetAction) => guided?.step.tile === a.label;
+
   useEffect(() => {
     if (visible && !measured) return;
     if (visible) {
@@ -81,6 +103,7 @@ export function ActionSheet(props: Props) {
   }, [visible, measured, progress]);
 
   const run = (a: SheetAction) => {
+    if (isGuided(a)) Object.assign(guide.box, { chosen: true });
     if (a.keepsOpen) return a.onPress();
     if (a.opensModal && Platform.OS === 'ios') {
       pending.current = a.onPress;
@@ -122,6 +145,7 @@ export function ActionSheet(props: Props) {
             { transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [sheetHeight, 0] }) }] },
           ]}>
           <ScrollView bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+            {guided ? <TourTip index={guided.index} step={guided.step} /> : null}
             {header}
             {title ? <Text style={styles.title}>{title}</Text> : null}
             {tiles?.length ? (
@@ -135,7 +159,7 @@ export function ActionSheet(props: Props) {
                       accessibilityRole="button"
                       accessibilityLabel={t.label}
                       accessibilityState={{ disabled: t.disabled }}
-                      style={({ pressed }) => [styles.tile, pressed && styles.pressed, t.disabled && styles.tileDisabled]}>
+                      style={({ pressed }) => [styles.tile, isGuided(t) && styles.guided, pressed && styles.pressed, t.disabled && styles.tileDisabled]}>
                       <SymbolView name={t.icon} size={22} tintColor={t.destructive ? colors.danger : colors.text} />
                       <Text style={[styles.tileText, t.destructive && { color: colors.danger }]} numberOfLines={1}>
                         {t.label}
@@ -149,7 +173,7 @@ export function ActionSheet(props: Props) {
               <Pressable
                 key={a.label}
                 onPress={() => run(a)}
-                style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
+                style={({ pressed }) => [styles.action, isGuided(a) && styles.guided, pressed && styles.pressed]}>
                 <Text style={[styles.actionText, a.destructive && { color: colors.danger }]}>{a.label}</Text>
               </Pressable>
             ))}
@@ -196,5 +220,7 @@ const styles = StyleSheet.create({
   tileDisabled: { opacity: 0.35 },
   tileText: { color: colors.text, fontSize: 12, fontWeight: '500' },
   pressed: { opacity: 0.7 },
+  // The walkthrough's choice, ringed in gold.
+  guided: { borderWidth: 2, borderColor: colors.accent },
   actionText: { color: colors.text, fontSize: 16 },
 });

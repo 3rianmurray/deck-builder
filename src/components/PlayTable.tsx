@@ -299,6 +299,8 @@ const STACK_TURN_HALF_MS = 170;
 
 /** How long a menu takes to get out of the way, for something it asked for to be seen happening. */
 const SHEET_CLEAR_MS = 200;
+/** How long a card waits for its new place to be laid out before measuring where it lands. */
+const MEASURE_WAIT_MS = 10;
 /** How long each card takes to fly to its new place. */
 const FLIGHT_MOVE_MS = 320;
 /** The gap between one card setting off and the next. */
@@ -947,12 +949,11 @@ function Table({
   } : undefined;
 
   /**
-   * The trash can that appears while cards are being dragged, in the bottom-right corner of the play area (or of
-   * the screen, in reveal mode). Cards dropped on it go to the trash.
+   * The trash can that appears while cards are being dragged in reveal mode, in the bottom-right corner of the
+   * screen. Cards dropped on it go to the trash. (Not in table mode, where the cards' menus trash them.)
    */
-  const trashRect: Rect | undefined = playRect
-    ? { x: playRect.x + playRect.w - TRASH_SIZE - 14, y: playRect.y + playRect.h - TRASH_SIZE - 16, w: TRASH_SIZE, h: TRASH_SIZE }
-    : reveal && rootSize.w
+  const trashRect: Rect | undefined =
+    reveal && rootSize.w
       ? { x: rootSize.w - TRASH_SIZE - 16, y: rootSize.h - insets.bottom - TRASH_SIZE - 16, w: TRASH_SIZE, h: TRASH_SIZE }
       : undefined;
   // Checked first, as it sits over the play area.
@@ -1194,27 +1195,25 @@ function Table({
   useEffect(() => {
     if (!waitingFlights) return;
     let cancelled = false;
-    // Two frames: one for the new layout to be drawn, one for its views to be in place to measure.
-    const frame = requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        const waiting = flights.filter((f) => !f.to);
-        Promise.all(waiting.map((f) => measureLanding(f.iid))).then((tos) => {
-          if (cancelled) return;
-          const measured = new Map(waiting.map((f, i) => [f.iid, tos[i]]));
-          // Any that can't be found (gone, or off screen) just appear where they are.
-          setFlights((all) =>
-            all.flatMap((f) => {
-              if (f.to || !measured.has(f.iid)) return [f];
-              const to = measured.get(f.iid);
-              return to ? [{ ...f, to }] : [];
-            }),
-          );
-        });
-      }),
-    );
+    // A moment for the new layout to be in place to measure.
+    const timer = setTimeout(() => {
+      const waiting = flights.filter((f) => !f.to);
+      Promise.all(waiting.map((f) => measureLanding(f.iid))).then((tos) => {
+        if (cancelled) return;
+        const measured = new Map(waiting.map((f, i) => [f.iid, tos[i]]));
+        // Any that can't be found (gone, or off screen) just appear where they are.
+        setFlights((all) =>
+          all.flatMap((f) => {
+            if (f.to || !measured.has(f.iid)) return [f];
+            const to = measured.get(f.iid);
+            return to ? [{ ...f, to }] : [];
+          }),
+        );
+      });
+    }, MEASURE_WAIT_MS);
     return () => {
       cancelled = true;
-      cancelAnimationFrame(frame);
+      clearTimeout(timer);
     };
     // Measures once per batch of flights; everything else is read fresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps

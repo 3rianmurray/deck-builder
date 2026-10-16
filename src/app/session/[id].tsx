@@ -17,7 +17,9 @@ import { colors } from '../../theme';
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { getSession, getDeck } = useDecks();
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
+  // The tabs' height: their text's line at the phone's text size (up to the most it grows), with space round it.
+  const tabHeight = Math.ceil(TAB_LINE * Math.min(fontScale, MAX_TEXT_SCALE)) + TAB_PAD;
   const pager = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
   /** The deck on screen's name, menu and undo, for the top bar. */
@@ -66,7 +68,15 @@ export default function SessionScreen() {
       <TabletopSurface />
       <TableTopBar controls={controls} />
       <View>
-        <ScrollView ref={tabsRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
+        {/* Sized from the text size setting, so changing it (even while the app is open) re-fits the row: the pills
+            stay centred in it and it can't be nudged up and down. */}
+        <ScrollView
+          ref={tabsRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          alwaysBounceVertical={false}
+          style={{ height: tabHeight + TABS_BOTTOM }}
+          contentContainerStyle={styles.tabs}>
           {decks.map((d, i) => (
             <Pressable
               key={d.id}
@@ -79,8 +89,8 @@ export default function SessionScreen() {
               disabled={!!controls?.busy}
               accessibilityRole="tab"
               accessibilityState={{ selected: i === current }}
-              style={[styles.tab, i === current && styles.tabActive]}>
-              <Text style={[styles.tabText, i === current && { color: colors.accentText }]} numberOfLines={1}>
+              style={[styles.tab, { height: tabHeight }, i === current && styles.tabActive]}>
+              <Text style={[styles.tabText, i === current && { color: colors.accentText }]} numberOfLines={1} maxFontSizeMultiplier={MAX_TEXT_SCALE}>
                 {d.name}
               </Text>
             </Pressable>
@@ -89,8 +99,10 @@ export default function SessionScreen() {
             onPress={() => router.push({ pathname: '/session/edit', params: { id: session.id } })}
             disabled={!!controls?.busy}
             accessibilityLabel="Edit session"
-            style={styles.tab}>
-            <Text style={styles.tabText}>Edit</Text>
+            style={[styles.tab, { height: tabHeight }]}>
+            <Text style={styles.tabText} maxFontSizeMultiplier={MAX_TEXT_SCALE}>
+              Edit
+            </Text>
           </Pressable>
         </ScrollView>
       </View>
@@ -117,15 +129,23 @@ export default function SessionScreen() {
   );
 }
 
+/** The tabs' text, its line at the standard text size, and how far it grows with the text size setting at most. */
+const TAB_TEXT = 14;
+const TAB_LINE = 18;
+const MAX_TEXT_SCALE = 1.6;
+/** Space round a tab's text, and under the row. */
+const TAB_PAD = 14;
+const TABS_BOTTOM = 8;
+
 const styles = StyleSheet.create({
   felt: { flex: 1, backgroundColor: colors.felt },
   center: { alignItems: 'center', justifyContent: 'center', gap: 12 },
   muted: { color: colors.textMuted },
   link: { color: colors.accent, fontSize: 16, fontWeight: '600' },
-  tabs: { paddingHorizontal: 12, paddingBottom: 8, gap: 8 },
+  tabs: { paddingHorizontal: 12, paddingBottom: TABS_BOTTOM, gap: 8, alignItems: 'center' },
   tab: {
     paddingHorizontal: 14,
-    paddingVertical: 7,
+    justifyContent: 'center',
     borderRadius: 16,
     // The same dark glass as the top bar's buttons.
     backgroundColor: 'rgba(8,18,26,0.55)',
@@ -134,5 +154,5 @@ const styles = StyleSheet.create({
     maxWidth: 180,
   },
   tabActive: { backgroundColor: colors.accent },
-  tabText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  tabText: { color: colors.text, fontSize: TAB_TEXT, fontWeight: '600' },
 });

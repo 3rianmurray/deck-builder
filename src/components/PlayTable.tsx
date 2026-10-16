@@ -748,10 +748,21 @@ function Table({
    */
   const deckBusy = shuffling !== null || riffleWaiting || flights.some((f) => f.zone === 'deck' && !f.landed);
 
-  /** Deals the deck's top card into the hand. */
+  /**
+   * Scrolls the hand back to its start, so a card put in at the left (from a tap, rather than dragged into a
+   * place) is seen arriving.
+   */
+  const showHandStart = () => {
+    scrollViews.hand?.scrollTo({ x: 0, animated: true });
+    trackScroll('hand', 0);
+  };
+
+  /** Deals the deck's top card into the hand, at its left end. */
   const drawOne = () => {
     if (!table.deck.length || deckBusy) return;
-    moveCards((t) => T.draw(t, 1));
+    const top = table.deck[0];
+    moveCards((t) => T.insertCards(t, [top.iid], 'hand', 0));
+    showHandStart();
     haptics.deal();
   };
 
@@ -793,6 +804,11 @@ function Table({
       moveCards(fn, msg, true);
     };
     const moveTo = (zone: Zone, position?: T.Position) => (t: TableState) => {
+      // Into the hand from a tap, the cards go in at the left, top card first, the rest moving over.
+      if (zone === 'hand') {
+        showHandStart();
+        return T.insertCards(t, stack ?? [iid], 'hand', 0);
+      }
       if (!stack) return T.moveCard(t, iid, zone, position);
       if (position === 'bottom') return stack.reduce((s, id) => T.moveCard(s, id, zone, 'bottom'), t);
       return T.moveCards(t, stack, zone);
@@ -2084,7 +2100,13 @@ function Table({
             ...(reveal
               ? [{ label: 'Put top card back on the deck', onPress: () => moveCards((t) => T.takeTopOfDiscard(t, 'deck')) }]
               : [
-                  { label: 'Take top card into hand', onPress: () => moveCards((t) => T.takeTopOfDiscard(t, 'hand')) },
+                  {
+                    label: 'Take top card into hand',
+                    onPress: () => {
+                      showHandStart();
+                      moveCards((t) => (t.discard[0] ? T.insertCards(t, [t.discard[0].iid], 'hand', 0) : t));
+                    },
+                  },
                   { label: 'Play top card to table', onPress: () => moveCards((t) => T.takeTopOfDiscard(t, 'table')) },
                 ]),
             { label: 'Search discard pile', opensModal: true, onPress: () => setSearchZone('discard') },

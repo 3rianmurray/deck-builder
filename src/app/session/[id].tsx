@@ -75,6 +75,8 @@ export default function SessionScreen() {
                 setTabLayouts((all) => (all[i]?.x === x && all[i]?.w === w ? all : { ...all, [i]: { x, w } }));
               }}
               onPress={() => goTo(i)}
+              // Not while cards are being dragged.
+              disabled={!!controls?.busy}
               accessibilityRole="tab"
               accessibilityState={{ selected: i === current }}
               style={[styles.tab, i === current && styles.tabActive]}>
@@ -85,6 +87,7 @@ export default function SessionScreen() {
           ))}
           <Pressable
             onPress={() => router.push({ pathname: '/session/edit', params: { id: session.id } })}
+            disabled={!!controls?.busy}
             accessibilityLabel="Edit session"
             style={styles.tab}>
             <Text style={styles.tabText}>Edit</Text>

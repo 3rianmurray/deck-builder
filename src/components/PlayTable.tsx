@@ -57,7 +57,10 @@ const HOLD_TO_ZOOM_MS = 450;
  * the first finger often slides a little before the second touches down.
  */
 const LIFT_DELAY_MS = 90;
-const FLIP_SIZE = { w: 150, h: 56 };
+/** The flip button's diameter, shown while cards are dragged. */
+const FLIP_SIZE = 64;
+/** The size of the round buttons between the piles. */
+const PILE_BUTTON_SIZE = 48;
 /** Extra hit area around the small piles and the FLIP button. */
 const PILE_PAD = 16;
 
@@ -86,7 +89,8 @@ type LayoutKey =
   | 'reveal'
   | 'revealPiles'
   | 'revealDeck'
-  | 'revealDiscard';
+  | 'revealDiscard'
+  | 'pileButtons';
 
 /** Tabletop look: how far the table leans back, and the camera's distance (smaller is stronger perspective). */
 const TILT_ANGLE = 14;
@@ -1043,12 +1047,9 @@ function Table({
   // phone working (and warm) the whole time a table was open.
 
   // In reveal mode the piles decide which way up a card lies, so there is nothing to flip.
-  const flipRect: Rect | undefined = !reveal && playRect ? {
-    x: playRect.x + (playRect.w - FLIP_SIZE.w) / 2,
-    // Above the hand's tray, which floats over the bottom of the table.
-    y: playRect.y + playRect.h - handShows - FLIP_SIZE.h - 16,
-    ...FLIP_SIZE,
-  } : undefined;
+  // While cards are dragged, the flip button takes the place of the buttons between the piles: all of that space
+  // turns them over (tapped with another finger), the button itself drawn in its middle.
+  const flipRect: Rect | undefined = !reveal ? within(layout.piles, layout.pileButtons) : undefined;
 
   /**
    * The trash can that appears while cards are being dragged in reveal mode, in the bottom-right corner of the
@@ -2330,11 +2331,32 @@ function Table({
   /** Opens the search on the deck, or on the discard pile if the deck is empty. */
   const openSearch = () => setSearchZone(table.deck.length ? 'deck' : 'discard');
 
+  // Between the piles, round icon buttons as in reveal mode. While cards are dragged they step aside for the
+  // flip button, the only one that does anything then (see lipRect).
   const pileButtons = (
     <>
-      <Button label="Draw" variant="primary" onPress={drawOne} disabled={!table.deck.length} />
-      <Button label="Shuffle" onPress={() => shuffleDeck()} disabled={table.deck.length < 2} />
-      <Button label="Search" onPress={openSearch} disabled={!table.deck.length && !table.discard.length} />
+      <IconButton
+        icon={{ ios: 'arrow.down.to.line', android: 'vertical_align_bottom', web: 'vertical_align_bottom' }}
+        label="Draw a card"
+        variant="primary"
+        size={PILE_BUTTON_SIZE}
+        onPress={drawOne}
+        disabled={!table.deck.length}
+      />
+      <IconButton
+        icon={{ ios: 'shuffle', android: 'shuffle', web: 'shuffle' }}
+        label="Shuffle the deck"
+        size={PILE_BUTTON_SIZE}
+        onPress={() => shuffleDeck()}
+        disabled={table.deck.length < 2}
+      />
+      <IconButton
+        icon={{ ios: 'magnifyingglass', android: 'search', web: 'search' }}
+        label="Search the deck and discard pile"
+        size={PILE_BUTTON_SIZE}
+        onPress={openSearch}
+        disabled={!table.deck.length && !table.discard.length}
+      />
     </>
   );
 
@@ -2425,6 +2447,8 @@ function Table({
   // given stand-ins that always call this table's latest undo and menu, and is told again when the name or
   // whether there's anything to undo changes.
   const latestControls = useRef({ undo, openMenu: () => open({ kind: 'table' }) });
+  /** Cards are being dragged: every button but flip is out of use (see the bar, the tabs, the hand's tab). */
+  const dragging = !!drag?.active;
   useEffect(() => {
     latestControls.current = { undo, openMenu: () => open({ kind: 'table' }) };
   });
@@ -2433,8 +2457,8 @@ function Table({
     openMenu: () => latestControls.current.openMenu(),
   }));
   useEffect(() => {
-    if (active) onControls?.({ title: deck.name, canUndo, ...controlStandIns });
-  }, [active, deck.name, canUndo, onControls, controlStandIns]);
+    if (active) onControls?.({ title: deck.name, canUndo, busy: dragging, ...controlStandIns });
+  }, [active, deck.name, canUndo, dragging, onControls, controlStandIns]);
 
   return (
     <View
@@ -2523,7 +2547,9 @@ function Table({
             <View style={[styles.pile, shuffling !== null && styles.above]} onLayout={measure('deckPile')}>
               {deckPile}
             </View>
-            <View style={styles.pileButtons}>{pileButtons}</View>
+            <View style={[styles.pileButtons, drag?.active && styles.steppedAside]} onLayout={measure('pileButtons')}>
+              {pileButtons}
+            </View>
             <View style={styles.pile} onLayout={measure('discardPile')}>
               {discardPile}
             </View>
@@ -2590,6 +2616,8 @@ function Table({
                 haptics.tick();
               }}
               hitSlop={10}
+              // Not while cards are being dragged.
+              disabled={!!drag?.active}
               accessibilityRole="button"
               accessibilityLabel={`Hand, ${table.hand.length} cards`}
               accessibilityHint={handOpen ? 'Folds the hand away' : 'Opens the hand'}
@@ -2757,8 +2785,17 @@ function Table({
 
       {/* Can't be pressed normally while a finger holds a card; the drag handler checks for a second finger here. */}
       {drag?.active && flipRect ? (
-        <FadeIn style={[styles.flip, { left: flipRect.x, top: flipRect.y, width: flipRect.w, height: flipRect.h }]}>
-          <Text style={styles.flipText}>FLIP</Text>
+        <FadeIn
+          style={[
+            styles.flip,
+            {
+              left: flipRect.x + (flipRect.w - FLIP_SIZE) / 2,
+              top: flipRect.y + (flipRect.h - FLIP_SIZE) / 2,
+              width: FLIP_SIZE,
+              height: FLIP_SIZE,
+            },
+          ]}>
+          <SymbolView name={FLIP_ICON} size={30} weight="semibold" tintColor={colors.accentText} />
         </FadeIn>
       ) : null}
 
@@ -3331,7 +3368,9 @@ const styles = StyleSheet.create({
   above: { zIndex: 2 },
   pileSlot: { borderRadius: 10, borderWidth: 2, borderColor: 'transparent', padding: 2 },
   pileLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: '600' },
-  pileButtons: { flex: 1, gap: 8, paddingHorizontal: 12, justifyContent: 'center' },
+  pileButtons: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, alignSelf: 'stretch' },
+  // Out of sight and out of reach while cards are dragged, its place taken by the flip button.
+  steppedAside: { opacity: 0, pointerEvents: 'none' },
   reveal: { flex: 1, flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12 },
   revealPiles: { flex: 1, alignItems: 'center', justifyContent: 'space-evenly' },
   revealRail: { width: REVEAL_RAIL, alignItems: 'flex-end', justifyContent: 'center', gap: 18 },
@@ -3396,7 +3435,7 @@ const styles = StyleSheet.create({
     pointerEvents: 'none',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: FLIP_SIZE.h / 2,
+    borderRadius: FLIP_SIZE / 2,
     backgroundColor: colors.accent,
     shadowColor: '#000',
     shadowOpacity: 0.4,
@@ -3468,7 +3507,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   stackBadgeText: { color: colors.accentText, fontWeight: '800', fontSize: 14 },
-  flipText: { color: colors.accentText, fontSize: 20, fontWeight: '800', letterSpacing: 2 },
   trash: {
     position: 'absolute',
     pointerEvents: 'none',

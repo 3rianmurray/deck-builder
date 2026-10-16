@@ -12,10 +12,12 @@ interface Props {
   onPress: () => void;
   variant?: 'primary' | 'secondary';
   disabled?: boolean;
+  /** Its diameter, in points (56 if not given). */
+  size?: number;
 }
 
 /** A round button showing just an icon. */
-export function IconButton({ icon, label, onPress, variant = 'secondary', disabled }: Props) {
+export function IconButton({ icon, label, onPress, variant = 'secondary', disabled, size = 56 }: Props) {
   const primary = variant === 'primary';
   return (
     <Pressable
@@ -27,10 +29,11 @@ export function IconButton({ icon, label, onPress, variant = 'secondary', disabl
       hitSlop={6}
       style={({ pressed }) => [
         styles.button,
+        { width: size, height: size, borderRadius: size / 2 },
         primary && styles.primary,
         (pressed || disabled) && { opacity: disabled ? 0.35 : 0.75 },
       ]}>
-      <SymbolView name={icon} size={26} tintColor={primary ? colors.accentText : colors.text} />
+      <SymbolView name={icon} size={Math.round(size * 0.46)} tintColor={primary ? colors.accentText : colors.text} />
     </Pressable>
   );
 }

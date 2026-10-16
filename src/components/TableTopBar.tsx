@@ -10,6 +10,8 @@ import { colors } from '../theme';
 export interface TableControls {
   title: string;
   canUndo: boolean;
+  /** Cards are being dragged: then nothing in the bar does anything. */
+  busy: boolean;
   undo: () => void;
   openMenu: () => void;
 }
@@ -28,14 +30,20 @@ export function TableTopBar({ controls }: { controls: TableControls | null }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.bar, { paddingTop: insets.top + 6 }]}>
-      <RoundButton icon={{ ios: 'chevron.backward', android: 'arrow_back', web: 'arrow_back' }} label="Back" onPress={goBack} />
+      <RoundButton
+        icon={{ ios: 'chevron.backward', android: 'arrow_back', web: 'arrow_back' }}
+        label="Back"
+        onPress={goBack}
+        disabled={!!controls?.busy}
+      />
       {controls ? (
         <Pressable
           onPress={controls.openMenu}
+          disabled={controls.busy}
           accessibilityRole="button"
           accessibilityLabel={`${controls.title}, table options`}
           hitSlop={6}
-          style={({ pressed }) => [styles.glass, styles.title, pressed && styles.pressed]}>
+          style={({ pressed }) => [styles.glass, styles.title, pressed && styles.pressed, controls.busy && styles.disabled]}>
           <Text style={styles.titleText} numberOfLines={1}>
             {controls.title}
           </Text>
@@ -49,7 +57,7 @@ export function TableTopBar({ controls }: { controls: TableControls | null }) {
           icon={{ ios: 'arrow.uturn.backward', android: 'undo', web: 'undo' }}
           label="Undo"
           onPress={controls.undo}
-          disabled={!controls.canUndo}
+          disabled={!controls.canUndo || controls.busy}
         />
       ) : (
         <View style={styles.round} />

@@ -570,7 +570,8 @@ function Table({
     to?: { x: number; y: number };
     landed?: boolean;
   } | null>(null);
-  const [flight] = useState(() => ({ pos: new Animated.ValueXY(), scale: new Animated.Value(1) }));
+  // shadow: how much of its resting shadow the revealed card has (it brings it in as it comes down to land).
+  const [flight] = useState(() => ({ pos: new Animated.ValueXY(), scale: new Animated.Value(1), shadow: new Animated.Value(0) }));
   /** The flying card is gone once the real top card of the discard pile has been drawn under it. */
   const flightDone = (iid: string) => setFlying((f) => (f?.landed && f.iid === iid ? null : f));
   /** The card (by instance, so its neighbours can be found) blown up to nearly full screen, if any. */
@@ -934,6 +935,7 @@ function Table({
     const land = leanOffset(pileLean('discard'), pileRise(pileWidth, table.discard.length + 1));
     flight.pos.setValue({ x: from.x + PILE_INSET + lift.x, y: from.y + PILE_INSET + lift.y });
     flight.scale.setValue(1);
+    flight.shadow.setValue(0);
     // It sets off once its view is on screen (see below).
     setFlying({ iid: top.iid, cardId: top.cardId, faceUp: false, to: { x: to.x + PILE_INSET + land.x, y: to.y + PILE_INSET + land.y } });
   };
@@ -953,6 +955,12 @@ function Table({
       Animated.sequence([
         Animated.timing(flight.scale, { toValue: 1.12, easing: Easing.out(Easing.quad), ...half }),
         Animated.timing(flight.scale, { toValue: 1, easing: Easing.in(Easing.quad), ...half }),
+      ]),
+      // Its shadow comes in over the last stretch, once it's done turning over, so it lands already looking like
+      // the pile's top card rather than the pile's shadow popping in under it.
+      Animated.sequence([
+        Animated.delay(FLIGHT_MS * 0.75),
+        Animated.timing(flight.shadow, { toValue: 1, duration: FLIGHT_MS * 0.25, useNativeDriver: true }),
       ]),
     ]).start(({ finished }) => {
       if (!finished) return;
@@ -2967,6 +2975,13 @@ function Table({
       {flying ? (
         <Animated.View style={[styles.flying, { transform: [...flight.pos.getTranslateTransform(), { scale: flight.scale }] }]}>
           {/* No shadow while it flips: anything behind a turning card shows round its edges as it narrows. */}
+          <Animated.View
+            style={[
+              styles.flyingShadow,
+              tabletopShadow.resting,
+              { width: pileWidth, height: pileWidth / ratio, borderRadius: Math.max(4, pileWidth * 0.06), opacity: flight.shadow },
+            ]}
+          />
           <CardView deck={deck} card={cardsById.get(flying.cardId)} faceUp={flying.faceUp} width={pileWidth} flat />
         </Animated.View>
       ) : null}
@@ -3663,6 +3678,8 @@ const styles = StyleSheet.create({
   pilesOnCloth: { backgroundColor: 'transparent' },
   // The revealed card in flight, drawn without a shadow.
   flying: { position: 'absolute', left: 0, top: 0, pointerEvents: 'none' },
+  // Under the revealed card in flight, just to cast its shadow (a shadow needs something solid to come from).
+  flyingShadow: { position: 'absolute', left: 0, top: 0, backgroundColor: colors.surfaceRaised },
   stackEdge: {
     position: 'absolute',
     backgroundColor: colors.surfaceRaised,

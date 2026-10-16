@@ -2541,7 +2541,12 @@ function Table({
               },
               highlight('hand'),
             ]}
-            onLayout={measure('hand')}>
+            onLayout={measure('hand')}
+            // A session's deck pager holds still while a finger is on the hand, so scrolling the hand (past its ends,
+            // or flicked) never turns to another deck.
+            onTouchStart={() => onTouchingCard?.(true)}
+            onTouchEnd={() => !drag?.active && onTouchingCard?.(zoomed !== null)}
+            onTouchCancel={() => !drag?.active && onTouchingCard?.(zoomed !== null)}>
             <WoodRail />
             {/* A pull tab on the tray's top edge. Tapping it folds the tray away (giving the table more room) or
                 opens it again. */}
@@ -2569,6 +2574,8 @@ function Table({
               onContentSizeChange={(w) => setContentSize((s) => ({ ...s, hand: w }))}
               horizontal
               scrollEnabled={handOpen && !drag?.active && !drag?.pinch}
+              // Bounces at its ends, even when too short to scroll, rather than passing the swipe on to the pager.
+              alwaysBounceHorizontal
               showsHorizontalScrollIndicator={false}
               style={[styles.handGroove, { pointerEvents: handOpen ? 'auto' : 'none' }]}
               contentContainerStyle={[styles.handCards, { paddingHorizontal: 14 + handReach }]}

@@ -311,8 +311,8 @@ function Segment<T extends string | number>({
 const SCRUB_STEP_PX = 18;
 
 /**
- * A whole-number field that can be typed in, or changed by sliding a finger sideways across it: right to go up,
- * left to go down, one step per short slide, with a tick for each. Faint arrows either side hint at the slide.
+ * A whole number that changes as a finger slides left and right across it (one step per short slide, with a
+ * tick for each), so whatever it controls updates live. A tap without sliding opens it for typing instead.
  */
 function NumberField({
   label,
@@ -332,60 +332,93 @@ function NumberField({
   fallback: number;
 }) {
   const [sliding, setSliding] = useState(false);
+  const [typing, setTyping] = useState(false);
   // What the slide needs that changes from render to render; the slide's own handlers are made once.
   const [latest] = useState(() => {
-    const box = { value: 1, max, onChange, start: 1, shown: 1 };
+    const box = { value: 1, max, onChange, typing: false, start: 1, shown: 1, moved: false };
     return { set: (next: Partial<typeof box>) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ value: parseCount(value, fallback, max), max, onChange });
+  const current = parseCount(value, fallback, max);
+  latest.set({ value: current, max, onChange, typing });
+  /** Steps the number by `by`, within 1 and `max`. */
+  const step = (by: number) => {
+    const next = Math.min(max, Math.max(1, current + by));
+    if (next === current) return;
+    onChange(String(next));
+    haptics.tick();
+  };
   const [responder] = useState(() =>
     PanResponder.create({
-      // A sideways slide takes over from the text field (a tap still types, and an up-and-down one scrolls).
-      onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dx) > 8 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
-      onPanResponderTerminationRequest: () => false,
+      // The number itself takes the touch (not a text field, which would keep it for typing).
+      onStartShouldSetPanResponder: () => !latest.get().typing,
+      onMoveShouldSetPanResponder: () => !latest.get().typing,
+      // Until it's slid sideways, an up-and-down drag can still scroll the screen instead.
+      onPanResponderTerminationRequest: () => !latest.get().moved,
       onPanResponderGrant: () => {
         Keyboard.dismiss();
         const { value: now } = latest.get();
-        latest.set({ start: now, shown: now });
-        setSliding(true);
+        latest.set({ start: now, shown: now, moved: false });
       },
       onPanResponderMove: (_, g) => {
-        const { start, shown, max: most, onChange: change } = latest.get();
+        const { start, shown, moved, max: most, onChange: change } = latest.get();
+        if (!moved) {
+          if (Math.abs(g.dx) < 6) return;
+          latest.set({ moved: true });
+          setSliding(true);
+        }
         const next = Math.min(most, Math.max(1, start + Math.round(g.dx / SCRUB_STEP_PX)));
         if (next === shown) return;
         latest.set({ shown: next });
         change(String(next));
         haptics.tick();
       },
-      onPanResponderRelease: () => setSliding(false),
+      onPanResponderRelease: () => {
+        setSliding(false);
+        // A tap, not a slide: type a number instead.
+        if (!latest.get().moved) setTyping(true);
+      },
       onPanResponderTerminate: () => setSliding(false),
     }),
   );
   return (
     <View style={{ flex: 1, gap: 6 }}>
       <Text style={styles.label}>{label}</Text>
-      <View {...responder.panHandlers} style={[styles.scrub, sliding && styles.scrubbing]}>
-        <Text style={styles.scrubArrow} accessible={false}>
-          ‹
-        </Text>
-        <TextInput
-          maxFontSizeMultiplier={MAX_TEXT_SCALE}
-          value={value}
-          onChangeText={(t) => onChange(t.replace(/\D/g, ''))}
-          keyboardType="number-pad"
-          returnKeyType="done"
-          maxLength={3}
-          selectTextOnFocus
-          placeholder={placeholder}
-          placeholderTextColor={colors.textMuted}
-          style={styles.input}
+      {typing ? (
+        <View style={[styles.scrub, styles.scrubbing]}>
+          <TextInput
+            autoFocus
+            maxFontSizeMultiplier={MAX_TEXT_SCALE}
+            value={value}
+            onChangeText={(t) => onChange(t.replace(/\D/g, ''))}
+            onBlur={() => setTyping(false)}
+            keyboardType="number-pad"
+            returnKeyType="done"
+            maxLength={3}
+            selectTextOnFocus
+            placeholder={placeholder}
+            placeholderTextColor={colors.textMuted}
+            style={styles.input}
+            accessibilityLabel={label}
+          />
+        </View>
+      ) : (
+        <View
+          {...responder.panHandlers}
+          style={[styles.scrub, sliding && styles.scrubbing]}
+          accessible
+          accessibilityRole="adjustable"
           accessibilityLabel={label}
-          accessibilityHint="Type a number, or slide sideways across it to change it."
-        />
-        <Text style={styles.scrubArrow} accessible={false}>
-          ›
-        </Text>
-      </View>
+          accessibilityValue={{ text: value || placeholder || String(current) }}
+          accessibilityHint="Swipe up or down to change it, or double-tap to type a number."
+          accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }, { name: 'activate' }]}
+          onAccessibilityAction={(e) => {
+            if (e.nativeEvent.actionName === 'increment') step(1);
+            else if (e.nativeEvent.actionName === 'decrement') step(-1);
+            else setTyping(true);
+          }}>
+          <Text style={[styles.input, !value && { color: colors.textMuted }]}>{value || placeholder}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -414,7 +447,7 @@ const styles = StyleSheet.create({
   },
   fields: { flexDirection: 'row', gap: 12 },
   label: { color: colors.textMuted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  // A number field: the number in the middle, faint arrows either side hinting it can be slid.
+  // A number field: slid across to change it, or tapped to type.
   scrub: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -425,7 +458,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   scrubbing: { borderColor: colors.accent },
-  scrubArrow: { color: colors.textMuted, fontSize: 20, fontWeight: '600', opacity: 0.6 },
   input: {
     flex: 1,
     color: colors.text,

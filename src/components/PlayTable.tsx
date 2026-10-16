@@ -103,6 +103,8 @@ const REVEAL_CHROME = 100;
 const REVEAL_RAIL = 72;
 /** How far down the table the eye sits, for which way piles lean (0 is the top, 1 the bottom). */
 const VIEW_DOWN = 0.78;
+/** How far the hand's pull tab stands up above its tray. */
+const HAND_TAB_HEIGHT = 24;
 /** Size of the trash can that appears while dragging. */
 const TRASH_SIZE = 56;
 /** The play table's grid: space round its edge, and the least space between cards. */
@@ -370,6 +372,7 @@ export function DeckTable({
         table={table}
         setTable={setTable}
         setMode={(mode) => decks.setPlayMode(deck.id, mode)}
+        setHandFolded={(folded) => decks.setHandFolded(deck.id, folded)}
         active={active}
         onTouchingCard={onTouchingCard}
         onControls={onControls}
@@ -383,6 +386,7 @@ function Table({
   table,
   setTable,
   setMode,
+  setHandFolded,
   active,
   onTouchingCard,
   onControls,
@@ -391,6 +395,7 @@ function Table({
   table: TableState;
   setTable: Dispatch<SetStateAction<TableState | undefined>>;
   setMode: (mode: PlayMode) => void;
+  setHandFolded: (folded: boolean) => void;
 }) {
   const mode: PlayMode = deck.playMode ?? 'table';
   const reveal = mode === 'reveal';
@@ -412,8 +417,8 @@ function Table({
    * held stack already; it just doesn't show them (or count them) until they land.
    */
   const [pickups, setPickups] = useState<Pickup[]>([]);
-  /** Whether the hand's tray is open, or folded away to give the table more room. */
-  const [handOpen, setHandOpen] = useState(true);
+  /** Whether the hand's tray is open, or folded away to give the table more room (remembered for the deck). */
+  const handOpen = !deck.handFolded;
   /** Cards flying to their new places (see `moveCards`). Each is hidden there until it lands. */
   const [flights, setFlights] = useState<Flight[]>([]);
   /** A table stack turning over where it lies (see `flipStack`). */
@@ -1930,6 +1935,19 @@ function Table({
     });
   };
 
+  /**
+   * How far past the sides the hand's tray reaches, so it meets the screen's edges all the way up. The table is
+   * tilted back and scaled to fit, so only its very bottom edge spans the screen; the tray's top, a little
+   * further back, would otherwise fall short of the sides.
+   */
+  const handReach = (() => {
+    if (!tilt.angle || !rootSize.w) return 0;
+    const top = layout.hand?.y ?? rootSize.h * 0.75;
+    const dy = (top - rootSize.h / 2) * tilt.scale;
+    const enlarged = tilt.perspective / (tilt.perspective - dy * Math.sin((tilt.angle * Math.PI) / 180));
+    return Math.ceil(rootSize.w / 2 / (tilt.scale * enlarged) - rootSize.w / 2) + 2;
+  })();
+
   /** A flight from one table spot to another, drawn inside the play area (see where it's drawn). */
   const onTable = (f: Flight) => !reveal && f.zone === 'table' && f.fromZone === 'table';
   /** A card's flight, drawn in the layer whose top-left corner on the table is within (the whole table if none). */
@@ -2433,7 +2451,7 @@ function Table({
 
           {/* Hand */}
           <View
-            style={[styles.hand, { paddingBottom: insets.bottom + 4 }, highlight('hand')]}
+            style={[styles.hand, { paddingBottom: insets.bottom + 4, marginHorizontal: -handReach }, highlight('hand')]}
             onLayout={measure('hand')}>
             <WoodRail />
             {/* A small tab on the rail, over the groove the cards sit in. Tapping it folds the tray away (giving the
@@ -2441,20 +2459,20 @@ function Table({
             <Pressable
               onPress={() => {
                 animateLayout();
-                setHandOpen((o) => !o);
+                setHandFolded(handOpen);
                 haptics.tick();
               }}
               hitSlop={10}
               accessibilityRole="button"
               accessibilityLabel={`Hand, ${table.hand.length} cards`}
               accessibilityHint={handOpen ? 'Folds the hand away' : 'Opens the hand'}
-              style={({ pressed }) => [styles.handTab, pressed && { opacity: 0.8 }]}>
+              style={({ pressed }) => [styles.handTab, { marginTop: -HAND_TAB_HEIGHT }, pressed && { opacity: 0.85 }]}>
               <Text style={styles.handTabText}>Hand · {table.hand.length}</Text>
               <SymbolView
                 name={handOpen ? { ios: 'chevron.down', android: 'expand_more', web: 'expand_more' } : { ios: 'chevron.up', android: 'expand_less', web: 'expand_less' }}
                 size={10}
                 weight="bold"
-                tintColor={colors.accentText}
+                tintColor={colors.accent}
               />
             </Pressable>
             {handOpen ? (
@@ -2465,7 +2483,7 @@ function Table({
               scrollEnabled={!drag?.active && !drag?.pinch}
               showsHorizontalScrollIndicator={false}
               style={styles.handGroove}
-              contentContainerStyle={styles.handCards}
+              contentContainerStyle={[styles.handCards, { paddingHorizontal: 14 + handReach }]}
               onLayout={measure('handScroll')}
               onScrollEndDrag={(e) => trackScroll('hand', e.nativeEvent.contentOffset.x)}
               onMomentumScrollEnd={(e) => trackScroll('hand', e.nativeEvent.contentOffset.x)}>
@@ -3197,21 +3215,26 @@ const styles = StyleSheet.create({
   hint: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', width: '100%', marginTop: 24 },
   // The wooden rail along the bottom, holding the hand: a small label tab, then a recessed groove inset from
   // the sides (and above the home indicator) that the cards sit and scroll in, so none run off the screen.
-  hand: { paddingTop: 10, borderWidth: 2, borderColor: 'transparent', overflow: 'hidden' },
+  // Not clipped: its pull tab stands up above it.
+  hand: { paddingTop: 6, borderWidth: 2, borderColor: 'transparent' },
+  // A pull tab on the middle of the tray's top edge, in the same wood, standing up from it.
   handTab: {
-    alignSelf: 'flex-start',
-    marginLeft: 22,
+    alignSelf: 'center',
+    height: HAND_TAB_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingTop: 3,
-    paddingBottom: 4,
-    borderTopLeftRadius: 7,
-    borderTopRightRadius: 7,
-    backgroundColor: colors.accent,
+    gap: 6,
+    paddingHorizontal: 16,
+    borderTopLeftRadius: 11,
+    borderTopRightRadius: 11,
+    backgroundColor: '#6b4528',
+    // The light catching its top edge, as along the rail's.
+    borderTopWidth: 1.5,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,220,180,0.35)',
   },
-  handTabText: { color: colors.accentText, fontSize: 11, fontWeight: '700' },
+  handTabText: { color: 'rgba(255,240,220,0.9)', fontSize: 12, fontWeight: '700' },
   // Edge to edge: the cards scroll right off the sides, as across the whole rail.
   handGroove: {
     backgroundColor: 'rgba(0,0,0,0.3)',

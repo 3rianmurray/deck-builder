@@ -39,6 +39,7 @@ interface DecksApi {
   replaceCardImage: (deckId: string, cardId: string, imageUri: string) => void;
   setCardBack: (deckId: string, imageUri: string | null) => void;
   setPlayMode: (deckId: string, mode: PlayMode) => void;
+  setHandFolded: (deckId: string, folded: boolean) => void;
   setCardShape: (deckId: string, shape: CardShape) => void;
   /**
    * Returns the saved table for a deck, creating a freshly shuffled one if needed. Each session keeps its own
@@ -205,6 +206,9 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       },
       setPlayMode(deckId, playMode) {
         updateDeck(deckId, (d) => ({ ...d, playMode }));
+      },
+      setHandFolded(deckId, handFolded) {
+        updateDeck(deckId, (d) => ({ ...d, handFolded }));
       },
       setCardShape(deckId, cardShape) {
         updateDeck(deckId, (d) => ({ ...d, cardShape }));

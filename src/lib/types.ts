@@ -57,6 +57,8 @@ export interface Deck {
   name: string;
   /** Missing means 'table' (decks saved before modes existed). */
   playMode?: PlayMode;
+  /** The hand's tray on the play table is folded away (giving the table more room). Missing means open. */
+  handFolded?: boolean;
   /** Missing means standard (decks saved before sizes existed). */
   cardShape?: CardShape;
   /** The home-screen group it's filed under, if any (see lib/groups.ts). */

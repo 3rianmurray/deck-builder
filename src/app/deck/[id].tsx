@@ -48,7 +48,7 @@ async function pickFiles(multiple: boolean): Promise<string[]> {
 async function takePhoto(): Promise<string | null> {
   const { granted } = await ImagePicker.requestCameraPermissionsAsync();
   if (!granted) {
-    Alert.alert('Camera access needed', 'Allow camera access for Card Table in Settings to photograph cards.');
+    Alert.alert('Camera access needed', 'Allow camera access for Shufflevale in Settings to photograph cards.');
     return null;
   }
   const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 });

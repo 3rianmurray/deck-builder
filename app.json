@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "Card Table",
+    "name": "Shufflevale",
     "slug": "card-table",
-    "scheme": "cardtable",
+    "scheme": "shufflevale",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#14161a",
     "ios": {
-      "bundleIdentifier": "com.3rianmurray.cardtable",
+      "bundleIdentifier": "com.3rianmurray.shufflevale",
       "supportsTablet": false,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -32,8 +32,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Card Table uses your photo library so you can turn your own artwork into cards.",
-          "cameraPermission": "Card Table uses your camera so you can photograph your own artwork and turn it into cards.",
+          "photosPermission": "Shufflevale uses your photo library so you can turn your own artwork into cards.",
+          "cameraPermission": "Shufflevale uses your camera so you can photograph your own artwork and turn it into cards.",
           "microphonePermission": false
         }
       ],

@@ -1,4 +1,4 @@
-# Card Table
+# Shufflevale
 
 A sandbox for physical-style card decks on iPhone. Users import their own art to build decks, then play with them on a virtual table, like Tabletop Simulator in your pocket.
 
@@ -65,7 +65,7 @@ npm test
    npx eas-cli@latest login
    npx eas-cli@latest build:configure
    ```
-3. Set a unique `ios.bundleIdentifier` in `app.json` (e.g. `com.yourname.cardtable`), and replace `assets/icon.png` and `assets/splash-icon.png` with real artwork.
+3. Set a unique `ios.bundleIdentifier` in `app.json` (e.g. `com.yourname.shufflevale`), and replace `assets/icon.png` and `assets/splash-icon.png` with real artwork.
 4. Build and upload in the cloud. EAS handles certificates and signing:
    ```bash
    npx eas-cli@latest build --platform ios --profile production

@@ -11,7 +11,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -37,6 +36,7 @@ import { fitTilt, project, tiltTransform, unproject } from '../lib/tilt';
 import { cardRatio } from '../lib/types';
 import type { Card, CardInstance, Deck, PlayMode, Spot, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
+import { Text } from './Text';
 
 type Sheet =
   /** A card's menu; for a card in a table stack, `whole` has it act on the whole stack. */

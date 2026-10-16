@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { DeckTable } from '../../components/PlayTable';
 import { TableTopBar } from '../../components/TableTopBar';
@@ -9,6 +9,7 @@ import { TabletopSurface } from '../../components/Tabletop';
 import * as haptics from '../../lib/haptics';
 import { useDecks } from '../../lib/DecksContext';
 import { colors } from '../../theme';
+import { MAX_TEXT_SCALE, Text } from '../../components/Text';
 
 /**
  * Plays several decks at once: tap a deck's tab to move to it. (Not by swiping: sideways swipes on the table are
@@ -71,8 +72,6 @@ export default function SessionScreen() {
         {/* Sized from the text size setting, so changing it (even while the app is open) re-fits the row: the pills
             stay centred in it and it can't be nudged up and down. */}
         <ScrollView
-          // Rebuilt when the text size changes: iOS keeps the old text measurements otherwise, leaving names off centre.
-          key={fontScale}
           ref={tabsRef}
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -92,7 +91,7 @@ export default function SessionScreen() {
               accessibilityRole="tab"
               accessibilityState={{ selected: i === current }}
               style={[styles.tab, { height: tabHeight }, i === current && styles.tabActive]}>
-              <Text style={[styles.tabText, i === current && { color: colors.accentText }]} numberOfLines={1} maxFontSizeMultiplier={MAX_TEXT_SCALE}>
+              <Text style={[styles.tabText, i === current && { color: colors.accentText }]} numberOfLines={1}>
                 {d.name}
               </Text>
             </Pressable>
@@ -102,9 +101,7 @@ export default function SessionScreen() {
             disabled={!!controls?.busy}
             accessibilityLabel="Edit session"
             style={[styles.tab, { height: tabHeight }]}>
-            <Text style={styles.tabText} maxFontSizeMultiplier={MAX_TEXT_SCALE}>
-              Edit
-            </Text>
+            <Text style={styles.tabText}>Edit</Text>
           </Pressable>
         </ScrollView>
       </View>
@@ -131,10 +128,9 @@ export default function SessionScreen() {
   );
 }
 
-/** The tabs' text, its line at the standard text size, and how far it grows with the text size setting at most. */
+/** The tabs' text, its line at the standard text size, and (it grows with the text size setting up to MAX_TEXT_SCALE). */
 const TAB_TEXT = 14;
 const TAB_LINE = 18;
-const MAX_TEXT_SCALE = 1.6;
 /** Space round a tab's text, and under the row. */
 const TAB_PAD = 14;
 const TABS_BOTTOM = 8;

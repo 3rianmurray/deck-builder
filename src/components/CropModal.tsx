@@ -1,12 +1,13 @@
 import { Image } from 'expo-image';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, PanResponder, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, PanResponder, StyleSheet, View } from 'react-native';
 import type { NativeTouchEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { loadUpright, rotateImage, saveCrop } from '../lib/images';
 import { colors } from '../theme';
 import { Button } from './Button';
+import { Text } from './Text';
 
 /** Furthest the user can zoom in, relative to the image just covering the frame. */
 const MAX_ZOOM = 6;

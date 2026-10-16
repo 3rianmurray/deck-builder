@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 
 import { imageUri } from '../lib/storage';
@@ -11,6 +11,7 @@ import { colors } from '../theme';
 import { tabletopShadow, useOnTabletop } from './Tabletop';
 import { MAX_LEAN, viewTilt } from './viewpoint';
 import type { Lean } from './viewpoint';
+import { Text } from './Text';
 
 /** Time for each half of a flip: turning edge-on, then turning back with the other face showing. */
 const HALF_FLIP_MS = 120;

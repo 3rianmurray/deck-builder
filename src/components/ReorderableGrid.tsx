@@ -1,11 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { Animated, Easing, FlatList, LayoutAnimation, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, FlatList, LayoutAnimation, StyleSheet, View } from 'react-native';
 import type { GestureResponderEvent, LayoutChangeEvent, NativeTouchEvent } from 'react-native';
 
 import * as haptics from '../lib/haptics';
 import { gridHit, gridSlot } from '../lib/order';
 import { colors } from '../theme';
+import { Text } from './Text';
 
 /** Holding an item still this long picks it up. */
 const HOLD_MS = 300;

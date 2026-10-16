@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import type { SymbolViewProps } from 'expo-symbols';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '../theme';
+import { Text } from './Text';
 
 /** What the table on screen offers its top bar: its name, its menu, and undo. */
 export interface TableControls {

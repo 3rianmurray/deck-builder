@@ -2,7 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Platform, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Platform, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '../../components/ActionSheet';
@@ -18,6 +18,7 @@ import { imageUri } from '../../lib/storage';
 import { cardRatio, copiesOf, deckSize } from '../../lib/types';
 import type { Card } from '../../lib/types';
 import { colors } from '../../theme';
+import { MAX_TEXT_SCALE, Text } from '../../components/Text';
 
 const COLUMNS = 3;
 const GAP = 10;
@@ -217,6 +218,7 @@ export default function DeckEditorScreen() {
           <View style={styles.header}>
             <Text style={styles.label}>Deck name</Text>
             <TextInput
+              maxFontSizeMultiplier={MAX_TEXT_SCALE}
               defaultValue={deck.name}
               onEndEditing={(e) => {
                 const name = e.nativeEvent.text.trim();
@@ -315,6 +317,7 @@ export default function DeckEditorScreen() {
               <View style={styles.copiesRow}>
                 <Text style={styles.copiesLabel}>Copies in deck</Text>
                 <TextInput
+                  maxFontSizeMultiplier={MAX_TEXT_SCALE}
                   value={copiesDraft}
                   onChangeText={changeCopies}
                   onBlur={resetCopiesDraft}

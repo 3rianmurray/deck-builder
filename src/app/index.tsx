@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '../components/ActionSheet';
@@ -16,6 +16,7 @@ import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
 import { deckSize } from '../lib/types';
 import { colors } from '../theme';
+import { Text } from '../components/Text';
 
 /** A press this far from a row's right edge is on its Play or ••• button, so it doesn't pick the row up. */
 const BUTTON_ZONE = 100;

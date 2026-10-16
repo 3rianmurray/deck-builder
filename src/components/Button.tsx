@@ -1,7 +1,8 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 
 import { colors } from '../theme';
+import { Text } from './Text';
 
 interface Props {
   label: string;

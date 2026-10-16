@@ -8,7 +8,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
   useWindowDimensions,
@@ -21,6 +20,7 @@ import { cellNumber, cellRects } from '../lib/spriteSheet';
 import type { Grid, SheetOrder } from '../lib/spriteSheet';
 import { colors } from '../theme';
 import { Button } from './Button';
+import { MAX_TEXT_SCALE, Text } from './Text';
 
 const MAX_CELLS_PER_SIDE = 20;
 const PADDING = 16;
@@ -260,6 +260,7 @@ function NumberField({
     <View style={{ flex: 1, gap: 6 }}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        maxFontSizeMultiplier={MAX_TEXT_SCALE}
         value={value}
         onChangeText={(t) => onChange(t.replace(/\D/g, ''))}
         keyboardType="number-pad"

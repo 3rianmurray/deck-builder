@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../components/Button';
@@ -9,6 +9,7 @@ import { useDecks } from '../../lib/DecksContext';
 import { buildRows } from '../../lib/groups';
 import { deckSize } from '../../lib/types';
 import { colors } from '../../theme';
+import { MAX_TEXT_SCALE, Text } from '../../components/Text';
 
 /** Create a session (no `id`) or edit one: a name plus the decks to swipe between, in the order they were picked. */
 export default function EditSessionScreen() {
@@ -70,6 +71,7 @@ export default function EditSessionScreen() {
           <View style={{ gap: 8, marginBottom: 6 }}>
             <Text style={styles.label}>Session name</Text>
             <TextInput
+              maxFontSizeMultiplier={MAX_TEXT_SCALE}
               value={name}
               onChangeText={setName}
               style={styles.input}

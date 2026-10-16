@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { cardRatio, isLandscape } from '../lib/types';
 import type { CardShape } from '../lib/types';
 import { colors } from '../theme';
+import { MAX_TEXT_SCALE, Text } from './Text';
 
 const OPTIONS: { kind: CardShape['kind']; label: string; portrait: string; landscape: string }[] = [
   { kind: 'standard', label: 'Standard', portrait: 'Playing card · 2.5 × 3.5 in (5:7)', landscape: 'Playing card · 3.5 × 2.5 in (7:5)' },
@@ -125,6 +126,7 @@ export function CardSizePicker({ shape, onChange }: { shape: CardShape; onChange
 function SizeField({ label, value, onChange }: { label: string; value: string; onChange: (text: string) => void }) {
   return (
     <TextInput
+      maxFontSizeMultiplier={MAX_TEXT_SCALE}
       value={value}
       onChangeText={(t) => onChange(t.replace(/[^\d.,]/g, ''))}
       keyboardType="decimal-pad"

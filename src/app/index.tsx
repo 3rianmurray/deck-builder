@@ -16,11 +16,14 @@ import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
 import { loadSettings, saveSettings } from '../lib/storage';
-import { startTour, tourEvent } from '../lib/tour';
+import { startTour, tourEvent, useTourStep } from '../lib/tour';
 import { deckSize } from '../lib/types';
 import { colors } from '../theme';
 import { Text } from '../components/Text';
 import { TourSpot } from '../components/TourSpot';
+
+/** What the walkthrough's deck is called. */
+const SAMPLE_DECK = 'Sample Deck';
 
 /** A press this far from a row's right edge is on its Play or ••• button, so it doesn't pick the row up. */
 const BUTTON_ZONE = 100;
@@ -30,6 +33,7 @@ export default function HomeScreen() {
     decks,
     createDeck,
     deleteDeck,
+    resetDeck,
     duplicateDeck,
     sessions,
     deleteSession,
@@ -93,7 +97,19 @@ export default function HomeScreen() {
   const rows = buildRows(decks, groups);
   const menuGroup = groups.find((g) => g.id === groupMenu);
 
+  const tour = useTourStep();
   const newDeck = () => {
+    // In the walkthrough, it's the Sample Deck: the one from last time, started again, if it's still here.
+    if (tour?.step.until === 'deck-created') {
+      const settings = loadSettings();
+      const old = settings.sampleDeckId ? getDeck(settings.sampleDeckId) : undefined;
+      const id = old ? old.id : createDeck(SAMPLE_DECK).id;
+      if (old) resetDeck(old.id, SAMPLE_DECK);
+      else saveSettings({ ...settings, sampleDeckId: id });
+      router.push({ pathname: '/deck/[id]', params: { id } });
+      tourEvent('deck-created');
+      return;
+    }
     const deck = createDeck(`Deck ${decks.length + 1}`);
     router.push({ pathname: '/deck/[id]', params: { id: deck.id } });
     tourEvent('deck-created');

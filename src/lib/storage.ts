@@ -42,6 +42,8 @@ export const saveGroups = (groups: DeckGroup[]) => writeJson(GROUPS_FILE, groups
 export interface Settings {
   /** The welcome has been shown (it's shown by itself only on the first launch). */
   welcomed?: boolean;
+  /** The deck the walkthrough made, reused (started again) when it's run again. */
+  sampleDeckId?: string;
 }
 export const loadSettings = () => readJson<Settings>(SETTINGS_FILE, {});
 export const saveSettings = (settings: Settings) => writeJson(SETTINGS_FILE, settings);

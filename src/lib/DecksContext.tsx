@@ -30,6 +30,8 @@ interface DecksApi {
   duplicateDeck: (id: string) => Deck | undefined;
   renameDeck: (id: string, name: string) => void;
   deleteDeck: (id: string) => void;
+  /** Empties a deck to start it again: no cards, no back, default settings, no saved tables, under a new name. */
+  resetDeck: (id: string, name: string) => void;
   /** Adds a card for each image, named by `names` where given (otherwise numbered). */
   addCards: (deckId: string, imageUris: string[], names?: string[]) => void;
   setCopies: (deckId: string, cardId: string, copies: number) => void;
@@ -187,6 +189,11 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         tables.drop((key) => key === id || key.endsWith(`:${id}`));
         setSessions((all) => all.map((s) => ({ ...s, deckIds: s.deckIds.filter((d) => d !== id) })));
         deleteDeckFiles(id);
+      },
+      resetDeck(id, name) {
+        tables.drop((key) => key === id || key.endsWith(`:${id}`));
+        deleteDeckFiles(id);
+        updateDeck(id, (d) => ({ id: d.id, name, backImage: null, cards: [], groupId: d.groupId, createdAt: d.createdAt, updatedAt: Date.now() }));
       },
       addCards(deckId, uris, names) {
         const deck = getDeck(deckId);

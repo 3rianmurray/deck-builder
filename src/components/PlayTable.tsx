@@ -1533,11 +1533,10 @@ function Table({
    * The grid spot dropped cards would go in on the table: the one under the finger, or if a card is already
    * there, the nearest free one. Spots of cards being carried away count as free.
    */
-  const spotAt = (pageX: number, pageY: number): Spot | null => {
+  const spotAt = (p: { x: number; y: number } | null): Spot | null => {
     const o = laidOutAt('table');
-    const p = toTable(pageX, pageY);
     if (!o || !p || !gridReady) return null;
-    // The finger, measured from the middle of the first spot.
+    // The held card's middle, measured from the middle of the first spot.
     const x = p.x - o.x - GRID_PAD - tableCardWidth / 2;
     const y = p.y - o.y - GRID_PAD - cellH / 2;
     const taken = new Set(
@@ -1569,8 +1568,7 @@ function Table({
    * The table card or stack the finger is right over, to drop the carried cards on top of it. Only its middle
    * counts: near its edges (or in the gaps) the cards go next to it instead.
    */
-  const stackTargetAt = (pageX: number, pageY: number): string | null => {
-    const p = toTable(pageX, pageY);
+  const stackTargetAt = (p: { x: number; y: number } | null): string | null => {
     if (!p || reveal) return null;
     // The stack a card is being taken off starts out under the finger, so it only becomes a target once the
     // finger has been off it: then the card can go back on if the player changes their mind.
@@ -1590,13 +1588,20 @@ function Table({
     pan.setValue(delta);
     const zone = zoneAt(finger.pageX, finger.pageY);
     // Over the middle of a table card it's a stack; anywhere else on the table, a free spot; in the hand, a gap.
-    const onto = zone === 'table' ? stackTargetAt(finger.pageX, finger.pageY) : null;
+    // On the table, what's under the held card's middle (where it looks to be going), not under the finger,
+    // which usually holds it below its middle.
+    const f = toTable(finger.pageX, finger.pageY);
+    const held = f && {
+      x: f.x + (drag.width / 2 - drag.offX) * LIFTED_SCALE,
+      y: f.y + (drag.width / ratio / 2 - drag.offY) * LIFTED_SCALE,
+    };
+    const onto = zone === 'table' ? stackTargetAt(held) : null;
     let next: InsertAt | null = null;
     if (zone === 'hand') {
       const index = handInsertionAt(finger.pageX, finger.pageY);
       if (index !== null) next = { zone, index };
     } else if (zone === 'table' && !onto) {
-      const spot = spotAt(finger.pageX, finger.pageY);
+      const spot = spotAt(held);
       if (spot) next = { zone, spot };
     }
     // Compared with the latest targets, not the rendered ones, which may be a moment behind (see below).

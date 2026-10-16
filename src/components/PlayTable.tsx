@@ -183,10 +183,10 @@ interface Helper {
 }
 
 /**
- * How much bigger the held stack is than the cards it came from. It's drawn at that size (not scaled up from
- * the smaller card, which blurs the art).
+ * How much bigger the held stack is than a table card (or in reveal mode, than its pile's cards; see
+ * `heldScale`). It's drawn at that size (not scaled up from a smaller card, which blurs the art).
  */
-const LIFTED_SCALE = 1.25;
+const LIFTED_SCALE = 1.15;
 /**
  * Dropping on a table card stacks onto it only over its middle: this fraction of the card on each side is
  * left for dropping next to it instead.
@@ -625,6 +625,12 @@ function Table({
   const rowStep = cellH + GRID_GAP;
   /** Where a grid spot's card goes, within the play area's content. */
   const spotPlace = (s: Spot) => ({ position: 'absolute' as const, left: GRID_PAD + s.col * colStep, top: GRID_PAD + s.row * rowStep });
+  /**
+   * How much bigger a held card is drawn than it was where it was picked up. Held cards are all one size, a
+   * little bigger than a table card, wherever they came from (the hand's cards are bigger, the piles' about the
+   * same), so they look the same against the table. In reveal mode, just a little bigger than its pile's cards.
+   */
+  const heldScale = (d: { width: number }) => (reveal || !d.width ? LIFTED_SCALE : (tableCardWidth * LIFTED_SCALE) / d.width);
   const cardsById = new Map(deck.cards.map((c) => [c.id, c]));
   const missing = T.missingCards(table, deck).length;
 
@@ -1473,8 +1479,8 @@ function Table({
     const glideIn = (to: 'hand' | 'table', rise = { x: 0, y: 0 }, settled = false, pile = false) => {
       if (!liftedFrom) return;
       landingAnim.pos.setValue({
-        x: liftedFrom.x - d.offX * LIFTED_SCALE + lastPan.get().x,
-        y: liftedFrom.y - d.offY * LIFTED_SCALE + lastPan.get().y,
+        x: liftedFrom.x - d.offX * heldScale(d) + lastPan.get().x,
+        y: liftedFrom.y - d.offY * heldScale(d) + lastPan.get().y,
       });
       landingAnim.scale.setValue(1);
       landingAnim.lift.setValue(1);
@@ -1484,7 +1490,7 @@ function Table({
         cardId: d.stack[0].cardId,
         // In the hand every card faces the held stack's way; on the table a whole stack keeps its cards' faces.
         faceUp: to === 'hand' ? d.faceUp : heldFaceUp(d, d.stack[0]),
-        width: d.width * LIFTED_SCALE,
+        width: d.width * heldScale(d),
         before: cardLayouts[ids[0]],
         rise,
         settled,
@@ -1584,9 +1590,9 @@ function Table({
           iid: d.stack[0].iid,
           cardId: d.stack[0].cardId,
           from: {
-            x: liftedFrom.x - d.offX * LIFTED_SCALE + lastPan.get().x,
-            y: liftedFrom.y - d.offY * LIFTED_SCALE + lastPan.get().y,
-            w: d.width * LIFTED_SCALE,
+            x: liftedFrom.x - d.offX * heldScale(d) + lastPan.get().x,
+            y: liftedFrom.y - d.offY * heldScale(d) + lastPan.get().y,
+            w: d.width * heldScale(d),
           },
           // Where the pile's top will be once these are on it: known now, so it sets off at once.
           to: pileTopAt(zone, table[zone].filter((c) => !ids.includes(c.iid)).length + ids.length) ?? undefined,
@@ -1688,8 +1694,8 @@ function Table({
     // which usually holds it below its middle.
     const f = toTable(finger.pageX, finger.pageY);
     const held = f && {
-      x: f.x + (drag.width / 2 - drag.offX) * LIFTED_SCALE,
-      y: f.y + (drag.width / ratio / 2 - drag.offY) * LIFTED_SCALE,
+      x: f.x + (drag.width / 2 - drag.offX) * heldScale(drag),
+      y: f.y + (drag.width / ratio / 2 - drag.offY) * heldScale(drag),
     };
     const onto = zone === 'table' ? stackTargetAt(held) : null;
     let next: InsertAt | null = null;
@@ -1844,7 +1850,7 @@ function Table({
             animateLayout();
             // Grow from the card's own size up to the lifted size, rather than popping straight to it.
             // Starts at the card's own size; it grows once its lifted copy is on screen (see `drag.shown`).
-            liftGrow.setValue(1 / LIFTED_SCALE);
+            liftGrow.setValue(1 / heldScale(drag));
           }
           setDrag((d) => d && (lift ? { ...d, active: true } : { ...d, abandoned: true }));
           if (!lift) return;
@@ -2270,7 +2276,7 @@ function Table({
   }, [landing, landingRect]);
 
   /** The held stack's card size while it's being carried. */
-  const liftedWidth = drag ? drag.width * LIFTED_SCALE : 0;
+  const liftedWidth = drag ? drag.width * heldScale(drag) : 0;
   /** The held stack as drawn: without cards still flying onto it, which join it (and its count) as they land. */
   const heldShown = drag ? drag.stack.filter((h) => !pickups.some((p) => p.card.iid === h.iid)) : [];
   /**
@@ -2643,10 +2649,10 @@ function Table({
             !drag.shown && styles.hiddenCard,
             {
               // Bigger, but still held at the same spot under the finger: the grab point grows with the card.
-              left: liftedFrom.x - drag.offX * LIFTED_SCALE,
-              top: liftedFrom.y - drag.offY * LIFTED_SCALE,
+              left: liftedFrom.x - drag.offX * heldScale(drag),
+              top: liftedFrom.y - drag.offY * heldScale(drag),
               // It grows about the grab point, so the spot under the finger stays put while it does.
-              transformOrigin: [drag.offX * LIFTED_SCALE, drag.offY * LIFTED_SCALE, 0],
+              transformOrigin: [drag.offX * heldScale(drag), drag.offY * heldScale(drag), 0],
               transform: [...pan.getTranslateTransform(), { scale: liftGrow }],
             },
           ]}>
@@ -2695,7 +2701,7 @@ function Table({
               from={p.from}
               fromFaceUp={p.faceUp}
               faceUp={heldFaceUp(drag, p.card)}
-              to={{ x: liftedFrom.x - drag.offX * LIFTED_SCALE, y: liftedFrom.y - drag.offY * LIFTED_SCALE }}
+              to={{ x: liftedFrom.x - drag.offX * heldScale(drag), y: liftedFrom.y - drag.offY * heldScale(drag) }}
               pan={pan}
               width={liftedWidth}
               onLanded={() => setPickups((all) => all.filter((q) => q.card.iid !== p.card.iid))}

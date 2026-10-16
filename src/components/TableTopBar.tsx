@@ -14,16 +14,16 @@ export interface TableControls {
   openMenu: () => void;
 }
 
-/**
- * The play screen's top bar, floating over the felt: a round back button, the deck's name as a pill that
- * opens the table's menu, and a round undo button. Until the table has reported in, just the back button.
- */
 /** Back to the screen before, or home if there isn't one (e.g. the app was reloaded straight onto the table). */
 function goBack() {
   if (router.canGoBack()) router.back();
   else router.replace('/');
 }
 
+/**
+ * The play screen's top bar, floating over the felt: a round back button, the deck's name as a pill that
+ * opens the table's menu, and a round undo button. Until the table has reported in, just the back button.
+ */
 export function TableTopBar({ controls }: { controls: TableControls | null }) {
   const insets = useSafeAreaInsets();
   return (

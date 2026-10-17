@@ -14,6 +14,7 @@ import {
   putInHand,
   putOnTable,
   snapAngle,
+  snapCamera,
   stackAt,
   stackTargetAt,
   take,
@@ -175,4 +176,23 @@ test('several cards picked up from different places are taken together, wherever
   ]);
   assert.deepEqual(after.stacks.map((s) => [s.id, s.cards.map((c) => c.iid).join('')]), [['s', 'b']]);
   assert.deepEqual(after.hands[1], []);
+});
+test('the camera settles onto quarter turns when close, keeping the table under the fingers still', () => {
+  const r = (3 * Math.PI) / 180;
+  const tilted: Camera = { a: Math.cos(r), b: Math.sin(r), tx: 40, ty: -20 };
+  const about = { x: 200, y: 300 };
+  const under = toTable(tilted, about.x, about.y);
+  const snapped = snapCamera(tilted, about);
+  near(cameraAngle(snapped), 0);
+  near(cameraZoom(snapped), 1);
+  const still = toScreen(snapped, under.x, under.y);
+  near(still.x, about.x);
+  near(still.y, about.y);
+  // Further off (here 20°), it's left alone.
+  const r2 = (20 * Math.PI) / 180;
+  const free: Camera = { a: Math.cos(r2), b: Math.sin(r2), tx: 0, ty: 0 };
+  assert.equal(snapCamera(free, about), free);
+  // Near sideways, it goes sideways.
+  const r3 = (92 * Math.PI) / 180;
+  near(cameraAngle(snapCamera({ a: Math.cos(r3), b: Math.sin(r3), tx: 0, ty: 0 }, about)), 90);
 });

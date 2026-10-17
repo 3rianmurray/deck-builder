@@ -15,6 +15,7 @@ import {
   addDeck,
   CARD_W,
   cameraAngle,
+  cameraSquare,
   cameraZoom,
   cardsOf,
   fingerAngle,
@@ -29,6 +30,7 @@ import {
   raise,
   shuffleStack,
   snapAngle,
+  snapCamera,
   stackAt,
   stackTargetAt,
   startCamera,
@@ -255,6 +257,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       /** The camera as fingers last changed count, and where they were then. */
       camStart: { a: 1, b: 0, tx: 0, ty: 0 } as Camera,
       camFrom: [] as Pt[],
+      /** Whether the camera last sat on a quarter turn (for a tick each time it snaps onto one). */
+      camSquare: true,
       /** What was pressed: a stack (or its badge), or a hand card. */
       pressed: null as Source | null,
       /** Everything carried: where each came from, and the cards (the pile's bottom first). */
@@ -504,7 +508,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           touch.camFrom = now;
           return;
         }
-        writeCamera(moveCamera(touch.camStart, touch.camFrom, now));
+        let cam = moveCamera(touch.camStart, touch.camFrom, now);
+        // Turned with two fingers, it settles onto quarter turns when close (with a tick as it does).
+        if (now.length === 2) {
+          cam = snapCamera(cam, { x: (now[0].x + now[1].x) / 2, y: (now[0].y + now[1].y) / 2 });
+          const square = cameraSquare(cam);
+          if (square && !touch.camSquare) haptics.tick();
+          touch.camSquare = square;
+        }
+        writeCamera(cam);
       }
     };
     const up = (changed: Touch[]) => {

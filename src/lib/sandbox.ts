@@ -157,6 +157,38 @@ export function moveCamera(start: Camera, from: { x: number; y: number }[], to: 
   };
 }
 
+/** The steps the camera's turn snaps to, and how close it must come to one to snap. */
+export const CAMERA_SNAP_STEP = 90;
+export const CAMERA_SNAP_RANGE = 5;
+
+/**
+ * The camera turned onto the nearest quarter turn if it's within a few degrees of one (upright, sideways, upside
+ * down), turning about a screen point (the fingers' middle) so the table there doesn't move. Otherwise as it is.
+ */
+export function snapCamera(c: Camera, about: { x: number; y: number }, step = CAMERA_SNAP_STEP, range = CAMERA_SNAP_RANGE): Camera {
+  const angle = cameraAngle(c);
+  const target = Math.round(angle / step) * step;
+  const delta = target - angle;
+  if (Math.abs(delta) > range || Math.abs(delta) < 1e-9) return c;
+  const r = (delta * Math.PI) / 180;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+  const dx = c.tx - about.x;
+  const dy = c.ty - about.y;
+  return {
+    a: c.a * cos - c.b * sin,
+    b: c.a * sin + c.b * cos,
+    tx: about.x + dx * cos - dy * sin,
+    ty: about.y + dx * sin + dy * cos,
+  };
+}
+
+/** Whether the camera sits exactly on a quarter turn. */
+export const cameraSquare = (c: Camera) => {
+  const a = cameraAngle(c);
+  return Math.abs(a - Math.round(a / CAMERA_SNAP_STEP) * CAMERA_SNAP_STEP) < 1e-6;
+};
+
 /** The angle (degrees) of the line from one finger to another, for twisting a card. */
 export const fingerAngle = (p: { x: number; y: number }, q: { x: number; y: number }) =>
   (Math.atan2(q.y - p.y, q.x - p.x) * 180) / Math.PI;

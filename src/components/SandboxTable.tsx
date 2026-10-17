@@ -891,7 +891,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   }
 
   /** Where a row item sits: cards by their place in the row, the gap just before the card at its index. */
-  const order = (item: { kind: 'card'; c: SandboxCard } | { kind: 'gap' }) => (item.kind === 'gap' ? handGap! - 0.5 : handRow.indexOf(item.c));
+  const order = (item: { kind: 'card' | 'carried'; c: SandboxCard } | { kind: 'gap' }) =>
+    item.kind === 'gap' ? handGap! - 0.5 : item.kind === 'carried' ? Infinity : handRow.indexOf(item.c);
   const heldTop = held ? held.cards[held.cards.length - 1] : null;
   const heldDeck = heldTop ? getDeck(heldTop.deckId) : undefined;
   const heldSize = heldTop ? size(heldTop.deckId) : null;
@@ -988,11 +989,20 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 onScroll={(e) => handScroll.set(e.nativeEvent.contentOffset.x)}
                 style={[styles.handList, { top: HAND_TOP_PAD, height: handCardH + HAND_ROW_PAD * 2, pointerEvents: folded ? 'none' : 'auto' }]}
                 contentContainerStyle={styles.handCards}>
-                {[...handRow.map((c) => ({ kind: 'card' as const, c })), ...(handGap !== null ? [{ kind: 'gap' as const }] : [])]
+                {[
+                  ...handRow.map((c) => ({ kind: 'card' as const, c })),
+                  ...(handGap !== null ? [{ kind: 'gap' as const }] : []),
+                  // Cards being carried out of this hand stay mounted, out of sight and taking no room: the finger
+                  // carrying one is still attached to its view, and it would lose the drag if the view went.
+                  ...hand.filter((c) => heldIds.has(c.iid)).map((c) => ({ kind: 'carried' as const, c })),
+                ]
                   // The gap goes in its place in the row.
                   .sort((x, y) => order(x) - order(y))
                   .map((item) => {
                     if (item.kind === 'gap') return <View key="gap" style={{ width: gapWidth, height: handCardH }} />;
+                    if (item.kind === 'carried') {
+                      return <View key={item.c.iid} {...handTouches.panHandlers} style={styles.carried} />;
+                    }
                     const deck = decksById.get(item.c.deckId);
                     return deck ? (
                       <View key={item.c.iid} {...handTouches.panHandlers} style={{ width: handWidthOf(item.c), pointerEvents: 'box-only' }}>
@@ -1158,6 +1168,8 @@ const styles = StyleSheet.create({
   },
   trayEmpty: { position: 'absolute', left: 0, right: 0, color: 'rgba(255,240,220,0.45)', fontSize: 14, textAlign: 'center' },
   handCard: { position: 'absolute' },
+  // A carried card's place in the hand: still there (see above), but unseen, untouchable, and taking no room.
+  carried: { position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' },
   // Table mode's hand row: its scroll view, and the space round and between its cards.
   handList: { position: 'absolute', left: 0, right: 0 },
   handCards: { paddingHorizontal: HAND_PAD, paddingVertical: HAND_ROW_PAD, gap: HAND_GAP },

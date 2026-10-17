@@ -5,7 +5,8 @@ import { memo, useEffect, useMemo, useState } from 'react';
 import { Alert, Animated as RNAnimated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { LinearTransition, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { Easing as ReEasing, LinearTransition, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import type { SharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -223,6 +224,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const heldY = useSharedValue(0);
   const heldAngle = useSharedValue(0);
   const heldScale = useSharedValue(1);
+  /** What a card flying between the group and its pile follows as it flies: the camera, the group, the finger. */
+  const pileLive = { camA, camB, camX, camY, groupDX, groupDY, fingerX: heldX, fingerY: heldY };
   // Drawn just where, and as big as, it will lie when let go.
   const heldStyle = useAnimatedStyle(() => ({
     transform: [
@@ -371,18 +374,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
    */
   const flyPile = (into: boolean, finger: { x: number; y: number }) => {
     if (!table) return;
-    const cam = readCamera();
-    const k = cameraZoom(cam);
-    const turn = cameraAngle(cam);
-    const by = { x: groupDX.get(), y: groupDY.get() };
+    // Both ends move with the finger as they fly (see PileFlyer), so only where each lies in the group is fixed.
+    void finger;
     const flights = table.stacks
       .filter((s) => chosen.includes(s.id))
       .map((s): PileFlight => {
         const top = s.cards[s.cards.length - 1];
-        const at = toScreen(cam, s.x + by.x, s.y + by.y);
-        const spread = { x: at.x, y: at.y, angle: s.angle + turn, scale: k };
-        const pile = { x: finger.x, y: finger.y, angle: 0, scale: handScaleOf(top) };
-        return { key: newId(), card: top, from: into ? spread : pile, to: into ? pile : spread, into };
+        return { key: newId(), card: top, at: { x: s.x, y: s.y, angle: s.angle }, handScale: handScaleOf(top), into };
       });
     setPileFlights(flights);
     haptics.lift();
@@ -917,14 +915,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // over the table, it spreads out again as it was.
         const L = latest.get();
         const over = f.now.y >= L.handTop;
+        // Where the pile is (or cards flying out of it set off from), all the way, so flying cards keep up.
+        heldX.set(f.now.x);
+        heldY.set(f.now.y);
         if (over !== touch.groupOverHand) {
           touch.groupOverHand = over;
           L.setGroupInHand(over ? touch.groupLead : null);
           L.flyPile(over, f.now);
         }
         if (over) {
-          heldX.set(f.now.x);
-          heldY.set(f.now.y);
           heldAngle.set(0);
           heldScale.set(L.groupHandScale(touch.groupLead));
           L.setHandGap(L.handInsertAt(f.now.x));
@@ -1581,6 +1580,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 flight={f}
                 deck={deck}
                 size={size(f.card.deckId)}
+                live={pileLive}
                 onLanded={() => {
                   setPileFlights((all) => {
                     const left = all.filter((x) => x.key !== f.key);
@@ -1719,55 +1719,95 @@ function GatherFlyer({ flyer, deck, size, onLanded }: { flyer: Flyer; deck: Deck
   );
 }
 
-/** One card's flight between the spread-out group and its pile over the hand, on screen. */
+/** One card's flight between the spread-out group and its pile over the hand. */
 interface PileFlight {
   key: string;
   card: SandboxCard;
-  /** Where it starts and ends: its middle, turn (degrees) and size (screen points per table unit). */
-  from: { x: number; y: number; angle: number; scale: number };
-  to: { x: number; y: number; angle: number; scale: number };
+  /** Where its stack lies in the group (before the group's drag), and its turn. */
+  at: { x: number; y: number; angle: number };
+  /** Its size in the pile: screen points per table unit, for a hand card's size. */
+  handScale: number;
   /** Flying into the pile (gathering) rather than out of it (spreading out). */
   into: boolean;
+}
+
+/** What a flying card follows: the camera, how far the group has been dragged, and the finger (the pile). */
+interface PileLive {
+  camA: SharedValue<number>;
+  camB: SharedValue<number>;
+  camX: SharedValue<number>;
+  camY: SharedValue<number>;
+  groupDX: SharedValue<number>;
+  groupDY: SharedValue<number>;
+  fingerX: SharedValue<number>;
+  fingerY: SharedValue<number>;
 }
 
 /** How long a card takes to fly between the group and its pile. */
 const PILE_MS = 240;
 
-/** A card flying between the spread-out group and its pile over the hand: gliding, turning and resizing as it goes. */
-function PileFlyer({ flight, deck, size, onLanded }: { flight: PileFlight; deck: Deck; size: { w: number; h: number }; onLanded: () => void }) {
-  const [t] = useState(() => new RNAnimated.Value(0));
+/**
+ * A card flying between the spread-out group and its pile over the hand: gliding, turning and resizing as it goes,
+ * every frame between where it is in the group now and where the finger is now, so it keeps up as the finger moves.
+ */
+function PileFlyer({
+  flight,
+  deck,
+  size,
+  live,
+  onLanded,
+}: {
+  flight: PileFlight;
+  deck: Deck;
+  size: { w: number; h: number };
+  live: PileLive;
+  onLanded: () => void;
+}) {
+  const t = useSharedValue(0);
   useEffect(() => {
-    RNAnimated.timing(t, { toValue: 1, duration: PILE_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(
-      ({ finished }) => finished && onLanded(),
+    t.set(
+      withTiming(1, { duration: PILE_MS, easing: ReEasing.out(ReEasing.cubic) }, (finished) => {
+        if (finished) scheduleOnRN(onLanded);
+      }),
     );
     // Once, as it sets off.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const { from, to } = flight;
-  // Turning the short way round.
-  const turn = ((((to.angle - from.angle + 180) % 360) + 360) % 360) - 180;
-  const along = (a: number, b: number) => t.interpolate({ inputRange: [0, 1], outputRange: [a, b] });
+  const { at, handScale, into } = flight;
+  const style = useAnimatedStyle(() => {
+    // In the group: its place there now (moved with the group), seen through the camera.
+    const wx = at.x + live.groupDX.value;
+    const wy = at.y + live.groupDY.value;
+    const a = live.camA.value;
+    const b = live.camB.value;
+    const spread = {
+      x: a * wx - b * wy + live.camX.value,
+      y: b * wx + a * wy + live.camY.value,
+      angle: at.angle + (Math.atan2(b, a) * 180) / Math.PI,
+      scale: Math.hypot(a, b),
+    };
+    // In the pile: under the finger, upright, at hand size.
+    const pile = { x: live.fingerX.value, y: live.fingerY.value, angle: 0, scale: handScale };
+    const from = into ? spread : pile;
+    const to = into ? pile : spread;
+    const p = t.value;
+    // Turning the short way round.
+    const turn = ((((to.angle - from.angle + 180) % 360) + 360) % 360) - 180;
+    return {
+      transform: [
+        { translateX: from.x + (to.x - from.x) * p },
+        { translateY: from.y + (to.y - from.y) * p },
+        { rotate: `${from.angle + turn * p}deg` },
+        { scale: from.scale + (to.scale - from.scale) * p },
+      ],
+    };
+  });
   return (
-    <RNAnimated.View
-      pointerEvents="none"
-      style={{
-        position: 'absolute',
-        left: -size.w / 2,
-        top: -size.h / 2,
-        width: size.w,
-        height: size.h,
-        transform: [
-          { translateX: along(from.x, to.x) },
-          { translateY: along(from.y, to.y) },
-          { rotate: t.interpolate({ inputRange: [0, 1], outputRange: [`${from.angle}deg`, `${from.angle + turn}deg`] }) },
-          { scale: along(from.scale, to.scale) },
-        ],
-      }}>
+    <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: -size.w / 2, top: -size.h / 2, width: size.w, height: size.h }, style]}>
       <CardView deck={deck} card={deck.cards.find((c) => c.id === flight.card.cardId)} faceUp={flight.card.faceUp} width={size.w} sharp />
-    </RNAnimated.View>
+    </Animated.View>
   );
 }
-
 /** The lasso's line as it's drawn, closed back to its start, with a faint gold fill inside. */
 function LassoLine({ points }: { points: { x: number; y: number }[] }) {
   const builder = Skia.PathBuilder.Make();

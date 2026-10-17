@@ -223,13 +223,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** Cards being carried (out of sight where they were). */
   const heldIds = new Set(held?.cards.map((c) => c.iid));
   /** The hand's cards as table mode's: about a quarter of the screen wide; the tray as tall as they need. */
-  // The tray keeps one height whatever's in it: every card is as tall as a standard portrait card would be there
-  // (table mode's size), so a landscape card is just as tall, and wider.
+  // The tray keeps one height whatever's in it. Every portrait card stands that tall (a mini as tall as a standard
+  // card; widths follow each deck's shape), and a landscape card is its portrait card turned: as wide as that
+  // height, and shorter. The height is table mode's for a standard card.
   const handW = Math.min(110, screenW * 0.24);
   const handCardH = (handW * PRESET_SIZES_MM.standard.h) / PRESET_SIZES_MM.standard.w;
   const handWidthOf = (c: SandboxCard) => {
     const deck = decksById.get(c.deckId);
-    return handCardH * (deck ? cardRatio(deck) : PRESET_SIZES_MM.standard.w / PRESET_SIZES_MM.standard.h);
+    const ratio = deck ? cardRatio(deck) : PRESET_SIZES_MM.standard.w / PRESET_SIZES_MM.standard.h;
+    return ratio > 1 ? handCardH : handCardH * ratio;
   };
   const handH = Math.round(HAND_TOP_PAD + HAND_ROW_PAD * 2 + handCardH + 4);
   // The tray reaches the bottom of the screen; folded, it slides down until just the tops of its cards show.
@@ -1172,7 +1174,8 @@ const styles = StyleSheet.create({
   carried: { position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' },
   // Table mode's hand row: its scroll view, and the space round and between its cards.
   handList: { position: 'absolute', left: 0, right: 0 },
-  handCards: { paddingHorizontal: HAND_PAD, paddingVertical: HAND_ROW_PAD, gap: HAND_GAP },
+  // Cards stand in the middle of the row's height (landscape ones are shorter than the rest).
+  handCards: { paddingHorizontal: HAND_PAD, paddingVertical: HAND_ROW_PAD, gap: HAND_GAP, alignItems: 'center' },
   // Pull tabs standing on the tray's top edge, in the same wood, as table mode's: one per hand.
   tabs: { height: HAND_TAB_H, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', gap: 4, paddingHorizontal: 8 },
   tab: {

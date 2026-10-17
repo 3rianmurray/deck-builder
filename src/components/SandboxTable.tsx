@@ -45,6 +45,7 @@ import {
   take,
   UNITS_PER_MM,
   takeAll,
+  dealToHand,
   toScreen,
   toTable,
   turnStack,
@@ -57,6 +58,7 @@ import { colors } from '../theme';
 import { ActionSheet } from './ActionSheet';
 import type { SheetTile } from './ActionSheet';
 import { CardFocus } from './CardFocus';
+import { DealPanel } from './DealPanel';
 import { CardView } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
@@ -172,6 +174,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [held, setHeld] = useState<Held | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
+  /** Dealing from this stack: its menu shows how many to deal and to whom, instead of its options. */
+  const [dealingFrom, setDealingFrom] = useState<string | null>(null);
   const [zoomed, setZoomed] = useState<SandboxCard | null>(null);
   const [view, setView] = useState<{ w: number; h: number } | null>(null);
 
@@ -1090,10 +1094,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       const tiles: SheetTile[] = [
         { label: 'Flip over', icon: FLIP_ICON, onPress: () => commit(flipStack(table, menuStack.id)) },
         { label: 'Turn 90°', icon: { ios: 'rotate.right', android: 'rotate_right', web: 'rotate_right' }, onPress: () => commit(turnStack(table, menuStack.id)) },
+        // Dealing: how many off the top, and to whom (see DealPanel).
         {
-          label: `To ${table.handNames[handIndex]}`,
+          label: 'Deal…',
           icon: { ios: 'hand.raised', android: 'back_hand', web: 'back_hand' },
-          onPress: () => commit(putInHand(take(table, { kind: 'top', stackId: menuStack.id }), [top], handIndex)),
+          keepsOpen: true,
+          onPress: () => setDealingFrom(menuStack.id),
         },
         ...(n > 1
           ? [{ label: 'Shuffle', icon: { ios: 'shuffle', android: 'shuffle', web: 'shuffle' } as const, onPress: () => commit(shuffleStack(table, menuStack.id)) }]
@@ -1452,7 +1458,24 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         card={sheet && 'header' in sheet ? sheet.header : null}
         title={sheet?.title}
         tiles={sheet?.tiles ?? []}
-        onClose={() => setMenu(null)}
+        panel={
+          menu?.kind === 'stack' && menuStack && dealingFrom === menuStack.id ? (
+            <DealPanel
+              max={menuStack.cards.length}
+              players={table.handNames.map((name, i) => ({ name, holding: table.hands[i].length }))}
+              onDeal={(count, player) => {
+                commit(dealToHand(table, menuStack.id, count, player));
+                haptics.drop();
+                setMenu(null);
+              }}
+              onBack={() => setDealingFrom(null)}
+            />
+          ) : undefined
+        }
+        onClose={() => {
+          setMenu(null);
+          setDealingFrom(null);
+        }}
         overlay={
           zoomed && zoomDeck && zoomCard ? (
             <CardZoom

@@ -359,6 +359,20 @@ export function putInHand(t: SandboxTable, cards: SandboxCard[], hand: number, a
   };
 }
 
+/**
+ * Deals cards off the top of a stack into a player's hand: `count` of them (as many as it has, at most), one at a
+ * time, so the top card comes first. They keep the way they faced. An emptied stack goes.
+ */
+export function dealToHand(t: SandboxTable, stackId: string, count: number, hand: number): SandboxTable {
+  const s = t.stacks.find((st) => st.id === stackId);
+  if (!s || count < 1) return t;
+  const n = Math.min(count, s.cards.length);
+  const dealt = s.cards.slice(-n).reverse();
+  const left = s.cards.slice(0, s.cards.length - n);
+  const stacks = left.length ? t.stacks.map((st) => (st.id === stackId ? { ...st, cards: left } : st)) : t.stacks.filter((st) => st.id !== stackId);
+  return putInHand({ ...t, stacks }, dealt, hand);
+}
+
 /** Brings a stack to the top of the drawing order (it was just touched). */
 export const raise = (t: SandboxTable, stackId: string): SandboxTable => {
   const s = t.stacks.find((st) => st.id === stackId);

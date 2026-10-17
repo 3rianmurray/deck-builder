@@ -20,6 +20,7 @@ import {
   stackTargetAt,
   take,
   takeAll,
+  dealToHand,
   gatherStacks,
   moveStacks,
   stacksInShape,
@@ -272,4 +273,14 @@ test("a stack's count can be grabbed round its badge, even just off the card's e
   // A single card has no count to grab.
   const one = tableWith({ id: 'o', x: 500, y: 500, angle: 0, cards: [card('a')] });
   assert.equal(stackAt(one, 560, 420, size, 30), null);
+});
+test('dealing takes cards off the top, one at a time, into the chosen hand', () => {
+  const t = tableWith({ id: 's', x: 0, y: 0, angle: 0, cards: [card('a'), card('b'), card('c')] });
+  const dealt = dealToHand(t, 's', 2, 3);
+  assert.deepEqual(dealt.stacks[0].cards.map((c) => c.iid), ['a']);
+  assert.deepEqual(dealt.hands[3].map((c) => c.iid), ['c', 'b']);
+  // More than there are: all of them, and the stack goes.
+  const all = dealToHand(t, 's', 9, 0);
+  assert.deepEqual(all.stacks, []);
+  assert.deepEqual(all.hands[0].map((c) => c.iid), ['c', 'b', 'a']);
 });

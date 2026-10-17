@@ -25,6 +25,8 @@ interface Props {
   title?: string;
   /** Its options, as round buttons under it. Choosing one closes this (unless it `keepsOpen`). */
   tiles: SheetTile[];
+  /** Shown under the card instead of its options, e.g. for dealing. */
+  panel?: ReactNode;
   onClose: () => void;
   /** Shown over it, filling the screen (the card full size); this stays open underneath. */
   overlay?: ReactNode;
@@ -44,7 +46,7 @@ export function CardFocus(props: Props) {
     return { keep: (p: Props) => Object.assign(box, { last: p }), get: () => box.last };
   }, []);
   if (visible) kept.keep(props);
-  const { card, title, tiles, overlay } = visible ? props : (kept.get() ?? props);
+  const { card, title, tiles, panel, overlay } = visible ? props : (kept.get() ?? props);
 
   const [mounted, setMounted] = useState(visible);
   if (visible && !mounted) setMounted(true);
@@ -116,24 +118,26 @@ export function CardFocus(props: Props) {
         <Animated.View {...cardTouches.panHandlers} style={{ transform: anim.pan.getTranslateTransform() }}>
           {card}
         </Animated.View>
-        <View style={styles.tiles}>
-          {tiles.map((t) => (
-            <Pressable
-              key={t.label}
-              onPress={() => choose(t)}
-              disabled={t.disabled}
-              accessibilityRole="button"
-              accessibilityLabel={t.label}
-              style={({ pressed }) => [styles.tile, pressed && { opacity: 0.6 }, t.disabled && { opacity: 0.35 }]}>
-              <View style={styles.tileIcon}>
-                <SymbolView name={t.icon} size={22} tintColor={t.destructive ? colors.danger : colors.text} />
-              </View>
-              <Text style={[styles.tileText, t.destructive && { color: colors.danger }]} numberOfLines={1}>
-                {t.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        {panel ?? (
+          <View style={styles.tiles}>
+            {tiles.map((t) => (
+              <Pressable
+                key={t.label}
+                onPress={() => choose(t)}
+                disabled={t.disabled}
+                accessibilityRole="button"
+                accessibilityLabel={t.label}
+                style={({ pressed }) => [styles.tile, pressed && { opacity: 0.6 }, t.disabled && { opacity: 0.35 }]}>
+                <View style={styles.tileIcon}>
+                  <SymbolView name={t.icon} size={22} tintColor={t.destructive ? colors.danger : colors.text} />
+                </View>
+                <Text style={[styles.tileText, t.destructive && { color: colors.danger }]} numberOfLines={1}>
+                  {t.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
       </Animated.View>
       {overlay}
     </Modal>

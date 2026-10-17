@@ -18,6 +18,7 @@ import { deleteDeckWarning } from '../lib/deckInUse';
 import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
+import { createSandbox, deleteSandbox, useSandboxes } from '../lib/sandboxStore';
 import { loadSettings, saveSettings } from '../lib/storage';
 import { startTour, tourEvent, useTourStep } from '../lib/tour';
 import { deckSize } from '../lib/types';
@@ -51,6 +52,7 @@ export default function HomeScreen() {
     arrangeDecks,
   } = useDecks();
   const insets = useSafeAreaInsets();
+  const sandboxes = useSandboxes();
 
   // The walkthrough starts by itself the first time the app opens; after that, from the help button.
   useEffect(() => {
@@ -256,6 +258,49 @@ export default function HomeScreen() {
     );
   };
 
+  // Free Play tables (sandboxes in the code): big open tables to bring decks onto, Tabletop Simulator style.
+  const newSandboxTable = () => {
+    const table = createSandbox(`Free Play ${sandboxes.length + 1}`);
+    router.push({ pathname: '/sandbox/[id]', params: { id: table.id } });
+  };
+  const confirmDeleteSandbox = (id: string, name: string) => {
+    haptics.warn();
+    Alert.alert(`Delete "${name}"?`, 'Its decks are kept; just this table goes.', [
+      { text: 'Cancel', style: 'cancel', onPress: closeRows },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteSandbox(id) },
+    ]);
+  };
+  const sandboxSection = sandboxes.length ? (
+    <View style={{ gap: 10, marginBottom: 16 }}>
+      <Text style={styles.section}>Free Play</Text>
+      {sandboxes.map((t) => {
+        const onTable = t.stacks.reduce((n, s) => n + s.cards.length, 0);
+        const inHands = t.hands.reduce((n, h) => n + h.length, 0);
+        const open = () => router.push({ pathname: '/sandbox/[id]', params: { id: t.id } });
+        return (
+          <SwipeRow key={t.id} {...swipe(`sandbox:${t.id}`, () => confirmDeleteSandbox(t.id, t.name))}>
+            <Pressable
+              style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
+              onPress={open}
+              accessibilityRole="button"
+              accessibilityLabel={`${t.name}, free play table`}
+              {...rowActions([{ name: 'delete', label: 'Delete', run: () => confirmDeleteSandbox(t.id, t.name) }])}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {t.name}
+                </Text>
+                <Text style={styles.meta} numberOfLines={1}>
+                  {onTable || inHands ? `${onTable} on the table · ${inHands} in hands` : 'Empty table'}
+                </Text>
+              </View>
+              <Button label="Open" variant="primary" onPress={open} />
+            </Pressable>
+          </SwipeRow>
+        );
+      })}
+    </View>
+  ) : null;
+
   const sessionsSection = sessions.length ? (
     <View style={{ gap: 10, marginBottom: 16 }}>
       <Text style={styles.section}>Sessions</Text>
@@ -329,6 +374,7 @@ export default function HomeScreen() {
         header={
           <>
             {sessionsSection}
+            {sandboxSection}
             <View style={styles.sectionRow}>
               <Text style={styles.section}>Decks</Text>
               <Pressable
@@ -376,6 +422,7 @@ export default function HomeScreen() {
           { label: 'New Deck', onPress: newDeck },
           // The name prompt is another modal, which iOS can only show once this menu has gone.
           { label: 'New Group', opensModal: true, onPress: newGroup },
+          { label: 'New Free Play Table', onPress: newSandboxTable },
           // The file picker and share sheet are system screens too.
           { label: 'Import decks from a file…', opensModal: true, onPress: importFromFile },
           ...(decks.length ? [{ label: 'Back up all decks…', opensModal: true, onPress: backUpAll }] : []),

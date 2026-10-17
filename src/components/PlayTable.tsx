@@ -106,6 +106,8 @@ const REVEAL_RAIL = 72;
 const VIEW_DOWN = 0.78;
 /** How much of the hand's tray shows when it's folded away: its top edge and the tops of its cards. */
 const HAND_FOLDED_SHOWS = 38;
+/** The most a landscape card's width is grown by, over an upright one's (see `wide`). */
+const MAX_WIDE = 2;
 /** How far the hand's pull tab stands up above its tray. */
 const HAND_TAB_HEIGHT = 24;
 /** Size of the trash can that appears while dragging. */
@@ -625,9 +627,10 @@ function Table({
     setCardLayouts((all) => ({ ...all, [iid]: rect }));
   };
 
-  // Sizes are tuned for upright cards; sideways ones get wider so they aren't tiny.
+  // Sizes are tuned for upright cards. A landscape card is the same card turned, so its width is what an upright
+  // one's height would be (kept within reason for very wide custom sizes).
   const ratio = cardRatio(deck);
-  const wide = ratio > 1 ? 1.35 : 1;
+  const wide = ratio > 1 ? Math.min(ratio, MAX_WIDE) : 1;
   const pileWidth = reveal
     ? // The two piles stack beside the button column; leave room for each pile's depth (at most 14pt).
       Math.min(

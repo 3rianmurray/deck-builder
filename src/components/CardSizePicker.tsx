@@ -96,24 +96,28 @@ export function CardSizePicker({ shape, onChange }: { shape: CardShape; onChange
         {/* A small outline of the chosen shape. */}
         <View style={[styles.shape, ratio <= 1 ? { height: 40, width: 40 * ratio } : { width: 40, height: 40 / ratio }]} />
         {shape.kind === 'custom' ? (
-          <View style={styles.customRow}>
-            <SizeField
-              label="Width"
-              value={widthText}
-              onChange={(t) => {
-                setWidthText(t);
-                commitCustom(t, heightText);
-              }}
-            />
-            <Text style={styles.times}>×</Text>
-            <SizeField
-              label="Height"
-              value={heightText}
-              onChange={(t) => {
-                setHeightText(t);
-                commitCustom(widthText, t);
-              }}
-            />
+          <View style={{ flex: 1, gap: 6 }}>
+            <View style={styles.customRow}>
+              <SizeField
+                label="Width"
+                value={widthText}
+                onChange={(t) => {
+                  setWidthText(t);
+                  commitCustom(t, heightText);
+                }}
+              />
+              <Text style={styles.times}>×</Text>
+              <SizeField
+                label="Height"
+                value={heightText}
+                onChange={(t) => {
+                  setHeightText(t);
+                  commitCustom(widthText, t);
+                }}
+              />
+            </View>
+            {/* Sizes are real ones (they set how big cards are in sandbox play), so say how they're read. */}
+            <Text style={styles.detail}>In inches or millimetres, e.g. 2.5 × 3.5 or 63.5 × 88.9</Text>
           </View>
         ) : (
           <Text style={styles.detail}>{landscape ? selected.landscape : selected.portrait}</Text>

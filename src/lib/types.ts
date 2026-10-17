@@ -54,6 +54,35 @@ export function cardRatio(deck: Pick<Deck, 'cardShape'>): number {
   return Number.isFinite(ratio) ? Math.min(MAX_RATIO, Math.max(MIN_RATIO, ratio)) : PRESET_RATIOS.standard;
 }
 
+/** Real card sizes of the presets, in millimetres, held upright. */
+export const PRESET_SIZES_MM = {
+  /** Poker size, 2.5 × 3.5 in. */
+  standard: { w: 63.5, h: 88.9 },
+  usMini: { w: 41, h: 63 },
+} as const;
+
+/** Custom sizes this small are taken as inches (no card is 12 mm across); anything larger, as millimetres. */
+const INCH_LIMIT = 12;
+
+/**
+ * A deck's real card size, in millimetres, as its cards lie: a landscape card is the same card as a portrait
+ * one, turned, so the same size with its sides swapped. Custom sizes may be typed in inches or millimetres.
+ */
+export function cardSizeMm(deck: Pick<Deck, 'cardShape'>): { w: number; h: number } {
+  const shape = deck.cardShape ?? { kind: 'standard' };
+  if (shape.kind !== 'custom') {
+    const s = PRESET_SIZES_MM[shape.kind];
+    return shape.landscape ? { w: s.h, h: s.w } : { w: s.w, h: s.h };
+  }
+  const inches = shape.width <= INCH_LIMIT && shape.height <= INCH_LIMIT;
+  const k = inches ? 25.4 : 1;
+  // The same shape limits as `cardRatio`, kept to the long side.
+  const ratio = cardRatio(deck);
+  const long = Math.max(shape.width, shape.height) * k;
+  if (!Number.isFinite(long) || long <= 0) return { ...PRESET_SIZES_MM.standard };
+  return ratio >= 1 ? { w: long, h: long / ratio } : { w: long * ratio, h: long };
+}
+
 /** `table`: deck, discard, play area and hand. `reveal`: just the deck and discard pile, for turning cards over one at a time. */
 export type PlayMode = 'table' | 'reveal';
 

@@ -258,9 +258,9 @@ export default function HomeScreen() {
     );
   };
 
-  // Sandbox tables: big open tables to bring decks onto, Tabletop Simulator style.
+  // Free Play tables (sandboxes in the code): big open tables to bring decks onto, Tabletop Simulator style.
   const newSandboxTable = () => {
-    const table = createSandbox(`Sandbox ${sandboxes.length + 1}`);
+    const table = createSandbox(`Free Play ${sandboxes.length + 1}`);
     router.push({ pathname: '/sandbox/[id]', params: { id: table.id } });
   };
   const confirmDeleteSandbox = (id: string, name: string) => {
@@ -272,7 +272,7 @@ export default function HomeScreen() {
   };
   const sandboxSection = sandboxes.length ? (
     <View style={{ gap: 10, marginBottom: 16 }}>
-      <Text style={styles.section}>Sandbox</Text>
+      <Text style={styles.section}>Free Play</Text>
       {sandboxes.map((t) => {
         const onTable = t.stacks.reduce((n, s) => n + s.cards.length, 0);
         const inHands = t.hands.reduce((n, h) => n + h.length, 0);
@@ -283,7 +283,7 @@ export default function HomeScreen() {
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
               onPress={open}
               accessibilityRole="button"
-              accessibilityLabel={`${t.name}, sandbox table`}
+              accessibilityLabel={`${t.name}, free play table`}
               {...rowActions([{ name: 'delete', label: 'Delete', run: () => confirmDeleteSandbox(t.id, t.name) }])}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.name} numberOfLines={1}>
@@ -422,7 +422,7 @@ export default function HomeScreen() {
           { label: 'New Deck', onPress: newDeck },
           // The name prompt is another modal, which iOS can only show once this menu has gone.
           { label: 'New Group', opensModal: true, onPress: newGroup },
-          { label: 'New Sandbox Table', onPress: newSandboxTable },
+          { label: 'New Free Play Table', onPress: newSandboxTable },
           // The file picker and share sheet are system screens too.
           { label: 'Import decks from a file…', opensModal: true, onPress: importFromFile },
           ...(decks.length ? [{ label: 'Back up all decks…', opensModal: true, onPress: backUpAll }] : []),

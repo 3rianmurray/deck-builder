@@ -1,3 +1,4 @@
+import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
@@ -32,6 +33,9 @@ import {
   snapAngle,
   snapCamera,
   snapToGrid,
+  stacksInShape,
+  moveStacks,
+  gatherStacks,
   stackAt,
   stackTargetAt,
   startCamera,
@@ -63,6 +67,13 @@ import { Text } from './Text';
 const UNDO_STEPS = 30;
 /** A second tap on the same card within this long is a double tap (flipping it); a single tap's menu waits this long. */
 const DOUBLE_TAP_MS = 260;
+/** A tap on empty table, then another held down within this long and this near: a lasso. */
+const LASSO_TAP_MS = 400;
+const LASSO_TAP_REACH = 40;
+/** How far the finger moves (on screen) before the lasso takes another point. */
+const LASSO_STEP = 6;
+/** A touch on empty table lifted within this long (and without moving) is a tap. */
+const TAP_MS = 300;
 /** A finger moving less than this before lifting is a tap. */
 const TAP_SLOP = 8;
 /** An extra finger down and up within this long (and not moving) is a tap, picking up another card. */
@@ -125,6 +136,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [history, setHistory] = useState<SandboxTable[]>([]);
   const [handIndex, setHandIndex] = useState(0);
   const [folded, setFolded] = useState(false);
+  /** Stacks picked out with the lasso: outlined in gold, and dragged together. */
+  const [selected, setSelected] = useState<string[]>([]);
+  /** The lasso being drawn, as screen points (for drawing it). */
+  const [lassoPath, setLassoPath] = useState<{ x: number; y: number }[] | null>(null);
+  /** The selected stacks being dragged together: moved on the animation thread, like the camera, until let go. */
+  const [groupMoving, setGroupMoving] = useState(false);
+  const groupDX = useSharedValue(0);
+  const groupDY = useSharedValue(0);
+  const groupStyle = useAnimatedStyle(() => ({ transform: [{ translateX: groupDX.value }, { translateY: groupDY.value }] }));
   /** Where carried cards would go into the hand, while they're over it: a gap opens there. */
   const [handGap, setHandGap] = useState<number | null>(null);
   /** How far the hand's row is scrolled, as its scroll view reports it (to find the card under a finger). */
@@ -315,6 +335,36 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     LayoutAnimation.configureNext({ duration: 160, update: { type: LayoutAnimation.Types.easeInEaseOut } });
     setHandGap(g);
   };
+  /** While a group is dragged: a button above the flip one gathers it into one stack. */
+  const stackButton = { x: flipButton.x, y: flipButton.y - FLIP_SIZE - 12, size: FLIP_SIZE };
+  /** The selection, as it stands (stacks since gone, or gathered, drop out of it). */
+  const chosen = selected.filter((id) => table?.stacks.some((s) => s.id === id));
+  /** The group let go: each stack moved as far as the finger went (and snapped to the grid, if it's on). */
+  const dropGroup = (by: { x: number; y: number }) => {
+    setGroupMoving(false);
+    if (!table || (!by.x && !by.y)) return;
+    commit(moveStacks(table, chosen, by, gridOn ? (p) => snapToGrid(p) : undefined));
+    haptics.drop();
+  };
+  /** The flip button, while a group is dragged: each of its stacks turned over where it lies. */
+  const flipGroup = () => {
+    if (!table) return;
+    commit(chosen.reduce((t, id) => flipStack(t, id), table));
+    haptics.tick();
+  };
+  /**
+   * The stack button, while a group is dragged: all of it gathered into one stack where the grabbed one lies, every
+   * card facing the way the grabbed one does. It stays picked out (and in hand), as the one new stack.
+   */
+  const gatherGroup = (lead: string) => {
+    if (!table || chosen.length < 2) return undefined;
+    const id = newId();
+    commit(gatherStacks(table, chosen, lead, id));
+    setSelected([id]);
+    gestureState.get().groupLead = id;
+    haptics.drop();
+    return id;
+  };
   /** Where in the row (of cards not carried) cards dropped with their middle at a point on screen would go. */
   const handInsertAt = (x: number) => {
     // Before the first card whose middle (as the row is without the gap) lies past the point.
@@ -339,6 +389,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       handCardAt: (x: number, y: number) => number;
       maxHandScroll: number;
       gridOn: boolean;
+      selected: string[];
+      setSelected: (ids: string[]) => void;
+      setLassoPath: (p: { x: number; y: number }[] | null) => void;
+      setGroupMoving: (moving: boolean) => void;
+      stackButton: { x: number; y: number; size: number };
+      dropGroup: (by: { x: number; y: number }) => void;
+      flipGroup: () => void;
+      gatherGroup: (lead: string) => string | undefined;
       flipFromTap: (src: Source) => void;
       cameraLocked: boolean;
       toolsOpen: boolean;
@@ -354,13 +412,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, dropGroup, flipGroup, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
     type Pt = { x: number; y: number };
     const s = {
-      mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress',
+      mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress' | 'lasso' | 'group',
+      /** The press is on a selected stack: a drag moves the whole group. */
+      groupPress: false,
+      /** Where the group's drag started on the table, and the stack it was grabbed by. */
+      groupFrom: { x: 0, y: 0 },
+      groupLead: '',
+      /** The first finger landed on empty table, and when: a quick tap there clears the selection, and a second
+       *  tap held down soon after starts a lasso. */
+      onEmpty: false,
+      firstDownAt: 0,
+      emptyTap: null as null | { x: number; y: number; at: number },
+      /** The lasso's shape so far, on the table and on screen. */
+      lasso: [] as Pt[],
+      lassoScreen: [] as Pt[],
       /** The last tap on a card (to tell a double tap), and the wait before its menu opens. */
       lastTap: null as null | { key: string; at: number },
       tapTimer: null as null | ReturnType<typeof setTimeout>,
@@ -588,6 +659,19 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     type Touch = { id: number; x: number; y: number };
     // What the table does with fingers, on the JS thread (where its state is). The gesture itself, on the UI
     // thread, just claims the touches (or leaves them to the hand tabs) and passes them on.
+    /** The selected stacks start moving together, grabbed by the pressed one. */
+    const startGroup = () => {
+      const L = latest.get();
+      const f = touch.fingers.get(touch.first);
+      if (!f || touch.pressed?.kind === 'hand' || !touch.pressed) return;
+      touch.mode = 'group';
+      touch.groupFrom = toTable(readCamera(), f.start.x, f.start.y);
+      touch.groupLead = touch.pressed.stackId;
+      groupDX.set(0);
+      groupDY.set(0);
+      L.setGroupMoving(true);
+      haptics.lift();
+    };
     const down = (changed: Touch[]) => {
       const L = latest.get();
       // A touch on the table tucks the tools away.
@@ -609,11 +693,43 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         }
         const w = toTable(readCamera(), t.x, t.y);
         const hit = L.table ? stackAt(L.table, w.x, w.y, L.size) : null;
+        touch.onEmpty = false;
         if (hit) {
-          touch.pressed = { kind: hit.whole ? 'stack' : 'top', stackId: hit.stack.id };
+          // A selected stack: dragging it moves the whole group (a tap still opens its menu).
+          touch.groupPress = L.selected.includes(hit.stack.id);
+          touch.pressed = { kind: hit.whole && !touch.groupPress ? 'stack' : 'top', stackId: hit.stack.id };
           touch.mode = 'press';
           return;
         }
+        // Empty table. The second tap of a double tap, held down: a lasso, drawn round the cards to pick out.
+        const now = Date.now();
+        const e = touch.emptyTap;
+        touch.emptyTap = null;
+        if (e && now - e.at < LASSO_TAP_MS && Math.hypot(t.x - e.x, t.y - e.y) < LASSO_TAP_REACH) {
+          touch.mode = 'lasso';
+          touch.lasso = [w];
+          touch.lassoScreen = [{ x: t.x, y: t.y }];
+          L.setSelected([]);
+          L.setLassoPath(touch.lassoScreen);
+          haptics.lift();
+          return;
+        }
+        touch.onEmpty = true;
+        touch.firstDownAt = now;
+      }
+      // Other fingers while a lasso is drawn: ignored.
+      if (touch.mode === 'lasso') return;
+      // Other fingers while the group is pressed or dragged: the group's buttons (flip, and gather into a stack).
+      if (touch.mode === 'group' || (touch.mode === 'press' && touch.groupPress)) {
+        if (touch.mode === 'press') startGroup();
+        const on = (c: Touch, b: { x: number; y: number; size: number }) =>
+          Math.hypot(c.x - (b.x + b.size / 2), c.y - (b.y + b.size / 2)) <= b.size / 2 + 12;
+        for (const c of changed) {
+          if (c.id === touch.first) continue;
+          if (on(c, L.flipButton)) L.flipGroup();
+          else if (on(c, L.stackButton)) L.gatherGroup(touch.groupLead);
+        }
+        return;
       }
       // Other fingers while the hand is pressed or scrolled: ignored.
       if (touch.mode === 'handPress') return;
@@ -656,7 +772,36 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       }
       if (touch.mode === 'press') {
         const f = touch.fingers.get(touch.first);
-        if (f && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) > TAP_SLOP) pickUp();
+        if (f && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) > TAP_SLOP) {
+          if (touch.groupPress) startGroup();
+          else pickUp();
+        }
+        return;
+      }
+      if (touch.mode === 'lasso') {
+        // The lasso follows the finger; the stacks it goes round light up as it does.
+        const f = touch.fingers.get(touch.first);
+        const L = latest.get();
+        if (!f || !L.table) return;
+        const last = touch.lassoScreen[touch.lassoScreen.length - 1];
+        if (last && Math.hypot(f.now.x - last.x, f.now.y - last.y) < LASSO_STEP) return;
+        touch.lasso = [...touch.lasso, toTable(readCamera(), f.now.x, f.now.y)];
+        touch.lassoScreen = [...touch.lassoScreen, f.now];
+        L.setLassoPath(touch.lassoScreen);
+        const picked = stacksInShape(L.table, touch.lasso);
+        if (picked.join() !== L.selected.join()) {
+          if (picked.length > L.selected.length) haptics.tick();
+          L.setSelected(picked);
+        }
+        return;
+      }
+      if (touch.mode === 'group') {
+        // The whole group follows the finger, across the table.
+        const f = touch.fingers.get(touch.first);
+        if (!f) return;
+        const w = toTable(readCamera(), f.now.x, f.now.y);
+        groupDX.set(w.x - touch.groupFrom.x);
+        groupDY.set(w.y - touch.groupFrom.y);
         return;
       }
       if (touch.mode === 'carry') return showCarried();
@@ -693,7 +838,17 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const up = (changed: Touch[]) => {
       const L = latest.get();
       const lifted = changed.map((t) => t.id);
-      if ((touch.mode === 'press' || touch.mode === 'handPress') && lifted.includes(touch.first)) {
+      if (touch.mode === 'lasso' && lifted.includes(touch.first)) {
+        // What it went round stays picked out.
+        L.setLassoPath(null);
+        if (L.selected.length) haptics.drop();
+        touch.mode = 'none';
+      } else if (touch.mode === 'group') {
+        if (lifted.includes(touch.first)) {
+          L.dropGroup({ x: groupDX.get(), y: groupDY.get() });
+          touch.mode = 'none';
+        }
+      } else if ((touch.mode === 'press' || touch.mode === 'handPress') && lifted.includes(touch.first)) {
         // A tap opens the card's menu, a moment later in case it's the first of two; a second tap on the same
         // card in that moment flips it instead.
         const src = touch.pressed;
@@ -745,6 +900,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           showCarried();
         }
       }
+      // A quick tap on empty table: the selection's let go, and it may be the first tap of a lasso's double tap.
+      if (touch.onEmpty && lifted.includes(touch.first)) {
+        const f = touch.fingers.get(touch.first);
+        if (f && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) < TAP_SLOP && Date.now() - touch.firstDownAt < TAP_MS) {
+          if (L.selected.length) L.setSelected([]);
+          touch.emptyTap = { x: f.start.x, y: f.start.y, at: Date.now() };
+        }
+        touch.onEmpty = false;
+      }
       for (const id of lifted) touch.fingers.delete(id);
       if (touch.mode === 'camera') {
         touch.camStart = readCamera();
@@ -762,11 +926,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         L.setHeld(null);
         L.setTarget(null);
       }
+      if (touch.mode === 'lasso') L.setLassoPath(null);
+      if (touch.mode === 'group') L.dropGroup({ x: 0, y: 0 });
       touch.sources = [];
       touch.cards = [];
       touch.downAt.clear();
       touch.buttonFingers.clear();
       touch.fingers.clear();
+      touch.onEmpty = false;
       L.setHandGap(null);
       touch.mode = 'none';
     };
@@ -1000,6 +1167,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** Where a row item sits: cards by their place in the row, the gap just before the card at its index. */
   const order = (item: { kind: 'card' | 'carried'; c: SandboxCard } | { kind: 'gap' }) =>
     item.kind === 'gap' ? handGap! - 0.5 : item.kind === 'carried' ? Infinity : handRow.indexOf(item.c);
+  const chosenIds = new Set(chosen);
   const heldTop = held ? held.cards[held.cards.length - 1] : null;
   const heldDeck = heldTop ? getDeck(heldTop.deckId) : undefined;
   const heldSize = heldTop ? size(heldTop.deckId) : null;
@@ -1021,19 +1189,40 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             <View style={styles.tableEdge} />
             <Image source={require('../../assets/textures/felt.png')} resizeMode="repeat" style={styles.felt} />
             {gridOn ? <GridLines /> : null}
-            {table.stacks.map((s) => (
-              <StackView
-                key={s.id}
-                stack={s}
-                deck={decksById.get(s.cards[s.cards.length - 1].deckId)}
-                decks={decksById}
-                size={size(s.cards[s.cards.length - 1].deckId)}
-                // While carried: a whole stack is out of sight; a top card leaves the rest showing.
-                // While carried, its carried cards are out of sight (the rest still show).
-                hidden={held ? s.cards.filter((c) => heldIds.has(c.iid)).map((c) => c.iid).join(',') : ''}
-                target={target === s.id}
-              />
-            ))}
+            {table.stacks.map((s) =>
+              groupMoving && chosenIds.has(s.id) ? null : (
+                <StackView
+                  key={s.id}
+                  stack={s}
+                  deck={decksById.get(s.cards[s.cards.length - 1].deckId)}
+                  decks={decksById}
+                  size={size(s.cards[s.cards.length - 1].deckId)}
+                  // While carried, its carried cards are out of sight (the rest still show).
+                  hidden={held ? s.cards.filter((c) => heldIds.has(c.iid)).map((c) => c.iid).join(',') : ''}
+                  target={target === s.id}
+                  selected={chosenIds.has(s.id)}
+                />
+              ),
+            )}
+            {/* The picked-out group, while it's dragged: drawn together, sliding with the finger. */}
+            {groupMoving ? (
+              <Animated.View style={[styles.groupLayer, groupStyle]}>
+                {table.stacks
+                  .filter((s) => chosenIds.has(s.id))
+                  .map((s) => (
+                    <StackView
+                      key={s.id}
+                      stack={s}
+                      deck={decksById.get(s.cards[s.cards.length - 1].deckId)}
+                      decks={decksById}
+                      size={size(s.cards[s.cards.length - 1].deckId)}
+                      hidden=""
+                      target={false}
+                      selected
+                    />
+                  ))}
+              </Animated.View>
+            ) : null}
           </Animated.View>
 
           {/*
@@ -1170,14 +1359,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </Pressable>
           </Animated.View>
 
-          {/* While cards are carried: the flip button, tapped with another finger to turn them over. */}
-          {held ? (
+          {/* While cards (or a group) are carried: the flip button, tapped with another finger to turn them over. */}
+          {held || groupMoving ? (
             <View
               pointerEvents="none"
               style={[styles.flipButton, { left: flipButton.x, top: flipButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }]}>
               <SymbolView name={FLIP_ICON} size={28} weight="semibold" tintColor={colors.accentText} />
             </View>
           ) : null}
+
+          {/* While a group is dragged: above the flip button, one to gather it all into a stack. */}
+          {groupMoving && chosen.length > 1 ? (
+            <View
+              pointerEvents="none"
+              style={[styles.flipButton, { left: stackButton.x, top: stackButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }]}>
+              <SymbolView name={{ ios: 'square.stack.3d.down.right', android: 'layers', web: 'layers' }} size={26} weight="semibold" tintColor={colors.accentText} />
+            </View>
+          ) : null}
+
+          {/* The lasso, as it's drawn. */}
+          {lassoPath && lassoPath.length > 1 ? <LassoLine points={lassoPath} /> : null}
 
           {/* The card being carried, drawn over everything, following the finger, just as it will lie. */}
           {held && heldTop && heldDeck && heldSize ? (
@@ -1239,6 +1440,21 @@ const GridLines = memo(function GridLines() {
   ];
 });
 
+/** The lasso's line as it's drawn, closed back to its start, with a faint gold fill inside. */
+function LassoLine({ points }: { points: { x: number; y: number }[] }) {
+  const builder = Skia.PathBuilder.Make();
+  builder.moveTo(points[0].x, points[0].y);
+  for (const p of points.slice(1)) builder.lineTo(p.x, p.y);
+  builder.close();
+  const path = builder.build();
+  return (
+    <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
+      <Path path={path} color="rgba(224,179,84,0.12)" />
+      <Path path={path} color={colors.accent} style="stroke" strokeWidth={2} strokeJoin="round" />
+    </Canvas>
+  );
+}
+
 /** A stack on the table: its top card (and edges below it, for more than one), turned as it lies. */
 const StackView = memo(function StackView({
   stack,
@@ -1247,6 +1463,7 @@ const StackView = memo(function StackView({
   size,
   hidden,
   target,
+  selected,
 }: {
   stack: SandboxStack;
   deck: Deck | undefined;
@@ -1255,6 +1472,8 @@ const StackView = memo(function StackView({
   /** Its cards being carried (out of sight here), as their ids joined by commas. */
   hidden: string;
   target: boolean;
+  /** Picked out with the lasso: outlined in gold. */
+  selected: boolean;
 }) {
   const gone = new Set(hidden ? hidden.split(',') : []);
   const shown = gone.size ? stack.cards.filter((c) => !gone.has(c.iid)) : stack.cards;
@@ -1280,7 +1499,7 @@ const StackView = memo(function StackView({
           <Text style={styles.badgeText}>{shown.length}</Text>
         </View>
       ) : null}
-      {target ? <View style={styles.target} /> : null}
+      {target || selected ? <View style={styles.target} /> : null}
     </View>
   );
 });
@@ -1353,6 +1572,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 0,
     borderColor: 'rgba(255,255,255,0.22)',
   },
+  groupLayer: { position: 'absolute', left: 0, top: 0 },
   flipButton: {
     position: 'absolute',
     alignItems: 'center',

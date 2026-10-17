@@ -20,6 +20,9 @@ import {
   stackTargetAt,
   take,
   takeAll,
+  gatherStacks,
+  moveStacks,
+  stacksInShape,
   toScreen,
   toTable,
   turnStack,
@@ -217,4 +220,45 @@ test("cards don't stack onto a stack facing the other way", () => {
   const t = tableWith({ id: 'up', x: 300, y: 300, angle: 0, cards: [card('a', true)] });
   assert.equal(stackTargetAt(t, 305, 300, size, undefined, undefined, true)?.id, 'up');
   assert.equal(stackTargetAt(t, 305, 300, size, undefined, undefined, false), null);
+});
+test('a lasso selects the stacks whose middles it goes round', () => {
+  const t = tableWith(
+    { id: 'in', x: 100, y: 100, angle: 0, cards: [card('a')] },
+    { id: 'out', x: 400, y: 100, angle: 0, cards: [card('b')] },
+  );
+  const loop = [
+    { x: 0, y: 0 },
+    { x: 250, y: 20 },
+    { x: 200, y: 250 },
+    { x: 10, y: 200 },
+  ];
+  assert.deepEqual(stacksInShape(t, loop), ['in']);
+  assert.deepEqual(stacksInShape(t, loop.slice(0, 2)), []);
+});
+
+test('a group moves together, each keeping its place relative to the rest', () => {
+  const t = tableWith(
+    { id: 'a', x: 100, y: 100, angle: 0, cards: [card('a')] },
+    { id: 'b', x: 160, y: 130, angle: 30, cards: [card('b')] },
+    { id: 'c', x: 900, y: 900, angle: 0, cards: [card('c')] },
+  );
+  const moved = moveStacks(t, ['a', 'b'], { x: 50, y: -20 });
+  assert.deepEqual(moved.stacks.map((s) => [s.id, s.x, s.y, s.angle]), [
+    ['c', 900, 900, 0],
+    ['a', 150, 80, 0],
+    ['b', 210, 110, 30],
+  ]);
+});
+
+test('gathered into one stack where the grabbed one lies, all facing its way, it on top', () => {
+  const t = tableWith(
+    { id: 'a', x: 100, y: 100, angle: 0, cards: [card('a', false)] },
+    { id: 'b', x: 300, y: 120, angle: 45, cards: [card('b1', true), card('b2', true)] },
+    { id: 'c', x: 900, y: 900, angle: 0, cards: [card('c')] },
+  );
+  const g = gatherStacks(t, ['a', 'b'], 'b', 'g');
+  assert.deepEqual(g.stacks.map((s) => [s.id, s.x, s.y, s.angle, s.cards.map((c) => `${c.iid}${c.faceUp ? '↑' : '↓'}`).join(',')]), [
+    ['c', 900, 900, 0, 'c↓'],
+    ['g', 300, 120, 45, 'a↑,b1↑,b2↑'],
+  ]);
 });

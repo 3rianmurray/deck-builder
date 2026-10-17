@@ -355,6 +355,45 @@ export const raise = (t: SandboxTable, stackId: string): SandboxTable => {
   return s ? { ...t, stacks: [...t.stacks.filter((st) => st.id !== stackId), s] } : t;
 };
 
+// ---- Lasso and groups ----
+
+/** Whether a point lies inside a shape drawn as a closed line through some points (even-odd rule). */
+export function insideShape(p: { x: number; y: number }, shape: { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = shape.length - 1; i < shape.length; j = i++) {
+    const a = shape[i];
+    const b = shape[j];
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** The stacks whose middles lie inside a shape drawn on the table. */
+export const stacksInShape = (t: SandboxTable, shape: { x: number; y: number }[]) =>
+  shape.length < 3 ? [] : t.stacks.filter((s) => insideShape(s, shape)).map((s) => s.id);
+
+/** Moves stacks by the same amount each (a group dragged together). */
+export const moveStacks = (t: SandboxTable, ids: string[], by: { x: number; y: number }, place = (p: { x: number; y: number; angle: number }) => p) => {
+  const moving = new Set(ids);
+  const moved = t.stacks.map((s) => (moving.has(s.id) ? { ...s, ...place({ x: s.x + by.x, y: s.y + by.y, angle: s.angle }) } : s));
+  // Brought to the top, as they were just touched.
+  return { ...t, stacks: [...moved.filter((s) => !moving.has(s.id)), ...moved.filter((s) => moving.has(s.id))] };
+};
+
+/**
+ * Gathers several stacks into one, where `top` lies (and at its turn): the others' cards first, then `top`'s, so
+ * it ends up on top. Every card faces the way `top`'s top card does. The new stack is named `id`.
+ */
+export function gatherStacks(t: SandboxTable, ids: string[], top: string, id: string): SandboxTable {
+  const lead = t.stacks.find((s) => s.id === top);
+  if (!lead) return t;
+  const face = lead.cards[lead.cards.length - 1].faceUp;
+  const others = t.stacks.filter((s) => ids.includes(s.id) && s.id !== top);
+  const cards = [...others.flatMap((s) => s.cards), ...lead.cards].map((c) => ({ ...c, faceUp: face }));
+  const rest = t.stacks.filter((s) => !ids.includes(s.id) && s.id !== top);
+  return { ...t, stacks: [...rest, { id, x: lead.x, y: lead.y, angle: lead.angle, cards }] };
+}
+
 /** Changes one stack. */
 const updateStack = (t: SandboxTable, stackId: string, fn: (s: SandboxStack) => SandboxStack): SandboxTable => ({
   ...t,

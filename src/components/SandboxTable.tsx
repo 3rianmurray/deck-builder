@@ -1372,7 +1372,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   ) : null;
                   return gapHere ? [<View key="gap" style={{ width: gapWidth, height: handCardH }} />, view] : [view];
                 })}
-                {handGap !== null && handGap >= handRow.length ? <View key="gap" style={{ width: gapWidth, height: handCardH }} /> : null}              </ScrollView>
+                {handGap !== null && handGap >= handRow.length ? <View key="gap" style={{ width: gapWidth, height: handCardH }} /> : null}
+              </ScrollView>
             </View>
           </Animated.View>
 

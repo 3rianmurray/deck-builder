@@ -65,6 +65,9 @@ const HAND_H = 128;
 const HAND_TAB_H = 24;
 const FOLDED_SHOWS = 38;
 const HAND_CARD_W = 70;
+/** The flip button shown while carrying cards: its size, and its space from the screen's edge and the tray. */
+const FLIP_SIZE = 64;
+const FLIP_MARGIN = 16;
 /** A held card is drawn a little bigger than it lies, as if lifted. */
 const LIFT = 1.08;
 
@@ -212,6 +215,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (folded) foldTray(false);
     else haptics.tick();
   };
+  /** The flip button, in the bottom-right corner above the tray, while cards are carried. */
+  const flipButton = { x: area.w - FLIP_MARGIN - FLIP_SIZE, y: handTop - HAND_TAB_H - FLIP_MARGIN - FLIP_SIZE, size: FLIP_SIZE };
   /** Where in the hand cards dropped at a point would go. */
   const handInsertAt = (x: number) => (handStep ? Math.max(0, Math.min(hand.length, Math.round((x - 12) / handStep))) : 0);
 
@@ -227,6 +232,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       handCardAt: (x: number, y: number) => number;
       handSlot: (i: number) => { x: number; y: number };
       handInsertAt: (x: number) => number;
+      flipButton: { x: number; y: number; size: number };
       commit: (t: SandboxTable) => void;
       saveCamera: () => void;
       setHeld: (h: Held | null) => void;
@@ -235,7 +241,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handSlot, handInsertAt, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handSlot, handInsertAt, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -256,6 +262,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       cards: [] as SandboxCard[],
       /** When each extra finger came down, to tell a tap (picking up another card) from a twist. */
       downAt: new Map<number, number>(),
+      /** Fingers pressing the flip button (they don't twist or pick up), and whether what's carried is turned over. */
+      buttonFingers: new Set<number>(),
+      turnedOver: false,
       /** The carried card's middle relative to the carrying finger, and its turn, both on screen. */
       offset: { x: 0, y: 0 },
       screenAngle: 0,
@@ -334,10 +343,22 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     touch.mode = 'carry';
     touch.snapped = false;
     showCarried();
+    touch.turnedOver = false;
+    touch.buttonFingers.clear();
     touch.sources = [exact];
     touch.cards = cards;
     L.setHeld({ sources: touch.sources, cards });
     haptics.lift();
+  };
+
+  /** Turns over what's carried, like turning a real pile over: its order reverses, and every card flips. */
+  const turnOver = () => {
+    const touch = gestureState.get();
+    const L = latest.get();
+    touch.cards = [...touch.cards].reverse().map((c) => ({ ...c, faceUp: !c.faceUp }));
+    touch.turnedOver = !touch.turnedOver;
+    L.setHeld({ sources: touch.sources, cards: touch.cards });
+    haptics.tick();
   };
 
   /**
@@ -371,7 +392,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const putDown = () => {
     const touch = gestureState.get();
     const L = latest.get();
-    const { sources, cards } = touch;
+    const { sources, cards, turnedOver } = touch;
     touch.sources = [];
     touch.cards = [];
     const p = carriedPose();
@@ -394,7 +415,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const whole = sources.find((src) => src.kind === 'stack');
     const onto = stackTargetAt(L.table, w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined);
     // A whole stack just moved (and turned), on its own, keeps being itself.
-    if (whole?.kind === 'stack' && sources.length === 1 && !onto) {
+    if (whole?.kind === 'stack' && sources.length === 1 && !onto && !turnedOver) {
       return L.commit(raise(placeStack(L.table, whole.stackId, at), whole.stackId));
     }
     L.commit(putOnTable(takeAll(L.table, sources), cards, at, newId(), onto));
@@ -439,7 +460,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // A second finger while a card is held: it twists the card.
         if (touch.mode === 'press') pickUp();
         for (const c of changed) if (c.id !== touch.first) touch.downAt.set(c.id, Date.now());
-        const second = changed.find((c) => c.id !== touch.first);
+        // A finger on the flip button turns over what's carried (and does nothing else).
+        const b = L.flipButton;
+        for (const c of changed) {
+          if (c.id === touch.first || Math.hypot(c.x - (b.x + b.size / 2), c.y - (b.y + b.size / 2)) > b.size / 2 + 12) continue;
+          touch.buttonFingers.add(c.id);
+          turnOver();
+        }
+        const second = changed.find((c) => c.id !== touch.first && !touch.buttonFingers.has(c.id));
         const firstNow = touch.fingers.get(touch.first)?.now;
         if (second && firstNow && !touch.twist) {
           const p = carriedPose();
@@ -509,7 +537,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               }
               touch.twist = null;
             }
-            if (tapped && f) pickUpMore(f.start.x, f.start.y);
+            if (tapped && f && !touch.buttonFingers.has(id)) pickUpMore(f.start.x, f.start.y);
+            touch.buttonFingers.delete(id);
             touch.downAt.delete(id);
           }
           showCarried();
@@ -535,6 +564,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.sources = [];
       touch.cards = [];
       touch.downAt.clear();
+      touch.buttonFingers.clear();
       touch.fingers.clear();
       touch.mode = 'none';
     };
@@ -792,6 +822,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
           </Animated.View>
 
+          {/* While cards are carried: the flip button, tapped with another finger to turn them over. */}
+          {held ? (
+            <View
+              pointerEvents="none"
+              style={[styles.flipButton, { left: flipButton.x, top: flipButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }]}>
+              <SymbolView name={FLIP_ICON} size={28} weight="semibold" tintColor={colors.accentText} />
+            </View>
+          ) : null}
+
           {/* The card being carried, drawn over everything, following the finger. */}
           {held && heldTop && heldDeck && heldSize ? (
             <Animated.View
@@ -909,6 +948,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
+  flipButton: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accent,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
   held: { position: 'absolute', shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 14, shadowOffset: { width: 4, height: 14 } },
   hidden: { opacity: 0 },
   // The tray and its tabs, which slide together when it folds.

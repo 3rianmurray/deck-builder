@@ -5,6 +5,7 @@ import { Alert, Image, Platform, Pressable, StyleSheet, View, useWindowDimension
 import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useDecks } from '../lib/DecksContext';
@@ -399,149 +400,172 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     L.commit(putOnTable(takeAll(L.table, sources), cards, at, newId(), onto));
   };
 
+  // Where the hand tabs are on screen: touches starting there are left to them. Read by the gesture, which runs on
+  // the UI thread.
+  const tabBand = useSharedValue({ top: 0, bottom: 0 });
+  useEffect(() => {
+    tabBand.set({ top: handTop - HAND_TAB_H, bottom: handTop });
+  }, [handTop, tabBand]);
+
   const [gesture] = useState(() => {
     const touch = gestureState.get();
+    type Touch = { id: number; x: number; y: number };
+    // What the table does with fingers, on the JS thread (where its state is). The gesture itself, on the UI
+    // thread, just claims the touches (or leaves them to the hand tabs) and passes them on.
+    const down = (changed: Touch[]) => {
+      const L = latest.get();
+      for (const t of changed) touch.fingers.set(t.id, { start: { x: t.x, y: t.y }, now: { x: t.x, y: t.y } });
+      const pts = [...touch.fingers.values()].map((f) => f.now);
+      if (touch.mode === 'none') {
+        const t = changed[0];
+        touch.first = t.id;
+        touch.twist = null;
+        // On a hand card, or a card on the table: pressed (a tap opens its menu, a drag carries it).
+        if (t.y >= L.handTop) {
+          const i = L.handCardAt(t.x, t.y);
+          touch.pressed = i >= 0 ? { kind: 'hand', hand: L.handIndex, iid: L.hand[i].iid } : null;
+          touch.mode = i >= 0 ? 'press' : 'none';
+          return;
+        }
+        const w = toTable(readCamera(), t.x, t.y);
+        const hit = L.table ? stackAt(L.table, w.x, w.y, L.size) : null;
+        if (hit) {
+          touch.pressed = { kind: hit.whole ? 'stack' : 'top', stackId: hit.stack.id };
+          touch.mode = 'press';
+          return;
+        }
+      }
+      if (touch.mode === 'press' || touch.mode === 'carry') {
+        // A second finger while a card is held: it twists the card.
+        if (touch.mode === 'press') pickUp();
+        for (const c of changed) if (c.id !== touch.first) touch.downAt.set(c.id, Date.now());
+        const second = changed.find((c) => c.id !== touch.first);
+        const firstNow = touch.fingers.get(touch.first)?.now;
+        if (second && firstNow && !touch.twist) {
+          const p = carriedPose();
+          touch.twist = {
+            id: second.id,
+            from: fingerAngle(firstNow, { x: second.x, y: second.y }),
+            angle: p ? p.screenAngle : touch.screenAngle,
+            offset: p ? { x: p.x - firstNow.x, y: p.y - firstNow.y } : touch.offset,
+          };
+        }
+        return;
+      }
+      // Empty table: the camera, slid by one finger, zoomed and turned by two. Restarted from here whenever
+      // a finger comes or goes, so nothing jumps.
+      touch.mode = 'camera';
+      touch.camStart = readCamera();
+      touch.camFrom = pts.slice(0, 2);
+    };
+    const move = (all: Touch[]) => {
+      for (const t of all) {
+        const f = touch.fingers.get(t.id);
+        if (f) f.now = { x: t.x, y: t.y };
+      }
+      if (touch.mode === 'press') {
+        const f = touch.fingers.get(touch.first);
+        if (f && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) > TAP_SLOP) pickUp();
+        return;
+      }
+      if (touch.mode === 'carry') return showCarried();
+      if (touch.mode === 'camera') {
+        const now = [...touch.fingers.values()].slice(0, 2).map((f) => f.now);
+        if (now.length !== touch.camFrom.length) {
+          touch.camStart = readCamera();
+          touch.camFrom = now;
+          return;
+        }
+        writeCamera(moveCamera(touch.camStart, touch.camFrom, now));
+      }
+    };
+    const up = (changed: Touch[]) => {
+      const L = latest.get();
+      const lifted = changed.map((t) => t.id);
+      if (touch.mode === 'press' && lifted.includes(touch.first)) {
+        // A tap: the card's menu.
+        const src = touch.pressed;
+        if (src?.kind === 'hand') L.setMenu({ kind: 'hand', hand: src.hand, iid: src.iid });
+        else if (src) L.setMenu({ kind: 'stack', id: src.stackId });
+        touch.mode = 'none';
+      } else if (touch.mode === 'carry') {
+        if (lifted.includes(touch.first)) {
+          putDown();
+          touch.mode = 'none';
+        } else {
+          for (const id of lifted) {
+            const f = touch.fingers.get(id);
+            const tapped = !!f && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) < TAP_SLOP && Date.now() - (touch.downAt.get(id) ?? 0) < EXTRA_TAP_MS;
+            if (touch.twist?.id === id) {
+              // A tap isn't a turn: the card stays as it was. A twist keeps its new turn, carried on by the first.
+              const p = carriedPose();
+              const first = touch.fingers.get(touch.first);
+              if (tapped) {
+                touch.screenAngle = touch.twist.angle;
+                touch.offset = touch.twist.offset;
+              } else if (p && first) {
+                touch.screenAngle = p.screenAngle;
+                touch.offset = { x: p.x - first.now.x, y: p.y - first.now.y };
+              }
+              touch.twist = null;
+            }
+            if (tapped && f) pickUpMore(f.start.x, f.start.y);
+            touch.downAt.delete(id);
+          }
+          showCarried();
+        }
+      }
+      for (const id of lifted) touch.fingers.delete(id);
+      if (touch.mode === 'camera') {
+        touch.camStart = readCamera();
+        touch.camFrom = [...touch.fingers.values()].slice(0, 2).map((f) => f.now);
+        if (!touch.fingers.size) {
+          L.saveCamera();
+          touch.mode = 'none';
+        }
+      }
+      if (!touch.fingers.size) touch.mode = 'none';
+    };
+    const cancel = () => {
+      const L = latest.get();
+      if (touch.mode === 'carry') {
+        L.setHeld(null);
+        L.setTarget(null);
+      }
+      touch.sources = [];
+      touch.cards = [];
+      touch.downAt.clear();
+      touch.fingers.clear();
+      touch.mode = 'none';
+    };
+    const points = (ts: Touch[]) => {
+      'worklet';
+      return ts.map((t) => ({ id: t.id, x: t.x, y: t.y }));
+    };
     return Gesture.Manual()
-      .runOnJS(true)
       .onTouchesDown((e, manager) => {
-        const L = latest.get();
         // A first finger on the hand tabs: theirs (they're buttons), not the table's.
         const t0 = e.changedTouches[0];
-        if (touch.mode === 'none' && !touch.fingers.size && t0 && t0.y >= L.handTop - HAND_TAB_H && t0.y < L.handTop) {
+        const band = tabBand.value;
+        if (e.allTouches.length === e.changedTouches.length && t0 && t0.y >= band.top && t0.y < band.bottom) {
           manager.fail();
           return;
         }
         manager.activate();
-        for (const t of e.changedTouches) touch.fingers.set(t.id, { start: { x: t.x, y: t.y }, now: { x: t.x, y: t.y } });
-        const pts = [...touch.fingers.values()].map((f) => f.now);
-        if (touch.mode === 'none') {
-          const t = e.changedTouches[0];
-          touch.first = t.id;
-          touch.twist = null;
-          // On a hand card, or a card on the table: pressed (a tap opens its menu, a drag carries it).
-          if (t.y >= L.handTop) {
-            const i = L.handCardAt(t.x, t.y);
-            touch.pressed = i >= 0 ? { kind: 'hand', hand: L.handIndex, iid: L.hand[i].iid } : null;
-            touch.mode = i >= 0 ? 'press' : 'none';
-            return;
-          }
-          const w = toTable(readCamera(), t.x, t.y);
-          const hit = L.table ? stackAt(L.table, w.x, w.y, L.size) : null;
-          if (hit) {
-            touch.pressed = { kind: hit.whole ? 'stack' : 'top', stackId: hit.stack.id };
-            touch.mode = 'press';
-            return;
-          }
-        }
-        if (touch.mode === 'press' || touch.mode === 'carry') {
-          // A second finger while a card is held: it twists the card.
-          if (touch.mode === 'press') pickUp();
-          for (const c of e.changedTouches) if (c.id !== touch.first) touch.downAt.set(c.id, Date.now());
-          const second = e.changedTouches.find((c) => c.id !== touch.first);
-          const firstNow = touch.fingers.get(touch.first)?.now;
-          if (second && firstNow && !touch.twist) {
-            const p = carriedPose();
-            touch.twist = {
-              id: second.id,
-              from: fingerAngle(firstNow, { x: second.x, y: second.y }),
-              angle: p ? p.screenAngle : touch.screenAngle,
-              offset: p ? { x: p.x - firstNow.x, y: p.y - firstNow.y } : touch.offset,
-            };
-          }
-          return;
-        }
-        // Empty table: the camera, slid by one finger, zoomed and turned by two. Restarted from here whenever
-        // a finger comes or goes, so nothing jumps.
-        touch.mode = 'camera';
-        touch.camStart = readCamera();
-        touch.camFrom = pts.slice(0, 2);
+        scheduleOnRN(down, points(e.changedTouches));
       })
       .onTouchesMove((e) => {
-        for (const t of e.allTouches) {
-          const f = touch.fingers.get(t.id);
-          if (f) f.now = { x: t.x, y: t.y };
-        }
-        if (touch.mode === 'press') {
-          const f = touch.fingers.get(touch.first);
-          if (f && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) > TAP_SLOP) pickUp();
-          return;
-        }
-        if (touch.mode === 'carry') return showCarried();
-        if (touch.mode === 'camera') {
-          const now = [...touch.fingers.values()].slice(0, 2).map((f) => f.now);
-          if (now.length !== touch.camFrom.length) {
-            touch.camStart = readCamera();
-            touch.camFrom = now;
-            return;
-          }
-          writeCamera(moveCamera(touch.camStart, touch.camFrom, now));
-        }
+        scheduleOnRN(move, points(e.allTouches));
       })
       .onTouchesUp((e, manager) => {
-        const L = latest.get();
-        const lifted = e.changedTouches.map((t) => t.id);
-        if (touch.mode === 'press' && lifted.includes(touch.first)) {
-          // A tap: the card's menu.
-          const src = touch.pressed;
-          if (src?.kind === 'hand') L.setMenu({ kind: 'hand', hand: src.hand, iid: src.iid });
-          else if (src) L.setMenu({ kind: 'stack', id: src.stackId });
-          touch.mode = 'none';
-        } else if (touch.mode === 'carry') {
-          if (lifted.includes(touch.first)) {
-            putDown();
-            touch.mode = 'none';
-          } else {
-            for (const id of lifted) {
-              const f = touch.fingers.get(id);
-              const tapped = !!f && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) < TAP_SLOP && Date.now() - (touch.downAt.get(id) ?? 0) < EXTRA_TAP_MS;
-              if (touch.twist?.id === id) {
-                // A tap isn't a turn: the card stays as it was. A twist keeps its new turn, carried on by the first.
-                const p = carriedPose();
-                const first = touch.fingers.get(touch.first);
-                if (tapped) {
-                  touch.screenAngle = touch.twist.angle;
-                  touch.offset = touch.twist.offset;
-                } else if (p && first) {
-                  touch.screenAngle = p.screenAngle;
-                  touch.offset = { x: p.x - first.now.x, y: p.y - first.now.y };
-                }
-                touch.twist = null;
-              }
-              if (tapped && f) pickUpMore(f.start.x, f.start.y);
-              touch.downAt.delete(id);
-            }
-            showCarried();
-          }
-        }
-        for (const id of lifted) touch.fingers.delete(id);
-        if (touch.mode === 'camera') {
-          touch.camStart = readCamera();
-          touch.camFrom = [...touch.fingers.values()].slice(0, 2).map((f) => f.now);
-          if (!touch.fingers.size) {
-            L.saveCamera();
-            touch.mode = 'none';
-          }
-        }
-        if (!touch.fingers.size) {
-          touch.mode = 'none';
-          manager.end();
-        }
+        scheduleOnRN(up, points(e.changedTouches));
+        if (e.allTouches.length <= e.changedTouches.length) manager.end();
       })
       .onTouchesCancelled((_, manager) => {
-        const L = latest.get();
-        if (touch.mode === 'carry') {
-          L.setHeld(null);
-          L.setTarget(null);
-        }
-        touch.sources = [];
-        touch.cards = [];
-        touch.downAt.clear();
-        touch.fingers.clear();
-        touch.mode = 'none';
+        scheduleOnRN(cancel);
         manager.end();
       });
   });
-
   // ---- Menus ----
   const viewMiddle = () => {
     const c = readCamera();

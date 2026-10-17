@@ -52,6 +52,7 @@ import type { Deck } from '../lib/types';
 import { colors } from '../theme';
 import { ActionSheet } from './ActionSheet';
 import type { SheetTile } from './ActionSheet';
+import { CardFocus } from './CardFocus';
 import { CardView } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
@@ -857,17 +858,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     Alert.prompt(title, undefined, (name) => name.trim() && done(name.trim()), 'plain-text', current);
   };
 
-  /** A card shown large at the top of its menu: as big as fits, its options underneath. */
+  /** A card brought up close, for its menu: about half the screen across (less, for a tall screen's sake). */
   const bigCard = (c: SandboxCard) => {
     const deck = decksById.get(c.deckId);
     if (!deck) return null;
-    const r = cardRatio(deck);
-    const w = Math.min(screenW * 0.8, area.h * 0.5 * r);
-    return (
-      <View style={styles.bigCard}>
-        <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={w} sharp />
-      </View>
-    );
+    const w = Math.min(screenW * 0.55, area.h * 0.36 * cardRatio(deck));
+    return <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={w} sharp />;
   };
   const menuStack = menu?.kind === 'stack' ? table?.stacks.find((s) => s.id === menu.id) : undefined;
   const menuHandCard = menu?.kind === 'hand' ? table?.hands[menu.hand].find((c) => c.iid === menu.iid) : undefined;
@@ -1189,12 +1185,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         </View>
       </GestureDetector>
 
-      <ActionSheet
-        visible={!!sheet}
-        header={sheet && 'header' in sheet ? sheet.header : undefined}
+      {/* A card or stack's menu: the card brought up close, its options under it. */}
+      <CardFocus
+        visible={!!sheet && (menu?.kind === 'stack' || menu?.kind === 'hand')}
+        card={sheet && 'header' in sheet ? sheet.header : null}
         title={sheet?.title}
-        tiles={sheet?.tiles}
-        actions={sheet?.actions ?? []}
+        tiles={sheet?.tiles ?? []}
         onClose={() => setMenu(null)}
         overlay={
           zoomed && zoomDeck && zoomCard ? (
@@ -1206,6 +1202,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             />
           ) : undefined
         }
+      />
+      {/* The table's menu, and choosing a deck to add. */}
+      <ActionSheet
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck')}
+        title={sheet?.title}
+        actions={sheet?.actions ?? []}
+        onClose={() => setMenu(null)}
       />
     </View>
   );
@@ -1340,7 +1343,6 @@ const styles = StyleSheet.create({
     borderLeftWidth: 0,
     borderColor: 'rgba(255,255,255,0.22)',
   },
-  bigCard: { alignItems: 'center', marginBottom: 6 },
   flipButton: {
     position: 'absolute',
     alignItems: 'center',

@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { Alert, Image, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useDecks } from '../lib/DecksContext';
@@ -47,14 +48,18 @@ import type { SheetTile } from './ActionSheet';
 import { CardView } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
+import { WoodRail } from './Tabletop';
 import { Text } from './Text';
 
 /** Steps of undo kept. */
 const UNDO_STEPS = 30;
 /** A finger moving less than this before lifting is a tap. */
 const TAP_SLOP = 8;
-/** The hand tray: its height, and its cards' width. */
+/** The hand tray: its height (above the home indicator's space), and its cards' width. */
 const HAND_H = 128;
+/** How far the hand tabs stand up above the tray, and how much of the tray shows when it's folded away. */
+const HAND_TAB_H = 24;
+const FOLDED_SHOWS = 38;
 const HAND_CARD_W = 70;
 /** A held card is drawn a little bigger than it lies, as if lifted. */
 const LIFT = 1.08;
@@ -86,6 +91,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const { width: screenW } = useWindowDimensions();
   const [history, setHistory] = useState<SandboxTable[]>([]);
   const [handIndex, setHandIndex] = useState(0);
+  const [folded, setFolded] = useState(false);
+  // The tray's slide as it folds and opens, with a little spring, as in table mode.
+  const foldY = useSharedValue(0);
+  const trayStyle = useAnimatedStyle(() => ({ transform: [{ translateY: foldY.value }] }));
   const [held, setHeld] = useState<Held | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -168,18 +177,35 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   // ---- The hand tray: its cards laid side by side, overlapping when they'd overflow. ----
   const area = view ?? { w: screenW, h: 0 };
-  const handTop = area.h - HAND_H;
+  // The tray reaches the bottom of the screen; folded, it slides down until just the tops of its cards show.
+  const trayH = HAND_H + insets.bottom;
+  const trayOpenTop = area.h - trayH;
+  const handTop = folded ? area.h - FOLDED_SHOWS : trayOpenTop;
   const hand = table?.hands[handIndex] ?? [];
   const handCardH = (c: SandboxCard) => (HAND_CARD_W * size(c.deckId).h) / CARD_W;
   const handStep = hand.length > 1 ? Math.min(HAND_CARD_W + 8, (area.w - 24 - HAND_CARD_W) / (hand.length - 1)) : 0;
-  const handSlot = (i: number) => ({ x: 12 + i * handStep, y: handTop + 14 });
+  const handSlot = (i: number) => ({ x: 12 + i * handStep, y: trayOpenTop + 16 });
   /** The hand card under a point on screen (the topmost, as later ones overlap earlier ones). */
   const handCardAt = (x: number, y: number) => {
+    // Folded away, its cards peek out but can't be picked up.
+    if (folded) return -1;
     for (let i = hand.length - 1; i >= 0; i--) {
       const s = handSlot(i);
       if (x >= s.x && x <= s.x + HAND_CARD_W && y >= s.y && y <= s.y + handCardH(hand[i])) return i;
     }
     return -1;
+  };
+  /** Folds the tray away (just the tops of its cards showing) or opens it, sliding with a little spring. */
+  const foldTray = (fold: boolean) => {
+    setFolded(fold);
+    foldY.set(withSpring(fold ? trayH - FOLDED_SHOWS : 0, { damping: 16, stiffness: 170, mass: 0.9 }));
+    haptics.tick();
+  };
+  /** Shows another hand (opening the tray, if it was folded). */
+  const chooseHand = (i: number) => {
+    setHandIndex(i);
+    if (folded) foldTray(false);
+    else haptics.tick();
   };
   /** Where in the hand cards dropped at a point would go. */
   const handInsertAt = (x: number) => (handStep ? Math.max(0, Math.min(hand.length, Math.round((x - 12) / handStep))) : 0);
@@ -334,8 +360,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return Gesture.Manual()
       .runOnJS(true)
       .onTouchesDown((e, manager) => {
-        manager.activate();
         const L = latest.get();
+        // A first finger on the hand tabs: theirs (they're buttons), not the table's.
+        const t0 = e.changedTouches[0];
+        if (touch.mode === 'none' && !touch.fingers.size && t0 && t0.y >= L.handTop - HAND_TAB_H && t0.y < L.handTop) {
+          manager.fail();
+          return;
+        }
+        manager.activate();
         for (const t of e.changedTouches) touch.fingers.set(t.id, { start: { x: t.x, y: t.y }, now: { x: t.x, y: t.y } });
         const pts = [...touch.fingers.values()].map((f) => f.now);
         if (touch.mode === 'none') {
@@ -453,7 +485,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   // ---- Menus ----
   const viewMiddle = () => {
     const c = readCamera();
-    return toTable(c, area.w / 2, (area.h - HAND_H) / 2);
+    return toTable(c, area.w / 2, handTop / 2);
   };
   /** Puts cards on the table in the middle of the view, upright as seen (snapped to the table's 45° steps). */
   const playToView = (t: SandboxTable, cards: SandboxCard[]) => {
@@ -616,20 +648,63 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ))}
           </Animated.View>
 
-          {/* The hand tray, along the bottom. */}
-          <View style={[styles.tray, { top: handTop, height: HAND_H }]} pointerEvents="none">
-            {hand.length === 0 ? <Text style={styles.trayEmpty}>Drag cards here to put them in {table.handNames[handIndex]}</Text> : null}
-            {hand.map((c, i) => {
-              const s = handSlot(i);
-              const deck = decksById.get(c.deckId);
-              const isHeld = held?.src.kind === 'hand' && held.src.iid === c.iid;
-              return deck ? (
-                <View key={c.iid} style={[styles.handCard, { left: s.x, top: s.y - handTop }, isHeld && styles.hidden]}>
-                  <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={HAND_CARD_W} />
-                </View>
-              ) : null;
-            })}
-          </View>
+          {/*
+            The hand tray along the bottom, as in table mode: wood, edge to edge and down to the bottom of the
+            screen, with its tabs standing on its top edge. One tab per hand; only the chosen hand shows, so the
+            phone can be passed round. Tapping the chosen tab folds the tray away (and back); holding a tab
+            renames it.
+          */}
+          <Animated.View style={[styles.trayWrap, { top: trayOpenTop - HAND_TAB_H, height: trayH + HAND_TAB_H }, trayStyle]}>
+            <View style={styles.tabs}>
+              {Array.from({ length: HAND_COUNT }, (_, i) => {
+                const on = i === handIndex;
+                return (
+                  <Pressable
+                    key={i}
+                    onPress={() => (on ? foldTray(!folded) : chooseHand(i))}
+                    onLongPress={() =>
+                      rename('Rename hand', table.handNames[i], (name) =>
+                        updateSandbox({ ...table, handNames: table.handNames.map((n, j) => (j === i ? name : n)) }),
+                      )
+                    }
+                    disabled={carrying}
+                    hitSlop={{ top: 8, bottom: 4 }}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={`${table.handNames[i]}, ${table.hands[i].length} cards`}
+                    accessibilityHint={on ? (folded ? 'Opens the hand' : 'Folds the hand away') : 'Shows this hand. Hold to rename it.'}
+                    style={({ pressed }) => [styles.tab, on && styles.tabOn, pressed && styles.tabPressed]}>
+                    <Text style={[styles.tabText, on && styles.tabTextOn]} numberOfLines={1}>
+                      {table.handNames[i]} · {table.hands[i].length}
+                    </Text>
+                    {on ? (
+                      <SymbolView
+                        name={folded ? { ios: 'chevron.up', android: 'expand_less', web: 'expand_less' } : { ios: 'chevron.down', android: 'expand_more', web: 'expand_more' }}
+                        size={10}
+                        weight="bold"
+                        tintColor={colors.accent}
+                      />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={{ height: trayH }} pointerEvents="none">
+              <WoodRail />
+              <View style={[styles.groove, { height: HAND_H - 12 }]} />
+              {hand.length === 0 ? <Text style={styles.trayEmpty}>Drag cards here to put them in {table.handNames[handIndex]}</Text> : null}
+              {hand.map((c, i) => {
+                const s = handSlot(i);
+                const deck = decksById.get(c.deckId);
+                const isHeld = held?.src.kind === 'hand' && held.src.iid === c.iid;
+                return deck ? (
+                  <View key={c.iid} style={[styles.handCard, { left: s.x, top: s.y - trayOpenTop }, isHeld && styles.hidden]}>
+                    <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={HAND_CARD_W} />
+                  </View>
+                ) : null;
+              })}
+            </View>
+          </Animated.View>
 
           {/* The card being carried, drawn over everything, following the finger. */}
           {held && heldTop && heldDeck && heldSize ? (
@@ -646,28 +721,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           ) : null}
         </View>
       </GestureDetector>
-
-      {/* Which hand the tray shows: one at a time, so the phone can be passed round. Hold a tab to rename it. */}
-      <View style={[styles.tabs, { paddingBottom: insets.bottom + 6 }]}>
-        {Array.from({ length: HAND_COUNT }, (_, i) => (
-          <Pressable
-            key={i}
-            onPress={() => {
-              setHandIndex(i);
-              haptics.tick();
-            }}
-            onLongPress={() => rename('Rename hand', table.handNames[i], (name) => updateSandbox({ ...table, handNames: table.handNames.map((n, j) => (j === i ? name : n)) }))}
-            disabled={carrying}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: i === handIndex }}
-            accessibilityHint="Hold to rename it."
-            style={[styles.tab, i === handIndex && styles.tabOn]}>
-            <Text style={[styles.tabText, i === handIndex && { color: colors.accentText }]} numberOfLines={1}>
-              {table.handNames[i]} · {table.hands[i].length}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
 
       <ActionSheet
         visible={!!sheet}
@@ -770,18 +823,43 @@ const styles = StyleSheet.create({
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
   held: { position: 'absolute', shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 14, shadowOffset: { width: 4, height: 14 } },
   hidden: { opacity: 0 },
-  tray: {
+  // The tray and its tabs, which slide together when it folds.
+  trayWrap: { position: 'absolute', left: 0, right: 0 },
+  // The groove the hand's cards sit in, as along table mode's rail.
+  groove: {
     position: 'absolute',
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(42,26,15,0.94)',
-    borderTopWidth: 2,
-    borderTopColor: '#6b4527',
+    top: 8,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.45)',
+    borderBottomColor: 'rgba(255,220,180,0.12)',
   },
   trayEmpty: { color: 'rgba(255,255,255,0.5)', fontSize: 14, textAlign: 'center', marginTop: 48 },
   handCard: { position: 'absolute' },
-  tabs: { flexDirection: 'row', gap: 6, paddingHorizontal: 8, paddingTop: 6, backgroundColor: '#2a1a0f' },
-  tab: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)' },
-  tabOn: { backgroundColor: colors.accent },
-  tabText: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  // Pull tabs standing on the tray's top edge, in the same wood, as table mode's: one per hand.
+  tabs: { height: HAND_TAB_H, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', gap: 4, paddingHorizontal: 8 },
+  tab: {
+    flexShrink: 1,
+    height: HAND_TAB_H,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    borderTopLeftRadius: 11,
+    borderTopRightRadius: 11,
+    backgroundColor: '#4a2d18',
+    // The light catching its top edge, as along the rail's.
+    borderTopWidth: 1.5,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,220,180,0.25)',
+  },
+  // The chosen hand's tab: lighter wood, like table mode's one tab.
+  tabOn: { backgroundColor: '#6b4528', borderColor: 'rgba(255,220,180,0.35)' },
+  tabPressed: { backgroundColor: '#3a2212' },
+  tabText: { color: 'rgba(255,240,220,0.6)', fontSize: 12, fontWeight: '700' },
+  tabTextOn: { color: 'rgba(255,240,220,0.95)' },
 });

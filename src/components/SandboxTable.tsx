@@ -390,6 +390,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     haptics.lift();
     return id;
   };
+  /** How much a card's table size is scaled to show it at its size in the hand. */
+  const handScaleOf = (c: SandboxCard) => handWidthOf(c) / size(c.deckId).w;
   /** Where in the row (of cards not carried) cards dropped with their middle at a point on screen would go. */
   const handInsertAt = (x: number) => {
     // Before the first card whose middle (as the row is without the gap) lies past the point.
@@ -414,6 +416,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       handCardAt: (x: number, y: number) => number;
       maxHandScroll: number;
       gridOn: boolean;
+      handScaleOf: (c: SandboxCard) => number;
       selected: string[];
       setSelected: (ids: string[]) => void;
       setLassoPath: (p: { x: number; y: number }[] | null) => void;
@@ -437,7 +440,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, dropGroup, flipGroup, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, dropGroup, flipGroup, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -492,6 +495,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       /** The second finger twisting it: the line between the fingers' angle when it started, and the card's. */
       twist: null as null | { id: number; from: number; angle: number; offset: Pt },
       snapped: false,
+      /** The size the carried card is drawn at now (screen points per table unit), to spring to a new one. */
+      scaleShown: 0,
     };
     return { get: () => s };
   });
@@ -524,6 +529,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (!p) return;
     heldX.set(p.x);
     heldY.set(p.y);
+    // Over the hand it's a hand card's size; over the table, its size there. It springs between the two.
+    {
+      const L0 = latest.get();
+      const top0 = touch.cards[touch.cards.length - 1];
+      const want = top0 && p.y >= L0.handTop ? L0.handScaleOf(top0) : cameraZoom(readCamera());
+      if (want !== touch.scaleShown) {
+        heldScale.set(touch.scaleShown ? withSpring(want, { damping: 18, stiffness: 240, mass: 0.6 }) : want);
+        touch.scaleShown = want;
+      }
+    }
     heldAngle.set(p.screenAngle);
     // A tick as it settles onto a 45° step.
     const snapped = Math.abs(p.tableAngle - Math.round(p.tableAngle / 45) * 45) < 1e-6;
@@ -563,9 +578,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // A stack's top card, as that very card (so more can be taken from the same stack after it).
     const exact: Source = src.kind === 'top' ? { kind: 'card', stackId: src.stackId, iid: cards[0].iid } : src;
     const cam = readCamera();
-    const k = cameraZoom(cam);
     if (src.kind === 'hand') {
-      // From the hand: held at table size, upright on screen, under the finger.
+      // From the hand: upright on screen, under the finger (at its hand size while it's still over the hand).
       touch.offset = { x: 0, y: 0 };
       touch.screenAngle = 0;
     } else {
@@ -574,14 +588,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.offset = { x: mid.x - f.now.x, y: mid.y - f.now.y };
       touch.screenAngle = stack.angle + cameraAngle(cam);
     }
-    heldScale.set(k);
+    touch.scaleShown = 0;
     touch.mode = 'carry';
     touch.snapped = false;
-    showCarried();
     touch.turnedOver = false;
     touch.buttonFingers.clear();
     touch.sources = [exact];
     touch.cards = cards;
+    showCarried();
     L.setHeld({ sources: touch.sources, cards });
     haptics.lift();
   };
@@ -1096,7 +1110,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         { label: 'Turn 90°', icon: { ios: 'rotate.right', android: 'rotate_right', web: 'rotate_right' }, onPress: () => commit(turnStack(table, menuStack.id)) },
         // Dealing: how many off the top, and to whom (see DealPanel).
         {
-          label: 'Deal…',
+          label: 'Deal',
           icon: { ios: 'hand.raised', android: 'back_hand', web: 'back_hand' },
           keepsOpen: true,
           onPress: () => setDealingFrom(menuStack.id),
@@ -1208,9 +1222,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     );
   }
 
-  /** Where a row item sits: cards by their place in the row, the gap just before the card at its index. */
-  const order = (item: { kind: 'card' | 'carried'; c: SandboxCard } | { kind: 'gap' }) =>
-    item.kind === 'gap' ? handGap! - 0.5 : item.kind === 'carried' ? Infinity : handRow.indexOf(item.c);
   const chosenIds = new Set(chosen);
   const heldTop = held ? held.cards[held.cards.length - 1] : null;
   const heldDeck = heldTop ? getDeck(heldTop.deckId) : undefined;
@@ -1342,28 +1353,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 onScroll={(e) => handScroll.set(e.nativeEvent.contentOffset.x)}
                 style={[styles.handList, { top: HAND_TOP_PAD, height: handCardH + HAND_ROW_PAD * 2, pointerEvents: folded ? 'none' : 'auto' }]}
                 contentContainerStyle={styles.handCards}>
-                {[
-                  ...handRow.map((c) => ({ kind: 'card' as const, c })),
-                  ...(handGap !== null ? [{ kind: 'gap' as const }] : []),
-                  // Cards being carried out of this hand stay mounted, out of sight and taking no room: the finger
-                  // carrying one is still attached to its view, and it would lose the drag if the view went.
-                  ...hand.filter((c) => heldIds.has(c.iid)).map((c) => ({ kind: 'carried' as const, c })),
-                ]
-                  // The gap goes in its place in the row.
-                  .sort((x, y) => order(x) - order(y))
-                  .map((item) => {
-                    if (item.kind === 'gap') return <View key="gap" style={{ width: gapWidth, height: handCardH }} />;
-                    if (item.kind === 'carried') {
-                      return <View key={item.c.iid} {...handTouches.panHandlers} style={styles.carried} />;
-                    }
-                    const deck = decksById.get(item.c.deckId);
-                    return deck ? (
-                      <View key={item.c.iid} {...handTouches.panHandlers} style={{ width: handWidthOf(item.c), pointerEvents: 'box-only' }}>
-                        <CardView deck={deck} card={cardOf(item.c)} faceUp={item.c.faceUp} width={handWidthOf(item.c)} />
-                      </View>
-                    ) : null;
-                  })}
-              </ScrollView>
+                {/*
+                  Every card of the hand in its own place, always: those being carried stay there, unseen and taking
+                  no room (a finger may be attached to one, and moving its view about mid-gesture can lose the
+                  touch). The gap goes in among the rest, where carried cards would go in.
+                */}
+                {hand.flatMap((c) => {
+                  const carried = heldIds.has(c.iid);
+                  const k = carried ? -1 : handRow.indexOf(c);
+                  const gapHere = !carried && handGap === k;
+                  const deck = decksById.get(c.deckId);
+                  const view = carried ? (
+                    <View key={c.iid} {...handTouches.panHandlers} style={styles.carried} />
+                  ) : deck ? (
+                    <View key={c.iid} {...handTouches.panHandlers} style={{ width: handWidthOf(c), pointerEvents: 'box-only' }}>
+                      <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={handWidthOf(c)} />
+                    </View>
+                  ) : null;
+                  return gapHere ? [<View key="gap" style={{ width: gapWidth, height: handCardH }} />, view] : [view];
+                })}
+                {handGap !== null && handGap >= handRow.length ? <View key="gap" style={{ width: gapWidth, height: handCardH }} /> : null}              </ScrollView>
             </View>
           </Animated.View>
 

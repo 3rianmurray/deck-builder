@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, LayoutAnimation, PanResponder, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Alert, Image, LayoutAnimation, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent, NativeTouchEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
@@ -31,6 +31,8 @@ import {
   shuffleStack,
   snapAngle,
   snapCamera,
+  snapToGrid,
+  gridCell,
   stackAt,
   stackTargetAt,
   startCamera,
@@ -83,6 +85,11 @@ const DRAG_SLOP = 8;
 const LIFT_DELAY_MS = 90;
 /** A finger, relative to the table's touch area. */
 type Finger = { id: number; x: number; y: number };
+/** The tools drawer on the left edge: the panel's width, the tab it's pulled out by, and the panel's height. */
+const TOOLS_W = 230;
+const TOOLS_TAB_W = 26;
+const TOOLS_TAB_H = 72;
+const TOOLS_H = 112;
 /** A held card is drawn a little bigger than it lies, as if lifted. */
 const LIFT = 1.08;
 
@@ -217,6 +224,29 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   };
   const saveCamera = () => table && updateSandbox({ ...table, camera: readCamera() });
 
+  // ---- The grid: invisible, its cells fitting the largest card on the table either way round. ----
+  const gridOn = !!table?.snapToGrid;
+  const onTable = new Set([...(table?.stacks.flatMap((s) => s.cards) ?? []), ...(table?.hands.flat() ?? [])].map((c) => c.deckId));
+  const cell = gridCell([
+    { w: CARD_W, h: (CARD_W * PRESET_SIZES_MM.standard.h) / PRESET_SIZES_MM.standard.w },
+    ...[...onTable].map((id) => size(id)),
+  ]);
+  /** Where a carried card would land with snapping on: an outline shows it (the grid itself stays unseen). */
+  const [landing, setLanding] = useState<{ x: number; y: number; angle: number; w: number; h: number } | null>(null);
+  const showLanding = (next: typeof landing) => {
+    const same = next && landing && next.x === landing.x && next.y === landing.y && next.angle === landing.angle && next.w === landing.w;
+    if (!same && (next || landing)) setLanding(next);
+  };
+  // The tools drawer on the left edge: pulled out to show the tools, tucked away again to hide them.
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsX = useSharedValue(-TOOLS_W);
+  const toolsStyle = useAnimatedStyle(() => ({ transform: [{ translateX: toolsX.value }] }));
+  const showTools = (open: boolean) => {
+    setToolsOpen(open);
+    toolsX.set(withSpring(open ? 0 : -TOOLS_W, { damping: 18, stiffness: 180, mass: 0.9 }));
+    haptics.tick();
+  };
+
   // ---- The hand tray, as in table mode: the hand's cards side by side in a row that scrolls sideways. ----
   const area = view ?? { w: screenW, h: 0 };
   const hand = table?.hands[handIndex] ?? [];
@@ -275,6 +305,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (folded) foldTray(false);
     else haptics.tick();
   };
+  /** The tools drawer: midway down the table's part of the screen, clear of the top bar. */
+  const toolsTop = Math.max(insets.top + 64, (handTop - HAND_TAB_H) / 2 - TOOLS_H / 2);
   /** The flip button, in the bottom-right corner above the tray, while cards are carried. */
   const flipButton = { x: area.w - FLIP_MARGIN - FLIP_SIZE, y: handTop - HAND_TAB_H - FLIP_MARGIN - FLIP_SIZE, size: FLIP_SIZE };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
@@ -306,6 +338,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       handIndex: number;
       handCardAt: (x: number, y: number) => number;
       maxHandScroll: number;
+      gridOn: boolean;
+      cell: number;
+      showLanding: (l: { x: number; y: number; angle: number; w: number; h: number } | null) => void;
+      toolsOpen: boolean;
+      showTools: (open: boolean) => void;
       setHandGap: (g: number | null) => void;
       handInsertAt: (x: number) => number;
       flipButton: { x: number; y: number; size: number };
@@ -317,7 +354,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, cell, showLanding, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -396,6 +433,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const except = touch.sources.find((src) => src.kind === 'stack')?.stackId;
     const over = p.y < L.handTop ? stackTargetAt(L.table, w.x, w.y, L.size, except) : null;
     L.setTarget(over?.id ?? null);
+    // Snapping on, over the open table: where it would land.
+    const top = touch.cards[touch.cards.length - 1];
+    if (L.gridOn && !over && p.y < L.handTop && top) {
+      L.showLanding({ ...snapToGrid({ x: w.x, y: w.y, angle: p.tableAngle }, L.cell), ...L.size(top.deckId) });
+    } else {
+      L.showLanding(null);
+    }
     // Over the hand: a gap opens where they'd go in, and near either end the row scrolls along.
     if (p.y >= L.handTop) {
       const edge = p.x < HAND_EDGE ? -1 : p.x > area.w - HAND_EDGE ? 1 : 0;
@@ -493,6 +537,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     L.setHeld(null);
     L.setTarget(null);
     L.setHandGap(null);
+    L.showLanding(null);
     if (!L.table || !sources.length || !p || !cards.length) return;
     haptics.drop();
     if (p.y >= L.handTop) {
@@ -503,9 +548,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       return;
     }
     const w = toTable(readCamera(), p.x, p.y);
-    const at = { x: w.x, y: w.y, angle: p.tableAngle };
     const whole = sources.find((src) => src.kind === 'stack');
     const onto = stackTargetAt(L.table, w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined);
+    // With snapping on, into the grid cell under it, squared up.
+    const free = { x: w.x, y: w.y, angle: p.tableAngle };
+    const at = L.gridOn && !onto ? snapToGrid(free, L.cell) : free;
     // A whole stack just moved (and turned), on its own, keeps being itself.
     if (whole?.kind === 'stack' && sources.length === 1 && !onto && !turnedOver) {
       return L.commit(raise(placeStack(L.table, whole.stackId, at), whole.stackId));
@@ -515,10 +562,19 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   // Where the hand tabs and the open tray are on screen: touches starting there are left to them (the tabs are
   // buttons; the tray has table mode's scroll view and card handling). Read by the gesture, on the UI thread.
-  const tabBand = useSharedValue({ top: 0, bottom: 0, tray: 0 });
+  const tabBand = useSharedValue({ top: 0, bottom: 0, tray: 0, toolsRight: 0, toolsTop: 0, toolsBottom: 0 });
   useEffect(() => {
-    tabBand.set({ top: handTop - HAND_TAB_H, bottom: handTop, tray: folded ? Number.MAX_VALUE : handTop });
-  }, [handTop, folded, tabBand]);
+    const tabTop = toolsTop + (TOOLS_H - TOOLS_TAB_H) / 2;
+    tabBand.set({
+      top: handTop - HAND_TAB_H,
+      bottom: handTop,
+      tray: folded ? Number.MAX_VALUE : handTop,
+      // The tools drawer: just its tab while it's tucked away, the whole panel when it's out.
+      toolsRight: toolsOpen ? TOOLS_W + TOOLS_TAB_W : TOOLS_TAB_W,
+      toolsTop: toolsOpen ? toolsTop : tabTop,
+      toolsBottom: toolsOpen ? toolsTop + TOOLS_H : tabTop + TOOLS_TAB_H,
+    });
+  }, [handTop, folded, toolsOpen, toolsTop, tabBand]);
   /** The touch in progress started in the tray: the gesture keeps out of it until every finger has lifted. */
   const inTray = useSharedValue(false);
 
@@ -529,6 +585,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // thread, just claims the touches (or leaves them to the hand tabs) and passes them on.
     const down = (changed: Touch[]) => {
       const L = latest.get();
+      // A touch on the table tucks the tools away.
+      if (L.toolsOpen && touch.mode === 'none') L.showTools(false);
       for (const t of changed) touch.fingers.set(t.id, { start: { x: t.x, y: t.y }, now: { x: t.x, y: t.y } });
       const pts = [...touch.fingers.values()].map((f) => f.now);
       if (touch.mode === 'none') {
@@ -685,6 +743,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.buttonFingers.clear();
       touch.fingers.clear();
       L.setHandGap(null);
+      L.showLanding(null);
       touch.mode = 'none';
     };
     touch.api = { down, move, up, cancel };
@@ -697,7 +756,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // A first finger on the hand tabs: theirs (they're buttons), not the table's.
         const t0 = e.changedTouches[0];
         const band = tabBand.value;
-        if (e.allTouches.length === e.changedTouches.length && t0 && t0.y >= band.top && t0.y < band.bottom) {
+        const firstFinger = e.allTouches.length === e.changedTouches.length;
+        const onTools = !!t0 && t0.x < band.toolsRight && t0.y >= band.toolsTop && t0.y < band.toolsBottom;
+        if (firstFinger && t0 && ((t0.y >= band.top && t0.y < band.bottom) || onTools)) {
           manager.fail();
           return;
         }
@@ -762,16 +823,20 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** Puts cards on the table in the middle of the view, upright as seen (snapped to the table's 45° steps). */
   const playToView = (t: SandboxTable, cards: SandboxCard[]) => {
     const m = viewMiddle();
-    return putOnTable(t, cards, { x: m.x, y: m.y, angle: snapAngle(-cameraAngle(readCamera()), 45, 45) }, newId());
+    const at = { x: m.x, y: m.y, angle: snapAngle(-cameraAngle(readCamera()), 45, 45) };
+    return putOnTable(t, cards, gridOn ? snapToGrid(at, cell) : at, newId());
   };
 
   const addDeckToTable = (deck: Deck) => {
     if (!table) return;
     const m = viewMiddle();
     // Beside anything already in the middle, rather than on it.
-    let x = m.x;
-    while (table.stacks.some((s) => Math.hypot(s.x - x, s.y - m.y) < CARD_W)) x += CARD_W * 1.3;
-    commit(addDeck(table, deck, { x, y: m.y }, newId));
+    // With snapping on, into the first free grid cell along from there.
+    const start = gridOn ? snapToGrid({ ...m, angle: 0 }, cell) : m;
+    const step = gridOn ? cell : CARD_W * 1.3;
+    let x = start.x;
+    while (table.stacks.some((s) => Math.hypot(s.x - x, s.y - start.y) < (gridOn ? cell / 2 : CARD_W))) x += step;
+    commit(addDeck(table, deck, { x, y: start.y }, newId));
     haptics.drop();
   };
 
@@ -928,6 +993,20 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 target={target === s.id}
               />
             ))}
+            {landing ? (
+              <View
+                style={[
+                  styles.landing,
+                  {
+                    left: landing.x - landing.w / 2,
+                    top: landing.y - landing.h / 2,
+                    width: landing.w,
+                    height: landing.h,
+                    transform: [{ rotate: `${landing.angle}deg` }],
+                  },
+                ]}
+              />
+            ) : null}
           </Animated.View>
 
           {/*
@@ -1014,6 +1093,40 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   })}
               </ScrollView>
             </View>
+          </Animated.View>
+
+          {/* The tools drawer, on the left edge: its tab pulls it out, and tucks it away again. */}
+          <Animated.View style={[styles.tools, { top: toolsTop }, toolsStyle]} pointerEvents="box-none">
+            <View style={styles.toolsPanel}>
+              <Text style={styles.toolsTitle}>Tools</Text>
+              <View style={styles.toolRow}>
+                <SymbolView name={{ ios: 'square.grid.3x3', android: 'grid_on', web: 'grid_on' }} size={18} tintColor={colors.text} />
+                <Text style={styles.toolText}>Snap to grid</Text>
+                <Switch
+                  value={gridOn}
+                  onValueChange={(on) => {
+                    updateSandbox({ ...table, snapToGrid: on });
+                    haptics.tick();
+                  }}
+                  trackColor={{ true: colors.accent, false: undefined }}
+                  accessibilityLabel="Snap to grid"
+                  accessibilityHint="Cards put down line up in an invisible grid. Cards already on the table stay put."
+                />
+              </View>
+            </View>
+            <Pressable
+              onPress={() => showTools(!toolsOpen)}
+              hitSlop={{ right: 10, top: 6, bottom: 6 }}
+              accessibilityRole="button"
+              accessibilityLabel={toolsOpen ? 'Hide tools' : 'Show tools'}
+              style={({ pressed }) => [styles.toolsTab, pressed && styles.tabPressed]}>
+              <SymbolView
+                name={toolsOpen ? { ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' } : { ios: 'wrench.and.screwdriver', android: 'build', web: 'build' }}
+                size={14}
+                weight="semibold"
+                tintColor={colors.accent}
+              />
+            </Pressable>
           </Animated.View>
 
           {/* While cards are carried: the flip button, tapped with another finger to turn them over. */}
@@ -1142,6 +1255,40 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
+  // Where a carried card would land with snapping on: a faint outline of it in its grid cell.
+  landing: { position: 'absolute', borderRadius: 6, borderWidth: 2, borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.45)' },
+  // The tools drawer: a panel off the left edge, with a tab on its right edge to pull it out by.
+  tools: { position: 'absolute', left: 0, width: TOOLS_W + TOOLS_TAB_W, height: TOOLS_H },
+  toolsPanel: {
+    width: TOOLS_W,
+    height: TOOLS_H,
+    padding: 14,
+    gap: 12,
+    backgroundColor: 'rgba(8,18,26,0.9)',
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 0,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  toolsTitle: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  toolRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  toolText: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '600' },
+  toolsTab: {
+    position: 'absolute',
+    left: TOOLS_W,
+    top: (TOOLS_H - TOOLS_TAB_H) / 2,
+    width: TOOLS_TAB_W,
+    height: TOOLS_TAB_H,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(8,18,26,0.9)',
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 0,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
   flipButton: {
     position: 'absolute',
     alignItems: 'center',

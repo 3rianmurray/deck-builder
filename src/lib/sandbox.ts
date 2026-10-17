@@ -48,6 +48,8 @@ export interface SandboxTable {
   /** The four players' hands, each in order left to right. */
   hands: SandboxCard[][];
   handNames: string[];
+  /** Cards put down snap into an invisible grid (cards already lying where they are stay put). */
+  snapToGrid?: boolean;
   /** The camera as it was left, or none yet (it starts looking at the middle of the table). */
   camera?: Camera;
   createdAt: number;
@@ -194,6 +196,28 @@ export const cameraSquare = (c: Camera) => {
 /** The angle (degrees) of the line from one finger to another, for twisting a card. */
 export const fingerAngle = (p: { x: number; y: number }, q: { x: number; y: number }) =>
   (Math.atan2(q.y - p.y, q.x - p.x) * 180) / Math.PI;
+
+// ---- The grid ----
+
+/** Room left between cards lying in neighbouring grid cells, in table units. */
+export const GRID_GAP = 16;
+
+/**
+ * The (invisible) grid's cell size, in table units: square, and big enough for the largest card given to lie in
+ * either way round with room between, so cards of any size and either orientation line up without overlapping.
+ */
+export function gridCell(cardSizes: { w: number; h: number }[]): number {
+  return Math.max(...cardSizes.map((s) => Math.max(s.w, s.h))) + GRID_GAP;
+}
+
+/** A card put down with snapping on: centred in the grid cell under it, turned to the nearest quarter turn. */
+export function snapToGrid(at: { x: number; y: number; angle: number }, cell: number) {
+  return {
+    x: (Math.floor(at.x / cell) + 0.5) * cell,
+    y: (Math.floor(at.y / cell) + 0.5) * cell,
+    angle: normalizeAngle(Math.round(at.angle / 90) * 90),
+  };
+}
 
 // ---- Finding cards ----
 

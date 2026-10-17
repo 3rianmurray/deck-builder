@@ -199,15 +199,18 @@ export const fingerAngle = (p: { x: number; y: number }, q: { x: number; y: numb
 
 // ---- The grid ----
 
-/**
- * The (invisible) grid's spacing, in table units: half a standard card's width. Cards put down with snapping on
- * have their middles on its crossings, like Tabletop Simulator's grid; they're free to overlap.
- */
-export const GRID_STEP = CARD_W / 2;
+/** The grid's spacing, in table units (about 25 mm of real card). */
+export const GRID_STEP = 40;
 
-/** A card put down with snapping on: its middle on the nearest grid crossing. Its turn is its own. */
+/**
+ * A card put down with snapping on: its middle on the nearest snap point, which is either a crossing of the grid's
+ * lines or the middle of one of its squares. Its turn is its own. Cards are free to overlap.
+ */
 export function snapToGrid(at: { x: number; y: number; angle: number }, step = GRID_STEP) {
-  return { x: Math.round(at.x / step) * step, y: Math.round(at.y / step) * step, angle: at.angle };
+  const crossing = { x: Math.round(at.x / step) * step, y: Math.round(at.y / step) * step };
+  const middle = { x: (Math.floor(at.x / step) + 0.5) * step, y: (Math.floor(at.y / step) + 0.5) * step };
+  const nearer = Math.hypot(at.x - crossing.x, at.y - crossing.y) <= Math.hypot(at.x - middle.x, at.y - middle.y) ? crossing : middle;
+  return { ...nearer, angle: at.angle };
 }
 // ---- Finding cards ----
 

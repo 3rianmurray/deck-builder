@@ -37,6 +37,7 @@ import {
   startCamera,
   TABLE_H,
   TABLE_W,
+  GRID_STEP,
   take,
   UNITS_PER_MM,
   takeAll,
@@ -89,6 +90,8 @@ const TOOLS_W = 230;
 const TOOLS_TAB_W = 26;
 const TOOLS_TAB_H = 72;
 const TOOLS_H = 112;
+/** How far a held card is drawn from its shadow (up and to the left, lit from there), in screen points. */
+const LIFT_OFFSET = { x: -4, y: -10 };
 /** A held card is drawn a little bigger than it lies, as if lifted. */
 const LIFT = 1.08;
 
@@ -185,12 +188,25 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const heldY = useSharedValue(0);
   const heldAngle = useSharedValue(0);
   const heldScale = useSharedValue(1);
+  // Lifted off the table: a little up and to the left of where it would lie, over its own hard shadow.
   const heldStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: heldX.value + LIFT_OFFSET.x },
+      { translateY: heldY.value + LIFT_OFFSET.y },
+      { rotate: `${heldAngle.value}deg` },
+      { scale: heldScale.value },
+    ],
+  }));
+  /** The shadow's size (the card's own on the table, unlifted) and whether it shows (not over the hand). */
+  const shadowScale = useSharedValue(1);
+  const shadowOpacity = useSharedValue(1);
+  const shadowStyle = useAnimatedStyle(() => ({
+    opacity: shadowOpacity.value,
     transform: [
       { translateX: heldX.value },
       { translateY: heldY.value },
       { rotate: `${heldAngle.value}deg` },
-      { scale: heldScale.value },
+      { scale: shadowScale.value },
     ],
   }));
 
@@ -225,12 +241,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   // ---- The grid: invisible lines at a fixed spacing; cards put down with snapping on sit on their crossings. ----
   const gridOn = !!table?.snapToGrid;
-  /** Where a carried card would land with snapping on: a hard shadow of it there shows it (the grid stays unseen). */
-  const [landing, setLanding] = useState<{ x: number; y: number; angle: number; w: number; h: number } | null>(null);
-  const showLanding = (next: typeof landing) => {
-    const same = next && landing && next.x === landing.x && next.y === landing.y && next.angle === landing.angle && next.w === landing.w;
-    if (!same && (next || landing)) setLanding(next);
-  };
   // The tools drawer on the left edge: pulled out to show the tools, tucked away again to hide them.
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsX = useSharedValue(-TOOLS_W);
@@ -333,7 +343,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       handCardAt: (x: number, y: number) => number;
       maxHandScroll: number;
       gridOn: boolean;
-      showLanding: (l: { x: number; y: number; angle: number; w: number; h: number } | null) => void;
       toolsOpen: boolean;
       showTools: (open: boolean) => void;
       setHandGap: (g: number | null) => void;
@@ -347,7 +356,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, showLanding, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -426,13 +435,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const except = touch.sources.find((src) => src.kind === 'stack')?.stackId;
     const over = p.y < L.handTop ? stackTargetAt(L.table, w.x, w.y, L.size, except) : null;
     L.setTarget(over?.id ?? null);
-    // Snapping on, over the open table: where it would land.
-    const top = touch.cards[touch.cards.length - 1];
-    if (L.gridOn && !over && p.y < L.handTop && top) {
-      L.showLanding({ ...snapToGrid({ x: w.x, y: w.y, angle: p.tableAngle }), ...L.size(top.deckId) });
-    } else {
-      L.showLanding(null);
-    }
+    // Its shadow, just where it would lie, shows on the table (not over the hand, which it would go into).
+    shadowOpacity.set(p.y < L.handTop ? 1 : 0);
     // Over the hand: a gap opens where they'd go in, and near either end the row scrolls along.
     if (p.y >= L.handTop) {
       const edge = p.x < HAND_EDGE ? -1 : p.x > area.w - HAND_EDGE ? 1 : 0;
@@ -471,6 +475,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.screenAngle = stack.angle + cameraAngle(cam);
     }
     heldScale.set(k * LIFT);
+    shadowScale.set(k);
     touch.mode = 'carry';
     touch.snapped = false;
     showCarried();
@@ -530,7 +535,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     L.setHeld(null);
     L.setTarget(null);
     L.setHandGap(null);
-    L.showLanding(null);
     if (!L.table || !sources.length || !p || !cards.length) return;
     haptics.drop();
     if (p.y >= L.handTop) {
@@ -736,7 +740,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.buttonFingers.clear();
       touch.fingers.clear();
       L.setHandGap(null);
-      L.showLanding(null);
       touch.mode = 'none';
     };
     touch.api = { down, move, up, cancel };
@@ -972,6 +975,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           <Animated.View style={[styles.world, worldStyle]} pointerEvents="none">
             <View style={styles.tableEdge} />
             <Image source={require('../../assets/textures/felt.png')} resizeMode="repeat" style={styles.felt} />
+            {gridOn ? <GridLines /> : null}
             {table.stacks.map((s) => (
               <StackView
                 key={s.id}
@@ -985,20 +989,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 target={target === s.id}
               />
             ))}
-            {landing ? (
-              <View
-                style={[
-                  styles.landing,
-                  {
-                    left: landing.x - landing.w / 2,
-                    top: landing.y - landing.h / 2,
-                    width: landing.w,
-                    height: landing.h,
-                    transform: [{ rotate: `${landing.angle}deg` }],
-                  },
-                ]}
-              />
-            ) : null}
           </Animated.View>
 
           {/*
@@ -1130,7 +1120,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
           ) : null}
 
-          {/* The card being carried, drawn over everything, following the finger. */}
+          {/*
+            The card being carried, drawn over everything, following the finger; under it, its hard shadow, just
+            where it will lie when let go, to line it up by (with or without the grid, and over stacks too).
+          */}
+          {held && heldTop && heldSize ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.carriedShadow,
+                {
+                  width: heldSize.w,
+                  height: heldSize.h,
+                  left: -heldSize.w / 2,
+                  top: -heldSize.h / 2,
+                  borderRadius: Math.max(4, heldSize.w * 0.06),
+                },
+                shadowStyle,
+              ]}
+            />
+          ) : null}
           {held && heldTop && heldDeck && heldSize ? (
             <Animated.View
               pointerEvents="none"
@@ -1166,6 +1175,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     </View>
   );
 }
+
+/**
+ * The grid's lines across the whole table, shown while snapping is on (for now, for trying it out: the grid is
+ * meant to be invisible). Cards snap to their crossings and the middles of their squares.
+ */
+const GridLines = memo(function GridLines() {
+  return [
+    ...Array.from({ length: Math.floor(TABLE_W / GRID_STEP) + 1 }, (_, i) => (
+      <View key={`v${i}`} style={[styles.gridLine, { left: i * GRID_STEP - 0.75, top: 0, width: 1.5, height: TABLE_H }]} />
+    )),
+    ...Array.from({ length: Math.floor(TABLE_H / GRID_STEP) + 1 }, (_, i) => (
+      <View key={`h${i}`} style={[styles.gridLine, { top: i * GRID_STEP - 0.75, left: 0, height: 1.5, width: TABLE_W }]} />
+    )),
+  ];
+});
 
 /** A stack on the table: its top card (and edges below it, for more than one), turned as it lies. */
 const StackView = memo(function StackView({
@@ -1247,8 +1271,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
-  // Where a carried card would land with snapping on: a hard shadow of it there, the card's size and turn.
-  landing: { position: 'absolute', borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.38)' },
+  // A carried card's hard shadow: just where (and as big as) it would lie if let go.
+  carriedShadow: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.4)' },
+  // The grid's lines, shown for now (for trying the grid out).
+  gridLine: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.13)' },
   // The tools drawer: a panel off the left edge, with a tab on its right edge to pull it out by.
   tools: { position: 'absolute', left: 0, width: TOOLS_W + TOOLS_TAB_W, height: TOOLS_H },
   toolsPanel: {
@@ -1291,7 +1317,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
   },
-  held: { position: 'absolute', shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 14, shadowOffset: { width: 4, height: 14 } },
+  // Its shadow is the hard one drawn under it (see carriedShadow).
+  held: { position: 'absolute' },
   hidden: { opacity: 0 },
   // The tray and its tabs, which slide together when it folds.
   trayWrap: { position: 'absolute', left: 0, right: 0 },

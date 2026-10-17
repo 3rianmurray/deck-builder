@@ -198,7 +198,9 @@ test('the camera settles onto quarter turns when close, keeping the table under 
   near(cameraAngle(snapCamera({ a: Math.cos(r3), b: Math.sin(r3), tx: 0, ty: 0 }, about)), 90);
 });
 
-test("snapping puts a card's middle on the nearest grid crossing, leaving its turn as it was", () => {
-  assert.deepEqual(snapToGrid({ x: 170, y: 20, angle: 37 }, 50), { x: 150, y: 0, angle: 37 });
-  assert.deepEqual(snapToGrid({ x: 126, y: 74, angle: -90 }, 50), { x: 150, y: 50, angle: -90 });
+test("snapping puts a card's middle on the nearest grid crossing or square's middle, leaving its turn as it was", () => {
+  // Near a crossing: onto it.
+  assert.deepEqual(snapToGrid({ x: 83, y: 37, angle: 37 }, 40), { x: 80, y: 40, angle: 37 });
+  // Near the middle of a square: onto that.
+  assert.deepEqual(snapToGrid({ x: 58, y: 103, angle: -90 }, 40), { x: 60, y: 100, angle: -90 });
 });

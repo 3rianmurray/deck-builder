@@ -150,6 +150,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [groupMoving, setGroupMoving] = useState(false);
   /** The dragged group is over the hand: gathered into one pile under the finger, at hand size, for going in. */
   const [groupInHand, setGroupInHand] = useState<string | null>(null);
+  /** Cards flying between the spread-out group and its pile over the hand (in: gathering; out: spreading out). */
+  const [pileFlights, setPileFlights] = useState<PileFlight[]>([]);
   const groupDX = useSharedValue(0);
   const groupDY = useSharedValue(0);
   const groupStyle = useAnimatedStyle(() => ({ transform: [{ translateX: groupDX.value }, { translateY: groupDY.value }] }));
@@ -358,9 +360,32 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setGroupMoving(false);
     setGroupInHand(null);
     setFlyers([]);
+    setPileFlights([]);
     if (!table || (!by.x && !by.y)) return;
     commit(moveStacks(table, chosen, by, gridOn ? (p) => snapToGrid(p) : undefined));
     haptics.drop();
+  };
+  /**
+   * The group crossing into the hand (`into`) or back out over the table: each of its cards flies between where it
+   * lies in the group (on screen: at table size, at its angle) and the pile under the finger (hand size, upright).
+   */
+  const flyPile = (into: boolean, finger: { x: number; y: number }) => {
+    if (!table) return;
+    const cam = readCamera();
+    const k = cameraZoom(cam);
+    const turn = cameraAngle(cam);
+    const by = { x: groupDX.get(), y: groupDY.get() };
+    const flights = table.stacks
+      .filter((s) => chosen.includes(s.id))
+      .map((s): PileFlight => {
+        const top = s.cards[s.cards.length - 1];
+        const at = toScreen(cam, s.x + by.x, s.y + by.y);
+        const spread = { x: at.x, y: at.y, angle: s.angle + turn, scale: k };
+        const pile = { x: finger.x, y: finger.y, angle: 0, scale: handScaleOf(top) };
+        return { key: newId(), card: top, from: into ? spread : pile, to: into ? pile : spread, into };
+      });
+    setPileFlights(flights);
+    haptics.lift();
   };
   /** The size a group gathered over the hand is drawn at: its grabbed stack's top card at hand size. */
   const groupHandScale = (lead: string) => {
@@ -375,6 +400,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setGroupMoving(false);
     setGroupInHand(null);
     setFlyers([]);
+    setPileFlights([]);
     if (!table) return;
     const lead = gestureState.get().groupLead;
     const leader = table.stacks.find((s) => s.id === lead);
@@ -447,6 +473,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       maxHandScroll: number;
       gridOn: boolean;
       setGroupInHand: (lead: string | null) => void;
+      flyPile: (into: boolean, finger: { x: number; y: number }) => void;
       groupToHand: (at: number) => void;
       groupHandScale: (lead: string) => number;
       handScaleOf: (c: SandboxCard) => number;
@@ -473,7 +500,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, dropGroup, flipGroup, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, dropGroup, flipGroup, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -893,7 +920,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         if (over !== touch.groupOverHand) {
           touch.groupOverHand = over;
           L.setGroupInHand(over ? touch.groupLead : null);
-          haptics.tick();
+          L.flyPile(over, f.now);
         }
         if (over) {
           heldX.set(f.now.x);
@@ -1328,7 +1355,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             )}
             {/* The picked-out group, while it's dragged: drawn together, sliding with the finger. */}
             {groupMoving ? (
-              <Animated.View style={[styles.groupLayer, groupStyle, groupInHand !== null && styles.hidden]}>
+              <Animated.View
+                style={[styles.groupLayer, groupStyle, (groupInHand !== null || pileFlights.some((f) => !f.into)) && styles.hidden]}>
                 {table.stacks
                   .filter((s) => chosenIds.has(s.id))
                   .map((s) => (
@@ -1518,7 +1546,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           {lassoPath && lassoPath.length > 1 ? <LassoLine points={lassoPath} /> : null}
 
           {/* A dragged group over the hand: gathered into one pile under the finger, at hand size, ready to go in. */}
-          {groupMoving && groupLeadTop && decksById.get(groupLeadTop.deckId) ? (
+          {groupMoving && groupLeadTop && decksById.get(groupLeadTop.deckId) && !pileFlights.some((f) => f.into) ? (
             <Animated.View
               pointerEvents="none"
               style={[
@@ -1543,6 +1571,27 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               </View>
             </Animated.View>
           ) : null}
+
+          {/* Cards flying between the spread-out group and its pile over the hand. */}
+          {pileFlights.map((f) => {
+            const deck = decksById.get(f.card.deckId);
+            return deck ? (
+              <PileFlyer
+                key={f.key}
+                flight={f}
+                deck={deck}
+                size={size(f.card.deckId)}
+                onLanded={() => {
+                  setPileFlights((all) => {
+                    const left = all.filter((x) => x.key !== f.key);
+                    // The last one in: a tick as the pile forms; the last one out: a thud as the group lands.
+                    if (!left.length && all.length) (f.into ? haptics.tick : haptics.drop)();
+                    return left;
+                  });
+                }}
+              />
+            ) : null;
+          })}
 
           {/* The card being carried, drawn over everything, following the finger, just as it will lie. */}
           {held && heldTop && heldDeck && heldSize ? (
@@ -1666,6 +1715,55 @@ function GatherFlyer({ flyer, deck, size, onLanded }: { flyer: Flyer; deck: Deck
         ],
       }}>
       <CardView deck={deck} card={deck.cards.find((c) => c.id === flyer.card.cardId)} faceUp={faceUp} width={size.w} sharp />
+    </RNAnimated.View>
+  );
+}
+
+/** One card's flight between the spread-out group and its pile over the hand, on screen. */
+interface PileFlight {
+  key: string;
+  card: SandboxCard;
+  /** Where it starts and ends: its middle, turn (degrees) and size (screen points per table unit). */
+  from: { x: number; y: number; angle: number; scale: number };
+  to: { x: number; y: number; angle: number; scale: number };
+  /** Flying into the pile (gathering) rather than out of it (spreading out). */
+  into: boolean;
+}
+
+/** How long a card takes to fly between the group and its pile. */
+const PILE_MS = 240;
+
+/** A card flying between the spread-out group and its pile over the hand: gliding, turning and resizing as it goes. */
+function PileFlyer({ flight, deck, size, onLanded }: { flight: PileFlight; deck: Deck; size: { w: number; h: number }; onLanded: () => void }) {
+  const [t] = useState(() => new RNAnimated.Value(0));
+  useEffect(() => {
+    RNAnimated.timing(t, { toValue: 1, duration: PILE_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(
+      ({ finished }) => finished && onLanded(),
+    );
+    // Once, as it sets off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const { from, to } = flight;
+  // Turning the short way round.
+  const turn = ((((to.angle - from.angle + 180) % 360) + 360) % 360) - 180;
+  const along = (a: number, b: number) => t.interpolate({ inputRange: [0, 1], outputRange: [a, b] });
+  return (
+    <RNAnimated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: -size.w / 2,
+        top: -size.h / 2,
+        width: size.w,
+        height: size.h,
+        transform: [
+          { translateX: along(from.x, to.x) },
+          { translateY: along(from.y, to.y) },
+          { rotate: t.interpolate({ inputRange: [0, 1], outputRange: [`${from.angle}deg`, `${from.angle + turn}deg`] }) },
+          { scale: along(from.scale, to.scale) },
+        ],
+      }}>
+      <CardView deck={deck} card={deck.cards.find((c) => c.id === flight.card.cardId)} faceUp={flight.card.faceUp} width={size.w} sharp />
     </RNAnimated.View>
   );
 }

@@ -50,6 +50,8 @@ export interface SandboxTable {
   handNames: string[];
   /** Cards put down snap into an invisible grid (cards already lying where they are stay put). */
   snapToGrid?: boolean;
+  /** The camera stays put: sliding, zooming and turning the table do nothing (cards still move). */
+  lockCamera?: boolean;
   /** The camera as it was left, or none yet (it starts looking at the middle of the table). */
   camera?: Camera;
   createdAt: number;

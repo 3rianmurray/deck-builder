@@ -89,7 +89,7 @@ type Finger = { id: number; x: number; y: number };
 const TOOLS_W = 230;
 const TOOLS_TAB_W = 26;
 const TOOLS_TAB_H = 72;
-const TOOLS_H = 112;
+const TOOLS_H = 156;
 /** How far below the top of the screen's safe area the tools drawer sits (clear of the top bar). */
 const TOOLS_FROM_TOP = 64;
 
@@ -329,6 +329,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       handCardAt: (x: number, y: number) => number;
       maxHandScroll: number;
       gridOn: boolean;
+      cameraLocked: boolean;
       toolsOpen: boolean;
       showTools: (open: boolean) => void;
       setHandGap: (g: number | null) => void;
@@ -342,7 +343,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -616,6 +617,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         }
         return;
       }
+      // With the camera locked, empty table does nothing.
+      if (L.cameraLocked) return;
       // Empty table: the camera, slid by one finger, zoomed and turned by two. Restarted from here whenever
       // a finger comes or goes, so nothing jumps.
       touch.mode = 'camera';
@@ -1076,6 +1079,20 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   trackColor={{ true: colors.accent, false: undefined }}
                   accessibilityLabel="Snap to grid"
                   accessibilityHint="Cards put down line up in an invisible grid. Cards already on the table stay put."
+                />
+              </View>
+              <View style={styles.toolRow}>
+                <SymbolView name={{ ios: 'lock', android: 'lock', web: 'lock' }} size={18} tintColor={colors.text} />
+                <Text style={styles.toolText}>Lock camera</Text>
+                <Switch
+                  value={!!table.lockCamera}
+                  onValueChange={(on) => {
+                    updateSandbox({ ...table, lockCamera: on });
+                    haptics.tick();
+                  }}
+                  trackColor={{ true: colors.accent, false: undefined }}
+                  accessibilityLabel="Lock camera"
+                  accessibilityHint="The view stays put: sliding, zooming and turning the table do nothing. Cards still move."
                 />
               </View>
             </View>

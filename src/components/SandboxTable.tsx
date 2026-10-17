@@ -2,7 +2,7 @@ import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, LayoutAnimation, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated as RNAnimated, Easing, Image, LayoutAnimation, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent, NativeTouchEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
@@ -145,6 +145,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const groupDX = useSharedValue(0);
   const groupDY = useSharedValue(0);
   const groupStyle = useAnimatedStyle(() => ({ transform: [{ translateX: groupDX.value }, { translateY: groupDY.value }] }));
+  /** Cards flying into a stack just gathered (each the top of a stack that was picked out). */
+  const [flyers, setFlyers] = useState<Flyer[]>([]);
   /** Where carried cards would go into the hand, while they're over it: a gap opens there. */
   const [handGap, setHandGap] = useState<number | null>(null);
   /** How far the hand's row is scrolled, as its scroll view reports it (to find the card under a finger). */
@@ -342,6 +344,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** The group let go: each stack moved as far as the finger went (and snapped to the grid, if it's on). */
   const dropGroup = (by: { x: number; y: number }) => {
     setGroupMoving(false);
+    setFlyers([]);
     if (!table || (!by.x && !by.y)) return;
     commit(moveStacks(table, chosen, by, gridOn ? (p) => snapToGrid(p) : undefined));
     haptics.drop();
@@ -359,10 +362,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const gatherGroup = (lead: string) => {
     if (!table || chosen.length < 2) return undefined;
     const id = newId();
+    const leader = table.stacks.find((s) => s.id === lead);
+    if (!leader) return undefined;
+    const face = leader.cards[leader.cards.length - 1].faceUp;
+    // The others fly to it: each from where it lay (relative to it, as they all move together), turning to its
+    // angle, and over to its face if need be.
+    setFlyers(
+      table.stacks
+        .filter((s) => chosen.includes(s.id) && s.id !== lead)
+        .map((s) => ({
+          key: newId(),
+          card: s.cards[s.cards.length - 1],
+          at: { x: leader.x, y: leader.y, angle: leader.angle },
+          from: { dx: s.x - leader.x, dy: s.y - leader.y, angle: s.angle },
+          face,
+        })),
+    );
     commit(gatherStacks(table, chosen, lead, id));
     setSelected([id]);
     gestureState.get().groupLead = id;
-    haptics.drop();
+    haptics.lift();
     return id;
   };
   /** Where in the row (of cards not carried) cards dropped with their middle at a point on screen would go. */
@@ -1236,6 +1255,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                       selected
                     />
                   ))}
+                {flyers.map((f) => {
+                  const deck = decksById.get(f.card.deckId);
+                  return deck ? (
+                    <GatherFlyer
+                      key={f.key}
+                      flyer={f}
+                      deck={deck}
+                      size={size(f.card.deckId)}
+                      onLanded={() => setFlyers((all) => all.filter((x) => x.key !== f.key))}
+                    />
+                  ) : null;
+                })}
               </Animated.View>
             ) : null}
           </Animated.View>
@@ -1454,6 +1485,55 @@ const GridLines = memo(function GridLines() {
     )),
   ];
 });
+
+/** A card flying into a stack just gathered: from where its stack lay (relative to the gathering one), to it. */
+interface Flyer {
+  key: string;
+  card: SandboxCard;
+  /** Where the stack it flies to lies, and its turn. */
+  at: { x: number; y: number; angle: number };
+  /** Where it starts, relative to that, and its own turn. */
+  from: { dx: number; dy: number; angle: number };
+  /** Which way up it lands (the gathering stack's way). */
+  face: boolean;
+}
+
+/** How long a gathered card takes to fly into its stack. */
+const GATHER_MS = 340;
+
+/** One card's flight into a gathered stack: gliding there, turning to its angle, and flipping over if it must. */
+function GatherFlyer({ flyer, deck, size, onLanded }: { flyer: Flyer; deck: Deck; size: { w: number; h: number }; onLanded: () => void }) {
+  const [t] = useState(() => new RNAnimated.Value(0));
+  const [faceUp, setFaceUp] = useState(flyer.card.faceUp);
+  useEffect(() => {
+    // Turned to the stack's way as it goes (the card turning over as it flies).
+    setTimeout(() => setFaceUp(flyer.face), GATHER_MS * 0.15);
+    RNAnimated.timing(t, { toValue: 1, duration: GATHER_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => {
+      haptics.tick();
+      onLanded();
+    });
+    // Once, as it sets off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Turning the short way round.
+  const turn = ((((flyer.at.angle - flyer.from.angle + 180) % 360) + 360) % 360) - 180;
+  return (
+    <RNAnimated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: flyer.at.x - size.w / 2,
+        top: flyer.at.y - size.h / 2,
+        transform: [
+          { translateX: t.interpolate({ inputRange: [0, 1], outputRange: [flyer.from.dx, 0] }) },
+          { translateY: t.interpolate({ inputRange: [0, 1], outputRange: [flyer.from.dy, 0] }) },
+          { rotate: t.interpolate({ inputRange: [0, 1], outputRange: [`${flyer.from.angle}deg`, `${flyer.from.angle + turn}deg`] }) },
+        ],
+      }}>
+      <CardView deck={deck} card={deck.cards.find((c) => c.id === flyer.card.cardId)} faceUp={faceUp} width={size.w} sharp />
+    </RNAnimated.View>
+  );
+}
 
 /** The lasso's line as it's drawn, closed back to its start, with a faint gold fill inside. */
 function LassoLine({ points }: { points: { x: number; y: number }[] }) {

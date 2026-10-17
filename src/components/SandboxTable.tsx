@@ -1,10 +1,10 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { memo, useEffect, useMemo, useState } from 'react';
-import { Alert, Image, LayoutAnimation, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
-import type { LayoutChangeEvent } from 'react-native';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Image, LayoutAnimation, PanResponder, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import type { LayoutChangeEvent, NativeTouchEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { cancelAnimation, useAnimatedStyle, useSharedValue, withDecay, withSpring } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -77,10 +77,11 @@ const FOLDED_SHOWS = 38;
 /** The flip button shown while carrying cards: its size, and its space from the screen's edge and the tray. */
 const FLIP_SIZE = 64;
 const FLIP_MARGIN = 16;
-/** A sideways swipe on the hand keeps going after the finger lifts, slowing at this rate (as a scroll view does). */
-const HAND_DECELERATION = 0.998;
-/** How stiffly the hand's row stretches when pulled past an end (iOS uses 0.55). */
-const RUBBER_BAND = 0.55;
+/** As in table mode: a press must move this far, and be held this long, before it can lift a hand card out. */
+const DRAG_SLOP = 8;
+const LIFT_DELAY_MS = 90;
+/** A finger, relative to the table's touch area. */
+type Finger = { id: number; x: number; y: number };
 /** A held card is drawn a little bigger than it lies, as if lifted. */
 const LIFT = 1.08;
 
@@ -115,9 +116,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [folded, setFolded] = useState(false);
   /** Where carried cards would go into the hand, while they're over it: a gap opens there. */
   const [handGap, setHandGap] = useState<number | null>(null);
-  /** How far the hand's row is scrolled (on the animation thread, so scrolling doesn't redraw). */
-  const handScroll = useSharedValue(0);
-  const handRowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -handScroll.value }] }));
+  /** How far the hand's row is scrolled, as its scroll view reports it (to find the card under a finger). */
+  const [handScroll] = useState(() => {
+    const box = { x: 0 };
+    return { get: () => box.x, set: (x: number) => Object.assign(box, { x }) };
+  });
+  /** The hand's scroll view: table mode's, to scroll it as carried cards are dragged near its ends. */
+  const [handList] = useState(() => {
+    const box: { view: ScrollView | null } = { view: null };
+    return {
+      attach: (view: ScrollView | null) => {
+        Object.assign(box, { view });
+      },
+      get: () => box.view,
+    };
+  });
   // The tray's slide as it folds and opens, with a little spring, as in table mode.
   const foldY = useSharedValue(0);
   const trayStyle = useAnimatedStyle(() => ({ transform: [{ translateY: foldY.value }] }));
@@ -240,6 +253,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const chooseHand = (i: number) => {
     setHandIndex(i);
     handScroll.set(0);
+    handList.get()?.scrollTo({ x: 0, animated: false });
     if (folded) foldTray(false);
     else haptics.tick();
   };
@@ -283,11 +297,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [gestureState] = useState(() => {
     type Pt = { x: number; y: number };
     const s = {
-      mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress' | 'handScroll',
-      /** Scrolling the hand: how far it was scrolled when the finger landed, and the finger's speed (points/ms). */
-      handFrom: 0,
-      handSpeed: 0,
-      handLast: { x: 0, t: 0 },
+      mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress',
+      /** When a hand card was pressed (it can't be lifted out for a moment, as in table mode). */
+      pressedAt: 0,
+      /** The table's own finger handling, for hand cards' touches to feed into once a card is lifted out. */
+      api: null as null | { down: (f: Finger[]) => void; move: (f: Finger[]) => void; up: (f: Finger[]) => void; cancel: () => void },
       /** Each finger's start and latest position, by id. */
       fingers: new Map<number, { start: Pt; now: Pt }>(),
       /** The finger that pressed (or carries). */
@@ -359,7 +373,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // Over the hand: a gap opens where they'd go in, and near either end the row scrolls along.
     if (p.y >= L.handTop) {
       const edge = p.x < HAND_EDGE ? -1 : p.x > area.w - HAND_EDGE ? 1 : 0;
-      if (edge) handScroll.set(Math.min(L.maxHandScroll, Math.max(0, handScroll.get() + edge * HAND_EDGE_STEP)));
+      if (edge) {
+        const x = Math.min(L.maxHandScroll, Math.max(0, handScroll.get() + edge * HAND_EDGE_STEP));
+        handScroll.set(x);
+        handList.get()?.scrollTo({ x, animated: false });
+      }
       L.setHandGap(L.handInsertAt(p.x));
     } else {
       L.setHandGap(null);
@@ -469,12 +487,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     L.commit(putOnTable(takeAll(L.table, sources), cards, at, newId(), onto));
   };
 
-  // Where the hand tabs are on screen: touches starting there are left to them. Read by the gesture, which runs on
-  // the UI thread.
-  const tabBand = useSharedValue({ top: 0, bottom: 0 });
+  // Where the hand tabs and the open tray are on screen: touches starting there are left to them (the tabs are
+  // buttons; the tray has table mode's scroll view and card handling). Read by the gesture, on the UI thread.
+  const tabBand = useSharedValue({ top: 0, bottom: 0, tray: 0 });
   useEffect(() => {
-    tabBand.set({ top: handTop - HAND_TAB_H, bottom: handTop });
-  }, [handTop, tabBand]);
+    tabBand.set({ top: handTop - HAND_TAB_H, bottom: handTop, tray: folded ? Number.MAX_VALUE : handTop });
+  }, [handTop, folded, tabBand]);
+  /** The touch in progress started in the tray: the gesture keeps out of it until every finger has lifted. */
+  const inTray = useSharedValue(false);
 
   const [gesture] = useState(() => {
     const touch = gestureState.get();
@@ -489,17 +509,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         const t = changed[0];
         touch.first = t.id;
         touch.twist = null;
-        // On a hand card, or a card on the table: pressed (a tap opens its menu, a drag carries it).
-        // In the hand: a card pressed (a tap opens its menu, an upward drag lifts it out), or a sideways swipe
-        // that scrolls the row. A touch stops it coasting.
+        // On a hand card (its touches come from the card itself, as in table mode): a tap opens its menu, an
+        // upward drag lifts it out. Or a card on the table: a tap opens its menu, a drag carries it.
         if (t.y >= L.handTop) {
-          cancelAnimation(handScroll);
           const i = L.handCardAt(t.x, t.y);
           touch.pressed = i >= 0 ? { kind: 'hand', hand: L.handIndex, iid: L.hand[i].iid } : null;
-          touch.mode = 'handPress';
-          touch.handFrom = handScroll.get();
-          touch.handSpeed = 0;
-          touch.handLast = { x: t.x, t: Date.now() };
+          touch.mode = i >= 0 ? 'handPress' : 'none';
+          touch.pressedAt = Date.now();
           return;
         }
         const w = toTable(readCamera(), t.x, t.y);
@@ -511,7 +527,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         }
       }
       // Other fingers while the hand is pressed or scrolled: ignored.
-      if (touch.mode === 'handPress' || touch.mode === 'handScroll') return;
+      if (touch.mode === 'handPress') return;
       if (touch.mode === 'press' || touch.mode === 'carry') {
         // A second finger while a card is held: it twists the card.
         if (touch.mode === 'press') pickUp();
@@ -553,27 +569,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         return;
       }
       if (touch.mode === 'carry') return showCarried();
-      if (touch.mode === 'handPress' || touch.mode === 'handScroll') {
+      if (touch.mode === 'handPress') {
+        // As in table mode: past a little slop and a moment's hold, a mostly upward drag lifts the card out;
+        // anything else is the hand's scroll view's.
         const f = touch.fingers.get(touch.first);
         if (!f) return;
         const dx = f.now.x - f.start.x;
         const dy = f.now.y - f.start.y;
-        if (touch.mode === 'handPress') {
-          if (Math.hypot(dx, dy) <= TAP_SLOP) return;
-          // Mostly upward off a card: lifted out of the hand. Otherwise: a scroll.
-          if (touch.pressed && Math.abs(dy) > Math.abs(dx)) return pickUp();
-          touch.mode = 'handScroll';
-        }
-        const L = latest.get();
-        // Past either end it stretches, harder the further it goes (iOS's rubber band, as table mode's row has).
-        const raw = touch.handFrom - dx;
-        const past = raw < 0 ? raw : raw > L.maxHandScroll ? raw - L.maxHandScroll : 0;
-        const stretch = Math.sign(past) * (1 - 1 / ((Math.abs(past) * RUBBER_BAND) / area.w + 1)) * area.w;
-        handScroll.set(past ? (raw < 0 ? 0 : L.maxHandScroll) + stretch : raw);
-        const now = Date.now();
-        const dt = Math.max(1, now - touch.handLast.t);
-        touch.handSpeed = 0.7 * ((f.now.x - touch.handLast.x) / dt) + 0.3 * touch.handSpeed;
-        touch.handLast = { x: f.now.x, t: now };
+        if (Math.hypot(dx, dy) < DRAG_SLOP || Date.now() - touch.pressedAt < LIFT_DELAY_MS) return;
+        if (touch.pressed && Math.abs(dy) > Math.abs(dx)) return pickUp();
+        touch.mode = 'none';
         return;
       }
       if (touch.mode === 'camera') {
@@ -597,25 +602,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const up = (changed: Touch[]) => {
       const L = latest.get();
       const lifted = changed.map((t) => t.id);
-      if (touch.mode === 'handScroll' && lifted.includes(touch.first)) {
-        // Let go stretched past an end: it springs straight back, settling without wobbling, as iOS does.
-        // Otherwise it coasts on and slows; coasting into an end, it overshoots and springs back.
-        const pos = handScroll.get();
-        if (pos < 0 || pos > L.maxHandScroll) {
-          handScroll.set(withSpring(pos < 0 ? 0 : L.maxHandScroll, { damping: 36, stiffness: 320, mass: 1 }));
-        } else {
-          handScroll.set(
-            withDecay({
-              velocity: -touch.handSpeed * 1000,
-              deceleration: HAND_DECELERATION,
-              clamp: [0, L.maxHandScroll],
-              rubberBandEffect: true,
-              rubberBandFactor: 0.9,
-            }),
-          );
-        }
-        touch.mode = 'none';
-      } else if ((touch.mode === 'press' || touch.mode === 'handPress') && lifted.includes(touch.first)) {
+      if ((touch.mode === 'press' || touch.mode === 'handPress') && lifted.includes(touch.first)) {
         // A tap: the card's menu.
         const src = touch.pressed;
         if (src?.kind === 'hand') L.setMenu({ kind: 'hand', hand: src.hand, iid: src.iid });
@@ -674,6 +661,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       L.setHandGap(null);
       touch.mode = 'none';
     };
+    touch.api = { down, move, up, cancel };
     const points = (ts: Touch[]) => {
       'worklet';
       return ts.map((t) => ({ id: t.id, x: t.x, y: t.y }));
@@ -687,21 +675,59 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           manager.fail();
           return;
         }
+        // A first finger in the open tray: the tray's, as in table mode (its fingers reach the table's handling
+        // through the card's own touches, once a card is lifted out).
+        if (e.allTouches.length === e.changedTouches.length) inTray.set(!!t0 && t0.y >= band.tray);
+        if (inTray.get()) return;
         manager.activate();
         scheduleOnRN(down, points(e.changedTouches));
       })
       .onTouchesMove((e) => {
-        scheduleOnRN(move, points(e.allTouches));
+        if (!inTray.get()) scheduleOnRN(move, points(e.allTouches));
       })
       .onTouchesUp((e, manager) => {
-        scheduleOnRN(up, points(e.changedTouches));
-        if (e.allTouches.length <= e.changedTouches.length) manager.end();
+        if (!inTray.get()) scheduleOnRN(up, points(e.changedTouches));
+        if (e.allTouches.length <= e.changedTouches.length) {
+          inTray.set(false);
+          manager.end();
+        }
       })
       .onTouchesCancelled((_, manager) => {
-        scheduleOnRN(cancel);
+        if (!inTray.get()) scheduleOnRN(cancel);
+        inTray.set(false);
         manager.end();
       });
   });
+  // ---- Hand cards' own touches, as in table mode ----
+  // Where the table's touch area sits on screen, to put the cards' fingers (page points) on its terms.
+  const touchArea = useRef<View>(null);
+  const [origin] = useState(() => {
+    const box = { x: 0, y: 0 };
+    return { get: () => box, set: (x: number, y: number) => Object.assign(box, { x, y }) };
+  });
+  const [handTouches] = useState(() => {
+    const fingers = (ts: NativeTouchEvent[]): Finger[] =>
+      ts.map((t) => ({ id: Number(t.identifier), x: t.pageX - origin.get().x, y: t.pageY - origin.get().y }));
+    const api = () => gestureState.get().api;
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => gestureState.get().mode === 'none',
+      // A swipe that hasn't lifted the card is the hand's scroll view's, as in table mode.
+      onShouldBlockNativeResponder: () => false,
+      onPanResponderTerminationRequest: () => gestureState.get().mode !== 'carry',
+      onPanResponderGrant: (e) => api()?.down(fingers(e.nativeEvent.changedTouches)),
+      // Every other finger that lands, moves or lifts while it's held (to pick up more, twist, or flip).
+      onPanResponderStart: (e) => {
+        const known = gestureState.get().fingers;
+        const fresh = fingers(e.nativeEvent.changedTouches).filter((f) => !known.has(f.id));
+        if (fresh.length) api()?.down(fresh);
+      },
+      onPanResponderMove: (e) => api()?.move(fingers(e.nativeEvent.touches)),
+      onPanResponderEnd: (e) => api()?.up(fingers(e.nativeEvent.changedTouches)),
+      // The scroll view took the swipe (or the touch was interrupted): nothing was lifted.
+      onPanResponderTerminate: () => api()?.cancel(),
+    });
+  });
+
   // ---- Menus ----
   const viewMiddle = () => {
     const c = readCamera();
@@ -840,6 +866,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     );
   }
 
+  /** Where a row item sits: cards by their place in the row, the gap just before the card at its index. */
+  const order = (item: { kind: 'card'; c: SandboxCard } | { kind: 'gap' }) => (item.kind === 'gap' ? handGap! - 0.5 : handRow.indexOf(item.c));
   const heldTop = held ? held.cards[held.cards.length - 1] : null;
   const heldDeck = heldTop ? getDeck(heldTop.deckId) : undefined;
   const heldSize = heldTop ? size(heldTop.deckId) : null;
@@ -849,7 +877,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   return (
     <View style={styles.root}>
       <GestureDetector gesture={gesture}>
-        <View style={StyleSheet.absoluteFill} onLayout={layOut}>
+        <View
+          ref={touchArea}
+          style={StyleSheet.absoluteFill}
+          onLayout={(e) => {
+            layOut(e);
+            touchArea.current?.measureInWindow((x, y) => origin.set(x, y));
+          }}>
           {/* The table, seen through the camera. */}
           <Animated.View style={[styles.world, worldStyle]} pointerEvents="none">
             <View style={styles.tableEdge} />
@@ -910,23 +944,39 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 );
               })}
             </View>
-            <View style={{ height: trayH }} pointerEvents="none">
+            <View style={{ height: trayH }} pointerEvents="box-none">
               <WoodRail />
               <View style={[styles.groove, { top: HAND_TOP_PAD, height: handCardH + HAND_ROW_PAD * 2 }]} />
               {hand.length === 0 && handGap === null ? (
                 <Text style={[styles.trayEmpty, { top: rowTop + handCardH / 2 - 10 }]}>Drag cards here to put them in {table.handNames[handIndex]}</Text>
               ) : null}
-              {/* The row, slid sideways as it's scrolled. */}
-              <Animated.View style={[StyleSheet.absoluteFill, handRowStyle]}>
-                {handRow.map((c, k) => {
-                  const deck = decksById.get(c.deckId);
-                  return deck ? (
-                    <View key={c.iid} style={[styles.handCard, { left: rowX(k), top: rowTop }]}>
-                      <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={handW} />
-                    </View>
-                  ) : null;
-                })}
-              </Animated.View>
+              {/*
+                The row: table mode's scroll view, card for card, so it scrolls, stretches and bounces just the same.
+                Folded away, its cards peek out but can't be touched.
+              */}
+              <ScrollView
+                ref={(view) => handList.attach(view)}
+                horizontal
+                alwaysBounceHorizontal
+                showsHorizontalScrollIndicator={false}
+                scrollEnabled={!held && !folded}
+                scrollEventThrottle={16}
+                onScroll={(e) => handScroll.set(e.nativeEvent.contentOffset.x)}
+                style={[styles.handList, { top: HAND_TOP_PAD, height: handCardH + HAND_ROW_PAD * 2, pointerEvents: folded ? 'none' : 'auto' }]}
+                contentContainerStyle={styles.handCards}>
+                {[...handRow.map((c) => ({ kind: 'card' as const, c })), ...(handGap !== null ? [{ kind: 'gap' as const }] : [])]
+                  // The gap goes in its place in the row.
+                  .sort((x, y) => order(x) - order(y))
+                  .map((item) => {
+                    if (item.kind === 'gap') return <View key="gap" style={{ width: handW, height: handCardH }} />;
+                    const deck = decksById.get(item.c.deckId);
+                    return deck ? (
+                      <View key={item.c.iid} {...handTouches.panHandlers} style={{ width: handW, pointerEvents: 'box-only' }}>
+                        <CardView deck={deck} card={cardOf(item.c)} faceUp={item.c.faceUp} width={handW} />
+                      </View>
+                    ) : null;
+                  })}
+              </ScrollView>
             </View>
           </Animated.View>
 
@@ -1084,6 +1134,9 @@ const styles = StyleSheet.create({
   },
   trayEmpty: { position: 'absolute', left: 0, right: 0, color: 'rgba(255,240,220,0.45)', fontSize: 14, textAlign: 'center' },
   handCard: { position: 'absolute' },
+  // Table mode's hand row: its scroll view, and the space round and between its cards.
+  handList: { position: 'absolute', left: 0, right: 0 },
+  handCards: { paddingHorizontal: HAND_PAD, paddingVertical: HAND_ROW_PAD, gap: HAND_GAP },
   // Pull tabs standing on the tray's top edge, in the same wood, as table mode's: one per hand.
   tabs: { height: HAND_TAB_H, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', gap: 4, paddingHorizontal: 8 },
   tab: {

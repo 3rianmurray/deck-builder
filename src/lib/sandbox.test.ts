@@ -264,3 +264,12 @@ test('gathered into one stack where the grabbed one lies, all facing its way, it
     ['g', 300, 120, 45, 'a↑,b1↑,b2↑'],
   ]);
 });
+test("a stack's count can be grabbed round its badge, even just off the card's edge", () => {
+  const t = tableWith({ id: 's', x: 500, y: 500, angle: 0, cards: [card('a'), card('b')] });
+  // Just past the card's top-right corner (it reaches x 550, y 430): nothing, without reach; the whole stack, with it.
+  assert.equal(stackAt(t, 560, 420, size), null);
+  assert.equal(stackAt(t, 560, 420, size, 30)?.whole, true);
+  // A single card has no count to grab.
+  const one = tableWith({ id: 'o', x: 500, y: 500, angle: 0, cards: [card('a')] });
+  assert.equal(stackAt(one, 560, 420, size, 30), null);
+});

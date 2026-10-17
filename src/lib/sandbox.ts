@@ -228,26 +228,36 @@ function inStack(s: SandboxStack, x: number, y: number) {
   return { x: dx * Math.cos(r) - dy * Math.sin(r), y: dx * Math.sin(r) + dy * Math.cos(r) };
 }
 
-/** The part of a stack's top-right corner that picks up the whole stack (as its count badge sits there). */
-const BADGE_REACH = 0.32;
+/** The part of a stack's top-right corner, inside the card, that picks up the whole stack (as its count is there). */
+const BADGE_REACH = 0.4;
+/** Where a stack's count badge sits, from the card's top-right corner (it hangs a little off the card). */
+const BADGE_OFFSET = 5;
 
 /**
- * The topmost stack under a table point, if any, and whether the point is on its count badge (top-right corner
- * of a stack of two or more), which takes the whole stack rather than its top card.
+ * The topmost stack under a table point, if any, and whether the point is on its count (top-right corner of a
+ * stack of two or more), which takes the whole stack rather than its top card. The count reaches `badgeReach`
+ * table units round its badge, off the card's edge too, so it's easy to grab at any zoom.
  */
-export function stackAt(t: SandboxTable, x: number, y: number, size: CardSize): { stack: SandboxStack; whole: boolean } | null {
+export function stackAt(
+  t: SandboxTable,
+  x: number,
+  y: number,
+  size: CardSize,
+  badgeReach = 0,
+): { stack: SandboxStack; whole: boolean } | null {
   for (let i = t.stacks.length - 1; i >= 0; i--) {
     const s = t.stacks[i];
     const top = s.cards[s.cards.length - 1];
     const { w, h } = size(top.deckId);
     const p = inStack(s, x, y);
+    const several = s.cards.length > 1;
+    if (several && Math.hypot(p.x - (w / 2 - BADGE_OFFSET), p.y - (-h / 2 + BADGE_OFFSET)) <= badgeReach) return { stack: s, whole: true };
     if (Math.abs(p.x) > w / 2 || Math.abs(p.y) > h / 2) continue;
-    const whole = s.cards.length > 1 && p.x > w / 2 - w * BADGE_REACH && p.y < -h / 2 + h * BADGE_REACH;
+    const whole = several && p.x > w / 2 - w * BADGE_REACH && p.y < -h / 2 + h * BADGE_REACH;
     return { stack: s, whole };
   }
   return null;
 }
-
 /** How close (as a share of a card's width) a dropped card's middle must be to a stack's to go onto it. */
 const STACK_REACH = 0.4;
 

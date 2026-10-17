@@ -74,6 +74,8 @@ const LASSO_TAP_REACH = 40;
 const LASSO_STEP = 6;
 /** A touch on empty table lifted within this long (and without moving) is a tap. */
 const TAP_MS = 300;
+/** How far round a stack's count badge (in screen points) a touch takes the whole stack. */
+const BADGE_TOUCH = 34;
 /** A finger moving less than this before lifting is a tap. */
 const TAP_SLOP = 8;
 /** An extra finger down and up within this long (and not moving) is a tap, picking up another card. */
@@ -714,7 +716,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           return;
         }
         const w = toTable(readCamera(), t.x, t.y);
-        const hit = L.table ? stackAt(L.table, w.x, w.y, L.size) : null;
+        // A stack's count is easy to grab: about a finger's width round its badge, at any zoom.
+        const badgeReach = BADGE_TOUCH / cameraZoom(readCamera());
+        const hit = L.table ? stackAt(L.table, w.x, w.y, L.size, badgeReach) : null;
         touch.onEmpty = false;
         if (hit) {
           // A selected stack: dragging it moves the whole group (a tap still opens its menu).

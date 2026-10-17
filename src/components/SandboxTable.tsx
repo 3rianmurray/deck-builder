@@ -77,7 +77,7 @@ const HAND_EDGE_STEP = 8;
 /** How far the hand tabs stand up above the tray, and how much of the tray shows when it's folded away. */
 const HAND_TAB_H = 24;
 const FOLDED_SHOWS = 38;
-/** The flip button shown while carrying cards: its size, and its space from the screen's edge and the tray. */
+/** The flip button shown while carrying cards (bottom left): its size, and its space from the screen's edge and the tray. */
 const FLIP_SIZE = 64;
 const FLIP_MARGIN = 16;
 /** As in table mode: a press must move this far, and be held this long, before it can lift a hand card out. */
@@ -297,8 +297,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   };
   /** The tools drawer: near the top, just below the top bar. */
   const toolsTop = insets.top + TOOLS_FROM_TOP;
-  /** The flip button, in the bottom-right corner above the tray, while cards are carried. */
-  const flipButton = { x: area.w - FLIP_MARGIN - FLIP_SIZE, y: handTop - HAND_TAB_H - FLIP_MARGIN - FLIP_SIZE, size: FLIP_SIZE };
+  /** The flip button, in the bottom-left corner above the tray, while cards are carried. */
+  const flipButton = { x: FLIP_MARGIN, y: handTop - HAND_TAB_H - FLIP_MARGIN - FLIP_SIZE, size: FLIP_SIZE };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
   const changeGap = (g: number | null) => {
     if (g === handGap) return;

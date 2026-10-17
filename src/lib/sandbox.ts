@@ -199,26 +199,16 @@ export const fingerAngle = (p: { x: number; y: number }, q: { x: number; y: numb
 
 // ---- The grid ----
 
-/** Room left between cards lying in neighbouring grid cells, in table units. */
-export const GRID_GAP = 16;
-
 /**
- * The (invisible) grid's cell size, in table units: square, and big enough for the largest card given to lie in
- * either way round with room between, so cards of any size and either orientation line up without overlapping.
+ * The (invisible) grid's spacing, in table units: half a standard card's width. Cards put down with snapping on
+ * have their middles on its crossings, like Tabletop Simulator's grid; they're free to overlap.
  */
-export function gridCell(cardSizes: { w: number; h: number }[]): number {
-  return Math.max(...cardSizes.map((s) => Math.max(s.w, s.h))) + GRID_GAP;
-}
+export const GRID_STEP = CARD_W / 2;
 
-/** A card put down with snapping on: centred in the grid cell under it, turned to the nearest quarter turn. */
-export function snapToGrid(at: { x: number; y: number; angle: number }, cell: number) {
-  return {
-    x: (Math.floor(at.x / cell) + 0.5) * cell,
-    y: (Math.floor(at.y / cell) + 0.5) * cell,
-    angle: normalizeAngle(Math.round(at.angle / 90) * 90),
-  };
+/** A card put down with snapping on: its middle on the nearest grid crossing. Its turn is its own. */
+export function snapToGrid(at: { x: number; y: number; angle: number }, step = GRID_STEP) {
+  return { x: Math.round(at.x / step) * step, y: Math.round(at.y / step) * step, angle: at.angle };
 }
-
 // ---- Finding cards ----
 
 /** A card's size on the table: `CARD_W` wide, as tall as its deck's shape makes it. */

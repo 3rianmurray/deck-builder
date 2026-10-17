@@ -32,7 +32,6 @@ import {
   snapAngle,
   snapCamera,
   snapToGrid,
-  gridCell,
   stackAt,
   stackTargetAt,
   startCamera,
@@ -224,14 +223,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   };
   const saveCamera = () => table && updateSandbox({ ...table, camera: readCamera() });
 
-  // ---- The grid: invisible, its cells fitting the largest card on the table either way round. ----
+  // ---- The grid: invisible lines at a fixed spacing; cards put down with snapping on sit on their crossings. ----
   const gridOn = !!table?.snapToGrid;
-  const onTable = new Set([...(table?.stacks.flatMap((s) => s.cards) ?? []), ...(table?.hands.flat() ?? [])].map((c) => c.deckId));
-  const cell = gridCell([
-    { w: CARD_W, h: (CARD_W * PRESET_SIZES_MM.standard.h) / PRESET_SIZES_MM.standard.w },
-    ...[...onTable].map((id) => size(id)),
-  ]);
-  /** Where a carried card would land with snapping on: an outline shows it (the grid itself stays unseen). */
+  /** Where a carried card would land with snapping on: a hard shadow of it there shows it (the grid stays unseen). */
   const [landing, setLanding] = useState<{ x: number; y: number; angle: number; w: number; h: number } | null>(null);
   const showLanding = (next: typeof landing) => {
     const same = next && landing && next.x === landing.x && next.y === landing.y && next.angle === landing.angle && next.w === landing.w;
@@ -339,7 +333,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       handCardAt: (x: number, y: number) => number;
       maxHandScroll: number;
       gridOn: boolean;
-      cell: number;
       showLanding: (l: { x: number; y: number; angle: number; w: number; h: number } | null) => void;
       toolsOpen: boolean;
       showTools: (open: boolean) => void;
@@ -354,7 +347,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, cell, showLanding, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, showLanding, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -436,7 +429,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // Snapping on, over the open table: where it would land.
     const top = touch.cards[touch.cards.length - 1];
     if (L.gridOn && !over && p.y < L.handTop && top) {
-      L.showLanding({ ...snapToGrid({ x: w.x, y: w.y, angle: p.tableAngle }, L.cell), ...L.size(top.deckId) });
+      L.showLanding({ ...snapToGrid({ x: w.x, y: w.y, angle: p.tableAngle }), ...L.size(top.deckId) });
     } else {
       L.showLanding(null);
     }
@@ -550,9 +543,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const w = toTable(readCamera(), p.x, p.y);
     const whole = sources.find((src) => src.kind === 'stack');
     const onto = stackTargetAt(L.table, w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined);
-    // With snapping on, into the grid cell under it, squared up.
+    // With snapping on, its middle on the nearest grid crossing.
     const free = { x: w.x, y: w.y, angle: p.tableAngle };
-    const at = L.gridOn && !onto ? snapToGrid(free, L.cell) : free;
+    const at = L.gridOn && !onto ? snapToGrid(free) : free;
     // A whole stack just moved (and turned), on its own, keeps being itself.
     if (whole?.kind === 'stack' && sources.length === 1 && !onto && !turnedOver) {
       return L.commit(raise(placeStack(L.table, whole.stackId, at), whole.stackId));
@@ -824,18 +817,17 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const playToView = (t: SandboxTable, cards: SandboxCard[]) => {
     const m = viewMiddle();
     const at = { x: m.x, y: m.y, angle: snapAngle(-cameraAngle(readCamera()), 45, 45) };
-    return putOnTable(t, cards, gridOn ? snapToGrid(at, cell) : at, newId());
+    return putOnTable(t, cards, gridOn ? snapToGrid(at) : at, newId());
   };
 
   const addDeckToTable = (deck: Deck) => {
     if (!table) return;
     const m = viewMiddle();
     // Beside anything already in the middle, rather than on it.
-    // With snapping on, into the first free grid cell along from there.
-    const start = gridOn ? snapToGrid({ ...m, angle: 0 }, cell) : m;
-    const step = gridOn ? cell : CARD_W * 1.3;
+    // With snapping on, on grid crossings (a card and a half apart is three of them).
+    const start = gridOn ? snapToGrid({ ...m, angle: 0 }) : m;
     let x = start.x;
-    while (table.stacks.some((s) => Math.hypot(s.x - x, s.y - start.y) < (gridOn ? cell / 2 : CARD_W))) x += step;
+    while (table.stacks.some((s) => Math.hypot(s.x - x, s.y - start.y) < CARD_W)) x += CARD_W * 1.5;
     commit(addDeck(table, deck, { x, y: start.y }, newId));
     haptics.drop();
   };
@@ -1255,8 +1247,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
-  // Where a carried card would land with snapping on: a faint outline of it in its grid cell.
-  landing: { position: 'absolute', borderRadius: 6, borderWidth: 2, borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.45)' },
+  // Where a carried card would land with snapping on: a hard shadow of it there, the card's size and turn.
+  landing: { position: 'absolute', borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.38)' },
   // The tools drawer: a panel off the left edge, with a tab on its right edge to pull it out by.
   tools: { position: 'absolute', left: 0, width: TOOLS_W + TOOLS_TAB_W, height: TOOLS_H },
   toolsPanel: {

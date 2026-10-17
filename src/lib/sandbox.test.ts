@@ -14,7 +14,6 @@ import {
   putInHand,
   putOnTable,
   snapAngle,
-  gridCell,
   snapToGrid,
   snapCamera,
   stackAt,
@@ -198,16 +197,8 @@ test('the camera settles onto quarter turns when close, keeping the table under 
   const r3 = (92 * Math.PI) / 180;
   near(cameraAngle(snapCamera({ a: Math.cos(r3), b: Math.sin(r3), tx: 0, ty: 0 }, about)), 90);
 });
-test('the grid fits the largest card either way round, and snapped cards sit centred in it, squared up', () => {
-  const standard = { w: 100, h: 140 };
-  const mini = { w: 64.6, h: 99.2 };
-  const landscape = { w: 140, h: 100 };
-  const cell = gridCell([standard, mini, landscape]);
-  assert.equal(cell, 140 + 16);
-  assert.deepEqual(snapToGrid({ x: 170, y: 20, angle: 37 }, cell), { x: 234, y: 78, angle: 0 });
-  assert.deepEqual(snapToGrid({ x: 10, y: 300, angle: -50 }, cell), { x: 78, y: 234, angle: -90 });
-  // Neighbouring cells are a whole cell apart, so even the largest card leaves room beside the next.
-  const a = snapToGrid({ x: 80, y: 80, angle: 0 }, cell);
-  const b = snapToGrid({ x: 80 + cell, y: 80, angle: 90 }, cell);
-  assert.ok(b.x - a.x - landscape.w >= 16);
+
+test("snapping puts a card's middle on the nearest grid crossing, leaving its turn as it was", () => {
+  assert.deepEqual(snapToGrid({ x: 170, y: 20, angle: 37 }, 50), { x: 150, y: 0, angle: 37 });
+  assert.deepEqual(snapToGrid({ x: 126, y: 74, angle: -90 }, 50), { x: 150, y: 50, angle: -90 });
 });

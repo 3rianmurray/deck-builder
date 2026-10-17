@@ -2,10 +2,10 @@ import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated as RNAnimated, Easing, Image, LayoutAnimation, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated as RNAnimated, Easing, Image, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent, NativeTouchEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { LinearTransition, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -78,6 +78,8 @@ const LASSO_STEP = 6;
 const TAP_MS = 300;
 /** How far round a stack's count badge (in screen points) a touch takes the whole stack. */
 const BADGE_TOUCH = 34;
+/** Hand cards sliding to new places (one gone, one coming in, the gap moving). */
+const HAND_SLIDE = LinearTransition.duration(200);
 /** A finger moving less than this before lifting is a tap. */
 const TAP_SLOP = 8;
 /** An extra finger down and up within this long (and not moving) is a tap, picking up another card. */
@@ -340,7 +342,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
   const changeGap = (g: number | null) => {
     if (g === handGap) return;
-    LayoutAnimation.configureNext({ duration: 160, update: { type: LayoutAnimation.Types.easeInEaseOut } });
     setHandGap(g);
   };
   /** While a group is dragged: a button above the flip one gathers it into one stack. */
@@ -1057,6 +1058,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       },
       onPanResponderMove: (e) => api()?.move(fingers(e.nativeEvent.touches)),
       onPanResponderEnd: (e) => api()?.up(fingers(e.nativeEvent.changedTouches)),
+      // Should the drag be let go of with the carrying finger still down, the cards are put down where they are,
+      // rather than left hanging.
+      onPanResponderRelease: () => {
+        const st = gestureState.get();
+        const f = st.fingers.get(st.first);
+        if (st.mode === 'carry' && f) api()?.up([{ id: st.first, x: f.now.x, y: f.now.y }]);
+      },
       // The scroll view took the swipe (or the touch was interrupted): nothing was lifted.
       onPanResponderTerminate: () => api()?.cancel(),
     });
@@ -1354,25 +1362,30 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 style={[styles.handList, { top: HAND_TOP_PAD, height: handCardH + HAND_ROW_PAD * 2, pointerEvents: folded ? 'none' : 'auto' }]}
                 contentContainerStyle={styles.handCards}>
                 {/*
-                  Every card of the hand in its own place, always: those being carried stay there, unseen and taking
-                  no room (a finger may be attached to one, and moving its view about mid-gesture can lose the
-                  touch). The gap goes in among the rest, where carried cards would go in.
+                  Every card of the hand in its own place, always, all of it mounted: those being carried stay there,
+                  unseen and taking no room. The finger carrying one is attached to the very view it landed on (the
+                  card's picture); if that went, iOS would let the drag go the moment any other finger lifted. The
+                  gap goes in among the rest, where carried cards would go in. Cards slide to their new places.
                 */}
                 {hand.flatMap((c) => {
                   const carried = heldIds.has(c.iid);
-                  const k = carried ? -1 : handRow.indexOf(c);
-                  const gapHere = !carried && handGap === k;
+                  const gapHere = !carried && handGap === handRow.indexOf(c);
                   const deck = decksById.get(c.deckId);
-                  const view = carried ? (
-                    <View key={c.iid} {...handTouches.panHandlers} style={styles.carried} />
-                  ) : deck ? (
-                    <View key={c.iid} {...handTouches.panHandlers} style={{ width: handWidthOf(c), pointerEvents: 'box-only' }}>
+                  if (!deck) return [];
+                  const view = (
+                    <Animated.View
+                      key={c.iid}
+                      layout={HAND_SLIDE}
+                      {...handTouches.panHandlers}
+                      style={carried ? styles.carried : { width: handWidthOf(c), pointerEvents: 'box-only' }}>
                       <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={handWidthOf(c)} />
-                    </View>
-                  ) : null;
-                  return gapHere ? [<View key="gap" style={{ width: gapWidth, height: handCardH }} />, view] : [view];
+                    </Animated.View>
+                  );
+                  return gapHere ? [<Animated.View key="gap" layout={HAND_SLIDE} style={{ width: gapWidth, height: handCardH }} />, view] : [view];
                 })}
-                {handGap !== null && handGap >= handRow.length ? <View key="gap" style={{ width: gapWidth, height: handCardH }} /> : null}
+                {handGap !== null && handGap >= handRow.length ? (
+                  <Animated.View key="gap" layout={HAND_SLIDE} style={{ width: gapWidth, height: handCardH }} />
+                ) : null}
               </ScrollView>
             </View>
           </Animated.View>
@@ -1734,7 +1747,7 @@ const styles = StyleSheet.create({
   trayEmpty: { position: 'absolute', left: 0, right: 0, color: 'rgba(255,240,220,0.45)', fontSize: 14, textAlign: 'center' },
   handCard: { position: 'absolute' },
   // A carried card's place in the hand: still there (see above), but unseen, untouchable, and taking no room.
-  carried: { position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' },
+  carried: { position: 'absolute', opacity: 0, pointerEvents: 'none' },
   // Table mode's hand row: its scroll view, and the space round and between its cards.
   handList: { position: 'absolute', left: 0, right: 0 },
   // Cards stand in the middle of the row's height (landscape ones are shorter than the rest).

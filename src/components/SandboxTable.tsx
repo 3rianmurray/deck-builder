@@ -1,9 +1,9 @@
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated as RNAnimated, Easing, Image, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
-import type { LayoutChangeEvent, NativeTouchEvent } from 'react-native';
+import { memo, useEffect, useMemo, useState } from 'react';
+import { Alert, Animated as RNAnimated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
+import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { LinearTransition, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -694,8 +694,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       toolsBottom: toolsOpen ? toolsTop + TOOLS_H : tabTop + TOOLS_TAB_H,
     });
   }, [handTop, folded, toolsOpen, toolsTop, tabBand]);
-  /** The touch in progress started in the tray: the gesture keeps out of it until every finger has lifted. */
-  const inTray = useSharedValue(false);
+  /** A touch that landed in the open tray, watched (but not yet claimed) to see if it lifts a card out. */
+  const trayTouch = useSharedValue({ id: -1, x: 0, y: 0, t: 0, watching: false });
 
   const [gesture] = useState(() => {
     const touch = gestureState.get();
@@ -995,6 +995,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.mode = 'none';
     };
     touch.api = { down, move, up, cancel };
+    /** A hand card lifted out (the gesture has seen a mostly upward drag from where the finger landed). */
+    const liftFromHand = (start: Touch, all: Touch[]) => {
+      down([start]);
+      // Its moment's hold has been had already.
+      touch.pressedAt = 0;
+      move(all);
+    };
+    /** A tap in the tray: on a card, its menu (or, a second tap, a flip). */
+    const tapInHand = (at: Touch) => {
+      down([at]);
+      up([at]);
+    };
     const points = (ts: Touch[]) => {
       'worklet';
       return ts.map((t) => ({ id: t.id, x: t.x, y: t.y }));
@@ -1010,66 +1022,62 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           manager.fail();
           return;
         }
-        // A first finger in the open tray: the tray's, as in table mode (its fingers reach the table's handling
-        // through the card's own touches, once a card is lifted out).
-        if (e.allTouches.length === e.changedTouches.length) inTray.set(!!t0 && t0.y >= band.tray);
-        if (inTray.get()) return;
+        // A first finger in the open tray is watched but not claimed, so the hand's scroll view (table mode's) can
+        // still scroll. As in table mode, past a little slop and a moment's hold, a mostly upward drag from a card
+        // lifts it out: then the touch is claimed, and every finger is tracked here, as for the table. A sideways
+        // one is left to the scroll view; a tap opens the card's menu.
+        if (firstFinger) {
+          if (t0 && t0.y >= band.tray) {
+            trayTouch.set({ id: t0.id, x: t0.x, y: t0.y, t: Date.now(), watching: true });
+            return;
+          }
+          trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false });
+        }
+        // Other fingers while a tray touch is only watched: ignored.
+        if (trayTouch.get().watching) return;
         manager.activate();
         scheduleOnRN(down, points(e.changedTouches));
       })
-      .onTouchesMove((e) => {
-        if (!inTray.get()) scheduleOnRN(move, points(e.allTouches));
+      .onTouchesMove((e, manager) => {
+        const tt = trayTouch.get();
+        if (tt.watching) {
+          const f = e.allTouches.find((a) => a.id === tt.id);
+          if (!f) return;
+          const dx = f.x - tt.x;
+          const dy = f.y - tt.y;
+          if (Math.hypot(dx, dy) < DRAG_SLOP || Date.now() - tt.t < LIFT_DELAY_MS) return;
+          trayTouch.set({ ...tt, watching: false });
+          if (Math.abs(dy) > Math.abs(dx)) {
+            manager.activate();
+            scheduleOnRN(liftFromHand, { id: tt.id, x: tt.x, y: tt.y }, points(e.allTouches));
+          } else {
+            manager.fail();
+          }
+          return;
+        }
+        scheduleOnRN(move, points(e.allTouches));
       })
       .onTouchesUp((e, manager) => {
-        if (!inTray.get()) scheduleOnRN(up, points(e.changedTouches));
-        if (e.allTouches.length <= e.changedTouches.length) {
-          inTray.set(false);
-          manager.end();
+        const tt = trayTouch.get();
+        const allUp = e.allTouches.length <= e.changedTouches.length;
+        if (tt.watching) {
+          const f = e.changedTouches.find((a) => a.id === tt.id);
+          if (f) {
+            if (Math.hypot(f.x - tt.x, f.y - tt.y) < DRAG_SLOP) scheduleOnRN(tapInHand, { id: tt.id, x: tt.x, y: tt.y });
+            trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false });
+            manager.end();
+          }
+          return;
         }
+        scheduleOnRN(up, points(e.changedTouches));
+        if (allUp) manager.end();
       })
       .onTouchesCancelled((_, manager) => {
-        if (!inTray.get()) scheduleOnRN(cancel);
-        inTray.set(false);
+        if (!trayTouch.get().watching) scheduleOnRN(cancel);
+        trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false });
         manager.end();
       });
   });
-  // ---- Hand cards' own touches, as in table mode ----
-  // Where the table's touch area sits on screen, to put the cards' fingers (page points) on its terms.
-  const touchArea = useRef<View>(null);
-  const [origin] = useState(() => {
-    const box = { x: 0, y: 0 };
-    return { get: () => box, set: (x: number, y: number) => Object.assign(box, { x, y }) };
-  });
-  const [handTouches] = useState(() => {
-    const fingers = (ts: NativeTouchEvent[]): Finger[] =>
-      ts.map((t) => ({ id: Number(t.identifier), x: t.pageX - origin.get().x, y: t.pageY - origin.get().y }));
-    const api = () => gestureState.get().api;
-    return PanResponder.create({
-      onStartShouldSetPanResponder: () => gestureState.get().mode === 'none',
-      // A swipe that hasn't lifted the card is the hand's scroll view's, as in table mode.
-      onShouldBlockNativeResponder: () => false,
-      onPanResponderTerminationRequest: () => gestureState.get().mode !== 'carry',
-      onPanResponderGrant: (e) => api()?.down(fingers(e.nativeEvent.changedTouches)),
-      // Every other finger that lands, moves or lifts while it's held (to pick up more, twist, or flip).
-      onPanResponderStart: (e) => {
-        const known = gestureState.get().fingers;
-        const fresh = fingers(e.nativeEvent.changedTouches).filter((f) => !known.has(f.id));
-        if (fresh.length) api()?.down(fresh);
-      },
-      onPanResponderMove: (e) => api()?.move(fingers(e.nativeEvent.touches)),
-      onPanResponderEnd: (e) => api()?.up(fingers(e.nativeEvent.changedTouches)),
-      // Should the drag be let go of with the carrying finger still down, the cards are put down where they are,
-      // rather than left hanging.
-      onPanResponderRelease: () => {
-        const st = gestureState.get();
-        const f = st.fingers.get(st.first);
-        if (st.mode === 'carry' && f) api()?.up([{ id: st.first, x: f.now.x, y: f.now.y }]);
-      },
-      // The scroll view took the swipe (or the touch was interrupted): nothing was lifted.
-      onPanResponderTerminate: () => api()?.cancel(),
-    });
-  });
-
   // ---- Menus ----
   const viewMiddle = () => {
     const c = readCamera();
@@ -1240,13 +1248,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   return (
     <View style={styles.root}>
       <GestureDetector gesture={gesture}>
-        <View
-          ref={touchArea}
-          style={StyleSheet.absoluteFill}
-          onLayout={(e) => {
-            layOut(e);
-            touchArea.current?.measureInWindow((x, y) => origin.set(x, y));
-          }}>
+        <View style={StyleSheet.absoluteFill} onLayout={layOut}>
           {/* The table, seen through the camera. */}
           <Animated.View style={[styles.world, worldStyle]} pointerEvents="none">
             <View style={styles.tableEdge} />
@@ -1376,7 +1378,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                     <Animated.View
                       key={c.iid}
                       layout={HAND_SLIDE}
-                      {...handTouches.panHandlers}
                       style={carried ? styles.carried : { width: handWidthOf(c), pointerEvents: 'box-only' }}>
                       <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={handWidthOf(c)} />
                     </Animated.View>

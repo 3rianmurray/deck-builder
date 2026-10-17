@@ -368,9 +368,51 @@ export function insideShape(p: { x: number; y: number }, shape: { x: number; y: 
   return inside;
 }
 
-/** The stacks whose middles lie inside a shape drawn on the table. */
-export const stacksInShape = (t: SandboxTable, shape: { x: number; y: number }[]) =>
-  shape.length < 3 ? [] : t.stacks.filter((s) => insideShape(s, shape)).map((s) => s.id);
+type P = { x: number; y: number };
+
+/** Whether two line segments cross or touch. */
+function segmentsMeet(a: P, b: P, c: P, d: P): boolean {
+  const side = (p: P, q: P, r: P) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const d1 = side(c, d, a);
+  const d2 = side(c, d, b);
+  const d3 = side(a, b, c);
+  const d4 = side(a, b, d);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+  const on = (p: P, q: P, r: P) => Math.min(p.x, q.x) <= r.x && r.x <= Math.max(p.x, q.x) && Math.min(p.y, q.y) <= r.y && r.y <= Math.max(p.y, q.y);
+  return (d1 === 0 && on(c, d, a)) || (d2 === 0 && on(c, d, b)) || (d3 === 0 && on(a, b, c)) || (d4 === 0 && on(a, b, d));
+}
+
+/** A stack's four corners on the table (its top card's size, turned as it lies). */
+function stackCorners(s: SandboxStack, size: CardSize): P[] {
+  const { w, h } = size(s.cards[s.cards.length - 1].deckId);
+  const r = (s.angle * Math.PI) / 180;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+  return [
+    [-w / 2, -h / 2],
+    [w / 2, -h / 2],
+    [w / 2, h / 2],
+    [-w / 2, h / 2],
+  ].map(([x, y]) => ({ x: s.x + x * cos - y * sin, y: s.y + x * sin + y * cos }));
+}
+
+/**
+ * The stacks a lasso has caught: any part of the card touched by its line, or lying inside the shape it's drawn
+ * (closed back to its start).
+ */
+export function stacksInShape(t: SandboxTable, shape: P[], size: CardSize): string[] {
+  if (!shape.length) return [];
+  const line = shape.slice(1).map((p, i) => [shape[i], p] as const);
+  return t.stacks
+    .filter((s) => {
+      const corners = stackCorners(s, size);
+      const edges = corners.map((c, i) => [c, corners[(i + 1) % 4]] as const);
+      if (shape.some((p) => insideShape(p, corners))) return true;
+      if (shape.length >= 3 && corners.some((c) => insideShape(c, shape))) return true;
+      return line.some(([a, b]) => edges.some(([c, d]) => segmentsMeet(a, b, c, d)));
+    })
+    .map((s) => s.id);
+}
 
 /** Moves stacks by the same amount each (a group dragged together). */
 export const moveStacks = (t: SandboxTable, ids: string[], by: { x: number; y: number }, place = (p: { x: number; y: number; angle: number }) => p) => {

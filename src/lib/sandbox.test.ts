@@ -221,21 +221,23 @@ test("cards don't stack onto a stack facing the other way", () => {
   assert.equal(stackTargetAt(t, 305, 300, size, undefined, undefined, true)?.id, 'up');
   assert.equal(stackTargetAt(t, 305, 300, size, undefined, undefined, false), null);
 });
-test('a lasso selects the stacks whose middles it goes round', () => {
+test('a lasso catches any card its line touches, or that lies inside it', () => {
   const t = tableWith(
-    { id: 'in', x: 100, y: 100, angle: 0, cards: [card('a')] },
-    { id: 'out', x: 400, y: 100, angle: 0, cards: [card('b')] },
+    { id: 'inside', x: 100, y: 100, angle: 0, cards: [card('a')] },
+    { id: 'touched', x: 330, y: 100, angle: 0, cards: [card('b')] },
+    { id: 'clear', x: 700, y: 100, angle: 0, cards: [card('c')] },
   );
+  // A loop round the first card whose line passes over the edge of the second (its left edge is at x = 280).
   const loop = [
     { x: 0, y: 0 },
-    { x: 250, y: 20 },
-    { x: 200, y: 250 },
-    { x: 10, y: 200 },
+    { x: 290, y: 0 },
+    { x: 290, y: 250 },
+    { x: 0, y: 250 },
   ];
-  assert.deepEqual(stacksInShape(t, loop), ['in']);
-  assert.deepEqual(stacksInShape(t, loop.slice(0, 2)), []);
+  assert.deepEqual(stacksInShape(t, loop, size), ['inside', 'touched']);
+  // Just a line drawn across a card catches it too.
+  assert.deepEqual(stacksInShape(t, [{ x: 650, y: 100 }, { x: 760, y: 110 }], size), ['clear']);
 });
-
 test('a group moves together, each keeping its place relative to the rest', () => {
   const t = tableWith(
     { id: 'a', x: 100, y: 100, angle: 0, cards: [card('a')] },

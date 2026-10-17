@@ -429,7 +429,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       onEmpty: false,
       firstDownAt: 0,
       emptyTap: null as null | { x: number; y: number; at: number },
-      /** The lasso's shape so far, on the table and on screen. */
+      /** The lasso's shape so far, on the table and on screen, and the selection it adds to. */
+      lassoBase: [] as string[],
+      /** A tap on empty table clears the selection a moment later, unless it's the first tap of a lasso. */
+      clearTimer: null as null | ReturnType<typeof setTimeout>,
       lasso: [] as Pt[],
       lassoScreen: [] as Pt[],
       /** The last tap on a card (to tell a double tap), and the wait before its menu opens. */
@@ -706,10 +709,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         const e = touch.emptyTap;
         touch.emptyTap = null;
         if (e && now - e.at < LASSO_TAP_MS && Math.hypot(t.x - e.x, t.y - e.y) < LASSO_TAP_REACH) {
+          // The tap before it was the first of the double tap, not one to clear the selection: the lasso adds to it.
+          if (touch.clearTimer) clearTimeout(touch.clearTimer);
+          touch.clearTimer = null;
           touch.mode = 'lasso';
           touch.lasso = [w];
           touch.lassoScreen = [{ x: t.x, y: t.y }];
-          L.setSelected([]);
+          touch.lassoBase = L.selected;
           L.setLassoPath(touch.lassoScreen);
           haptics.lift();
           return;
@@ -788,7 +794,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         touch.lasso = [...touch.lasso, toTable(readCamera(), f.now.x, f.now.y)];
         touch.lassoScreen = [...touch.lassoScreen, f.now];
         L.setLassoPath(touch.lassoScreen);
-        const picked = stacksInShape(L.table, touch.lasso);
+        const caught = stacksInShape(L.table, touch.lasso, L.size);
+        const picked = [...touch.lassoBase, ...caught.filter((id) => !touch.lassoBase.includes(id))];
         if (picked.join() !== L.selected.join()) {
           if (picked.length > L.selected.length) haptics.tick();
           L.setSelected(picked);
@@ -852,6 +859,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // A tap opens the card's menu, a moment later in case it's the first of two; a second tap on the same
         // card in that moment flips it instead.
         const src = touch.pressed;
+        // A selected card tapped: the selection's let go (its menu still opens).
+        if (touch.groupPress && touch.mode === 'press') L.setSelected([]);
         if (src) {
           const key = src.kind === 'hand' ? `h:${src.iid}` : `s:${src.stackId}`;
           const now = Date.now();
@@ -904,7 +913,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       if (touch.onEmpty && lifted.includes(touch.first)) {
         const f = touch.fingers.get(touch.first);
         if (f && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) < TAP_SLOP && Date.now() - touch.firstDownAt < TAP_MS) {
-          if (L.selected.length) L.setSelected([]);
+          if (L.selected.length) {
+            if (touch.clearTimer) clearTimeout(touch.clearTimer);
+            touch.clearTimer = setTimeout(() => {
+              touch.clearTimer = null;
+              latest.get().setSelected([]);
+            }, LASSO_TAP_MS);
+          }
           touch.emptyTap = { x: f.start.x, y: f.start.y, at: Date.now() };
         }
         touch.onEmpty = false;

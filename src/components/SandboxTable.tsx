@@ -434,7 +434,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (!L.table) return;
     const w = toTable(readCamera(), p.x, p.y);
     const except = touch.sources.find((src) => src.kind === 'stack')?.stackId;
-    const over = p.y < L.handTop ? stackTargetAt(L.table, w.x, w.y, L.size, except, L.gridOn ? GRID_STEP / 2 : undefined) : null;
+    // Only onto a stack facing the same way as what's carried.
+    const face = touch.cards[touch.cards.length - 1]?.faceUp;
+    const over = p.y < L.handTop ? stackTargetAt(L.table, w.x, w.y, L.size, except, L.gridOn ? GRID_STEP / 2 : undefined, face) : null;
     L.setTarget(over?.id ?? null);
     // Over the hand: a gap opens where they'd go in, and near either end the row scrolls along.
     if (p.y >= L.handTop) {
@@ -516,6 +518,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       if (hit && c) add = { src: { kind: 'card', stackId: hit.stack.id, iid: c.iid }, card: c };
     }
     if (!add) return;
+    // Only cards facing the same way as what's carried: a pile never mixes the two.
+    const facing = touch.cards[touch.cards.length - 1]?.faceUp;
+    if (facing !== undefined && add.card.faceUp !== facing) {
+      haptics.warn();
+      return;
+    }
     touch.sources = [...touch.sources, add.src];
     touch.cards = [...touch.cards, add.card];
     L.setHeld({ sources: touch.sources, cards: touch.cards });
@@ -544,7 +552,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     }
     const w = toTable(readCamera(), p.x, p.y);
     const whole = sources.find((src) => src.kind === 'stack');
-    const onto = stackTargetAt(L.table, w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined, L.gridOn ? GRID_STEP / 2 : undefined);
+    // Only onto a stack facing the same way.
+    const face = cards[cards.length - 1].faceUp;
+    const onto = stackTargetAt(L.table, w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined, L.gridOn ? GRID_STEP / 2 : undefined, face);
     // With snapping on, its middle on the nearest grid crossing.
     const free = { x: w.x, y: w.y, angle: p.tableAngle };
     const at = L.gridOn && !onto ? snapToGrid(free) : free;

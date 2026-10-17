@@ -213,3 +213,8 @@ test('with the grid on, a card stacks only when dropped almost exactly on anothe
   assert.equal(stackTargetAt(t, 330, 300, size, undefined, 20), null);
   assert.equal(stackTargetAt(t, 310, 305, size, undefined, 20)?.id, 's');
 });
+test("cards don't stack onto a stack facing the other way", () => {
+  const t = tableWith({ id: 'up', x: 300, y: 300, angle: 0, cards: [card('a', true)] });
+  assert.equal(stackTargetAt(t, 305, 300, size, undefined, undefined, true)?.id, 'up');
+  assert.equal(stackTargetAt(t, 305, 300, size, undefined, undefined, false), null);
+});

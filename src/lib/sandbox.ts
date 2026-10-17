@@ -254,7 +254,8 @@ const STACK_REACH = 0.4;
 /**
  * The stack a card dropped at a table point would go onto (the topmost near enough), leaving out `except`. With
  * the grid on, only one dropped almost exactly on it (within `reach` table units): cards set down near each other
- * snap and overlap instead, as in Tabletop Simulator.
+ * snap and overlap instead, as in Tabletop Simulator. Given `face` (which way up the dropped cards are), only a stack
+ * facing the same way: cards don't stack onto ones facing the other way.
  */
 export function stackTargetAt(
   t: SandboxTable,
@@ -263,10 +264,12 @@ export function stackTargetAt(
   size: CardSize,
   except?: string,
   reach?: number,
+  face?: boolean,
 ): SandboxStack | null {
   for (let i = t.stacks.length - 1; i >= 0; i--) {
     const s = t.stacks[i];
     if (s.id === except) continue;
+    if (face !== undefined && s.cards[s.cards.length - 1].faceUp !== face) continue;
     const { w } = size(s.cards[s.cards.length - 1].deckId);
     if (Math.hypot(x - s.x, y - s.y) <= (reach ?? w * STACK_REACH)) return s;
   }

@@ -90,8 +90,10 @@ const TOOLS_W = 230;
 const TOOLS_TAB_W = 26;
 const TOOLS_TAB_H = 72;
 const TOOLS_H = 112;
+/** How far below the top of the screen's safe area the tools drawer sits (clear of the top bar). */
+const TOOLS_FROM_TOP = 64;
 /** How far a held card is drawn from its shadow (up and to the left, lit from there), in screen points. */
-const LIFT_OFFSET = { x: -4, y: -10 };
+const LIFT_OFFSET = { x: -10, y: -26 };
 /** A held card is drawn a little bigger than it lies, as if lifted. */
 const LIFT = 1.08;
 
@@ -309,8 +311,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (folded) foldTray(false);
     else haptics.tick();
   };
-  /** The tools drawer: midway down the table's part of the screen, clear of the top bar. */
-  const toolsTop = Math.max(insets.top + 64, (handTop - HAND_TAB_H) / 2 - TOOLS_H / 2);
+  /** The tools drawer: near the top, just below the top bar. */
+  const toolsTop = insets.top + TOOLS_FROM_TOP;
   /** The flip button, in the bottom-right corner above the tray, while cards are carried. */
   const flipButton = { x: area.w - FLIP_MARGIN - FLIP_SIZE, y: handTop - HAND_TAB_H - FLIP_MARGIN - FLIP_SIZE, size: FLIP_SIZE };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
@@ -433,7 +435,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (!L.table) return;
     const w = toTable(readCamera(), p.x, p.y);
     const except = touch.sources.find((src) => src.kind === 'stack')?.stackId;
-    const over = p.y < L.handTop ? stackTargetAt(L.table, w.x, w.y, L.size, except) : null;
+    const over = p.y < L.handTop ? stackTargetAt(L.table, w.x, w.y, L.size, except, L.gridOn ? GRID_STEP / 2 : undefined) : null;
     L.setTarget(over?.id ?? null);
     // Its shadow, just where it would lie, shows on the table (not over the hand, which it would go into).
     shadowOpacity.set(p.y < L.handTop ? 1 : 0);
@@ -546,7 +548,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     }
     const w = toTable(readCamera(), p.x, p.y);
     const whole = sources.find((src) => src.kind === 'stack');
-    const onto = stackTargetAt(L.table, w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined);
+    const onto = stackTargetAt(L.table, w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined, L.gridOn ? GRID_STEP / 2 : undefined);
     // With snapping on, its middle on the nearest grid crossing.
     const free = { x: w.x, y: w.y, angle: p.tableAngle };
     const at = L.gridOn && !onto ? snapToGrid(free) : free;

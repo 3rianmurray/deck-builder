@@ -248,13 +248,24 @@ export function stackAt(t: SandboxTable, x: number, y: number, size: CardSize): 
 /** How close (as a share of a card's width) a dropped card's middle must be to a stack's to go onto it. */
 const STACK_REACH = 0.4;
 
-/** The stack a card dropped at a table point would go onto (the topmost near enough), leaving out `except`. */
-export function stackTargetAt(t: SandboxTable, x: number, y: number, size: CardSize, except?: string): SandboxStack | null {
+/**
+ * The stack a card dropped at a table point would go onto (the topmost near enough), leaving out `except`. With
+ * the grid on, only one dropped almost exactly on it (within `reach` table units): cards set down near each other
+ * snap and overlap instead, as in Tabletop Simulator.
+ */
+export function stackTargetAt(
+  t: SandboxTable,
+  x: number,
+  y: number,
+  size: CardSize,
+  except?: string,
+  reach?: number,
+): SandboxStack | null {
   for (let i = t.stacks.length - 1; i >= 0; i--) {
     const s = t.stacks[i];
     if (s.id === except) continue;
     const { w } = size(s.cards[s.cards.length - 1].deckId);
-    if (Math.hypot(x - s.x, y - s.y) <= w * STACK_REACH) return s;
+    if (Math.hypot(x - s.x, y - s.y) <= (reach ?? w * STACK_REACH)) return s;
   }
   return null;
 }

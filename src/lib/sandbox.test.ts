@@ -204,3 +204,9 @@ test("snapping puts a card's middle on the nearest grid crossing or square's mid
   // Near the middle of a square: onto that.
   assert.deepEqual(snapToGrid({ x: 58, y: 103, angle: -90 }, 40), { x: 60, y: 100, angle: -90 });
 });
+test('with the grid on, a card stacks only when dropped almost exactly on another; near it, it just overlaps', () => {
+  const t = tableWith({ id: 's', x: 300, y: 300, angle: 0, cards: [card('a')] });
+  assert.equal(stackTargetAt(t, 330, 300, size)?.id, 's');
+  assert.equal(stackTargetAt(t, 330, 300, size, undefined, 20), null);
+  assert.equal(stackTargetAt(t, 310, 305, size, undefined, 20)?.id, 's');
+});

@@ -79,6 +79,8 @@ const FLIP_SIZE = 64;
 const FLIP_MARGIN = 16;
 /** A sideways swipe on the hand keeps going after the finger lifts, slowing at this rate (as a scroll view does). */
 const HAND_DECELERATION = 0.998;
+/** How stiffly the hand's row stretches when pulled past an end (iOS uses 0.55). */
+const RUBBER_BAND = 0.55;
 /** A held card is drawn a little bigger than it lies, as if lifted. */
 const LIFT = 1.08;
 
@@ -563,7 +565,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           touch.mode = 'handScroll';
         }
         const L = latest.get();
-        handScroll.set(Math.min(L.maxHandScroll, Math.max(0, touch.handFrom - dx)));
+        // Past either end it stretches, harder the further it goes (iOS's rubber band, as table mode's row has).
+        const raw = touch.handFrom - dx;
+        const past = raw < 0 ? raw : raw > L.maxHandScroll ? raw - L.maxHandScroll : 0;
+        const stretch = Math.sign(past) * (1 - 1 / ((Math.abs(past) * RUBBER_BAND) / area.w + 1)) * area.w;
+        handScroll.set(past ? (raw < 0 ? 0 : L.maxHandScroll) + stretch : raw);
         const now = Date.now();
         const dt = Math.max(1, now - touch.handLast.t);
         touch.handSpeed = 0.7 * ((f.now.x - touch.handLast.x) / dt) + 0.3 * touch.handSpeed;
@@ -592,8 +598,22 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       const L = latest.get();
       const lifted = changed.map((t) => t.id);
       if (touch.mode === 'handScroll' && lifted.includes(touch.first)) {
-        // Let go: it coasts on and slows, stopping at the ends.
-        handScroll.set(withDecay({ velocity: -touch.handSpeed * 1000, deceleration: HAND_DECELERATION, clamp: [0, L.maxHandScroll] }));
+        // Let go stretched past an end: it springs straight back, settling without wobbling, as iOS does.
+        // Otherwise it coasts on and slows; coasting into an end, it overshoots and springs back.
+        const pos = handScroll.get();
+        if (pos < 0 || pos > L.maxHandScroll) {
+          handScroll.set(withSpring(pos < 0 ? 0 : L.maxHandScroll, { damping: 36, stiffness: 320, mass: 1 }));
+        } else {
+          handScroll.set(
+            withDecay({
+              velocity: -touch.handSpeed * 1000,
+              deceleration: HAND_DECELERATION,
+              clamp: [0, L.maxHandScroll],
+              rubberBandEffect: true,
+              rubberBandFactor: 0.9,
+            }),
+          );
+        }
         touch.mode = 'none';
       } else if ((touch.mode === 'press' || touch.mode === 'handPress') && lifted.includes(touch.first)) {
         // A tap: the card's menu.

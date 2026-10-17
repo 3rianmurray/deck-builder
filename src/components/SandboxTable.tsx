@@ -1,10 +1,10 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { memo, useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Alert, Image, LayoutAnimation, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { cancelAnimation, useAnimatedStyle, useSharedValue, withDecay, withSpring } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -61,15 +61,24 @@ const UNDO_STEPS = 30;
 const TAP_SLOP = 8;
 /** An extra finger down and up within this long (and not moving) is a tap, picking up another card. */
 const EXTRA_TAP_MS = 350;
-/** The hand tray: its height (above the home indicator's space), and its cards' width. */
-const HAND_H = 128;
+/** Roughly the hand tray's height, for placing the camera at the start (the tray sizes itself to its cards). */
+const HAND_H = 160;
+/** The hand's row, as table mode's: space above the groove, round the cards in it, between them, and at its ends. */
+const HAND_TOP_PAD = 6;
+const HAND_ROW_PAD = 9;
+const HAND_GAP = 8;
+const HAND_PAD = 14;
+/** Dragging a carried card this near either end of the hand scrolls it along, this far each move. */
+const HAND_EDGE = 44;
+const HAND_EDGE_STEP = 8;
 /** How far the hand tabs stand up above the tray, and how much of the tray shows when it's folded away. */
 const HAND_TAB_H = 24;
 const FOLDED_SHOWS = 38;
-const HAND_CARD_W = 70;
 /** The flip button shown while carrying cards: its size, and its space from the screen's edge and the tray. */
 const FLIP_SIZE = 64;
 const FLIP_MARGIN = 16;
+/** A sideways swipe on the hand keeps going after the finger lifts, slowing at this rate (as a scroll view does). */
+const HAND_DECELERATION = 0.998;
 /** A held card is drawn a little bigger than it lies, as if lifted. */
 const LIFT = 1.08;
 
@@ -102,6 +111,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [history, setHistory] = useState<SandboxTable[]>([]);
   const [handIndex, setHandIndex] = useState(0);
   const [folded, setFolded] = useState(false);
+  /** Where carried cards would go into the hand, while they're over it: a gap opens there. */
+  const [handGap, setHandGap] = useState<number | null>(null);
+  /** How far the hand's row is scrolled (on the animation thread, so scrolling doesn't redraw). */
+  const handScroll = useSharedValue(0);
+  const handRowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -handScroll.value }] }));
   // The tray's slide as it folds and opens, with a little spring, as in table mode.
   const foldY = useSharedValue(0);
   const trayStyle = useAnimatedStyle(() => ({ transform: [{ translateY: foldY.value }] }));
@@ -185,25 +199,34 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   };
   const saveCamera = () => table && updateSandbox({ ...table, camera: readCamera() });
 
-  // ---- The hand tray: its cards laid side by side, overlapping when they'd overflow. ----
+  // ---- The hand tray, as in table mode: the hand's cards side by side in a row that scrolls sideways. ----
   const area = view ?? { w: screenW, h: 0 };
+  const hand = table?.hands[handIndex] ?? [];
+  /** Cards being carried (out of sight where they were). */
+  const heldIds = new Set(held?.cards.map((c) => c.iid));
+  /** The hand's cards as table mode's: about a quarter of the screen wide; the tray as tall as they need. */
+  const handW = Math.min(110, screenW * 0.24);
+  const handCardH = handW * Math.max(7 / 5, ...hand.map((c) => size(c.deckId).h / CARD_W));
+  const handH = Math.round(HAND_TOP_PAD + HAND_ROW_PAD * 2 + handCardH + 4);
   // The tray reaches the bottom of the screen; folded, it slides down until just the tops of its cards show.
-  const trayH = HAND_H + insets.bottom;
+  const trayH = handH + insets.bottom;
   const trayOpenTop = area.h - trayH;
   const handTop = folded ? area.h - FOLDED_SHOWS : trayOpenTop;
-  const hand = table?.hands[handIndex] ?? [];
-  const handCardH = (c: SandboxCard) => (HAND_CARD_W * size(c.deckId).h) / CARD_W;
-  const handStep = hand.length > 1 ? Math.min(HAND_CARD_W + 8, (area.w - 24 - HAND_CARD_W) / (hand.length - 1)) : 0;
-  const handSlot = (i: number) => ({ x: 12 + i * handStep, y: trayOpenTop + 16 });
-  /** The hand card under a point on screen (the topmost, as later ones overlap earlier ones). */
+  const handStep = handW + HAND_GAP;
+  /** The row as laid out: the hand without any cards being carried, and a gap where carried ones would go in. */
+  const handRow = hand.filter((c) => !heldIds.has(c.iid));
+  const rowX = (k: number) => HAND_PAD + (k + (handGap !== null && k >= handGap ? 1 : 0)) * handStep;
+  const rowWidth = HAND_PAD * 2 + (handRow.length + (handGap !== null ? 1 : 0)) * handStep - HAND_GAP;
+  const maxHandScroll = Math.max(0, rowWidth - area.w);
+  /** Where the row's cards sit, down from the tray's top. */
+  const rowTop = HAND_TOP_PAD + HAND_ROW_PAD;
+  /** The hand card under a point on screen (its place in the hand), or −1. */
   const handCardAt = (x: number, y: number) => {
     // Folded away, its cards peek out but can't be picked up.
-    if (folded) return -1;
-    for (let i = hand.length - 1; i >= 0; i--) {
-      const s = handSlot(i);
-      if (x >= s.x && x <= s.x + HAND_CARD_W && y >= s.y && y <= s.y + handCardH(hand[i])) return i;
-    }
-    return -1;
+    if (folded || y < trayOpenTop + rowTop || y > trayOpenTop + rowTop + handCardH) return -1;
+    const at = x + handScroll.get();
+    const k = handRow.findIndex((_, i) => at >= rowX(i) && at <= rowX(i) + handW);
+    return k < 0 ? -1 : hand.indexOf(handRow[k]);
   };
   /** Folds the tray away (just the tops of its cards showing) or opens it, sliding with a little spring. */
   const foldTray = (fold: boolean) => {
@@ -214,13 +237,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** Shows another hand (opening the tray, if it was folded). */
   const chooseHand = (i: number) => {
     setHandIndex(i);
+    handScroll.set(0);
     if (folded) foldTray(false);
     else haptics.tick();
   };
   /** The flip button, in the bottom-right corner above the tray, while cards are carried. */
   const flipButton = { x: area.w - FLIP_MARGIN - FLIP_SIZE, y: handTop - HAND_TAB_H - FLIP_MARGIN - FLIP_SIZE, size: FLIP_SIZE };
-  /** Where in the hand cards dropped at a point would go. */
-  const handInsertAt = (x: number) => (handStep ? Math.max(0, Math.min(hand.length, Math.round((x - 12) / handStep))) : 0);
+  /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
+  const changeGap = (g: number | null) => {
+    if (g === handGap) return;
+    LayoutAnimation.configureNext({ duration: 160, update: { type: LayoutAnimation.Types.easeInEaseOut } });
+    setHandGap(g);
+  };
+  /** Where in the row (of cards not carried) cards dropped with their middle at a point on screen would go. */
+  const handInsertAt = (x: number) =>
+    Math.max(0, Math.min(handRow.length, Math.round((x + handScroll.get() - HAND_PAD - handW / 2) / handStep)));
 
   // ---- Touches: one handler for the table and the hand, so cards can be carried between them. ----
   // Everything it needs that changes from render to render, read when it's needed.
@@ -232,7 +263,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       hand: SandboxCard[];
       handIndex: number;
       handCardAt: (x: number, y: number) => number;
-      handSlot: (i: number) => { x: number; y: number };
+      maxHandScroll: number;
+      setHandGap: (g: number | null) => void;
       handInsertAt: (x: number) => number;
       flipButton: { x: number; y: number; size: number };
       commit: (t: SandboxTable) => void;
@@ -243,13 +275,17 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handSlot, handInsertAt, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
     type Pt = { x: number; y: number };
     const s = {
-      mode: 'none' as 'none' | 'camera' | 'press' | 'carry',
+      mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress' | 'handScroll',
+      /** Scrolling the hand: how far it was scrolled when the finger landed, and the finger's speed (points/ms). */
+      handFrom: 0,
+      handSpeed: 0,
+      handLast: { x: 0, t: 0 },
       /** Each finger's start and latest position, by id. */
       fingers: new Map<number, { start: Pt; now: Pt }>(),
       /** The finger that pressed (or carries). */
@@ -318,6 +354,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const except = touch.sources.find((src) => src.kind === 'stack')?.stackId;
     const over = p.y < L.handTop ? stackTargetAt(L.table, w.x, w.y, L.size, except) : null;
     L.setTarget(over?.id ?? null);
+    // Over the hand: a gap opens where they'd go in, and near either end the row scrolls along.
+    if (p.y >= L.handTop) {
+      const edge = p.x < HAND_EDGE ? -1 : p.x > area.w - HAND_EDGE ? 1 : 0;
+      if (edge) handScroll.set(Math.min(L.maxHandScroll, Math.max(0, handScroll.get() + edge * HAND_EDGE_STEP)));
+      L.setHandGap(L.handInsertAt(p.x));
+    } else {
+      L.setHandGap(null);
+    }
   };
 
   /** Starts carrying what was pressed, from where the finger is now. */
@@ -402,15 +446,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const p = carriedPose();
     L.setHeld(null);
     L.setTarget(null);
+    L.setHandGap(null);
     if (!L.table || !sources.length || !p || !cards.length) return;
     haptics.drop();
     if (p.y >= L.handTop) {
-      const into = L.handInsertAt(p.x);
-      // From this very hand: moved within it.
+      // The gap's place in the row (which leaves out the carried cards) is their place in the hand once taken.
       const without = takeAll(L.table, sources);
-      // Those from this very hand that sat before the drop point no longer push it along.
-      const before = sources.filter((src) => src.kind === 'hand' && src.hand === L.handIndex && L.hand.findIndex((c) => c.iid === src.iid) < into).length;
-      const at = Math.min(into - before, without.hands[L.handIndex].length);
+      const at = Math.min(L.handInsertAt(p.x), without.hands[L.handIndex].length);
       L.commit(putInHand(without, cards, L.handIndex, at));
       return;
     }
@@ -446,10 +488,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         touch.first = t.id;
         touch.twist = null;
         // On a hand card, or a card on the table: pressed (a tap opens its menu, a drag carries it).
+        // In the hand: a card pressed (a tap opens its menu, an upward drag lifts it out), or a sideways swipe
+        // that scrolls the row. A touch stops it coasting.
         if (t.y >= L.handTop) {
+          cancelAnimation(handScroll);
           const i = L.handCardAt(t.x, t.y);
           touch.pressed = i >= 0 ? { kind: 'hand', hand: L.handIndex, iid: L.hand[i].iid } : null;
-          touch.mode = i >= 0 ? 'press' : 'none';
+          touch.mode = 'handPress';
+          touch.handFrom = handScroll.get();
+          touch.handSpeed = 0;
+          touch.handLast = { x: t.x, t: Date.now() };
           return;
         }
         const w = toTable(readCamera(), t.x, t.y);
@@ -460,6 +508,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           return;
         }
       }
+      // Other fingers while the hand is pressed or scrolled: ignored.
+      if (touch.mode === 'handPress' || touch.mode === 'handScroll') return;
       if (touch.mode === 'press' || touch.mode === 'carry') {
         // A second finger while a card is held: it twists the card.
         if (touch.mode === 'press') pickUp();
@@ -501,6 +551,25 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         return;
       }
       if (touch.mode === 'carry') return showCarried();
+      if (touch.mode === 'handPress' || touch.mode === 'handScroll') {
+        const f = touch.fingers.get(touch.first);
+        if (!f) return;
+        const dx = f.now.x - f.start.x;
+        const dy = f.now.y - f.start.y;
+        if (touch.mode === 'handPress') {
+          if (Math.hypot(dx, dy) <= TAP_SLOP) return;
+          // Mostly upward off a card: lifted out of the hand. Otherwise: a scroll.
+          if (touch.pressed && Math.abs(dy) > Math.abs(dx)) return pickUp();
+          touch.mode = 'handScroll';
+        }
+        const L = latest.get();
+        handScroll.set(Math.min(L.maxHandScroll, Math.max(0, touch.handFrom - dx)));
+        const now = Date.now();
+        const dt = Math.max(1, now - touch.handLast.t);
+        touch.handSpeed = 0.7 * ((f.now.x - touch.handLast.x) / dt) + 0.3 * touch.handSpeed;
+        touch.handLast = { x: f.now.x, t: now };
+        return;
+      }
       if (touch.mode === 'camera') {
         const now = [...touch.fingers.values()].slice(0, 2).map((f) => f.now);
         if (now.length !== touch.camFrom.length) {
@@ -522,7 +591,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const up = (changed: Touch[]) => {
       const L = latest.get();
       const lifted = changed.map((t) => t.id);
-      if (touch.mode === 'press' && lifted.includes(touch.first)) {
+      if (touch.mode === 'handScroll' && lifted.includes(touch.first)) {
+        // Let go: it coasts on and slows, stopping at the ends.
+        handScroll.set(withDecay({ velocity: -touch.handSpeed * 1000, deceleration: HAND_DECELERATION, clamp: [0, L.maxHandScroll] }));
+        touch.mode = 'none';
+      } else if ((touch.mode === 'press' || touch.mode === 'handPress') && lifted.includes(touch.first)) {
         // A tap: the card's menu.
         const src = touch.pressed;
         if (src?.kind === 'hand') L.setMenu({ kind: 'hand', hand: src.hand, iid: src.iid });
@@ -578,6 +651,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.downAt.clear();
       touch.buttonFingers.clear();
       touch.fingers.clear();
+      L.setHandGap(null);
       touch.mode = 'none';
     };
     const points = (ts: Touch[]) => {
@@ -746,7 +820,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     );
   }
 
-  const heldIds = new Set(held?.cards.map((c) => c.iid));
   const heldTop = held ? held.cards[held.cards.length - 1] : null;
   const heldDeck = heldTop ? getDeck(heldTop.deckId) : undefined;
   const heldSize = heldTop ? size(heldTop.deckId) : null;
@@ -819,18 +892,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
             <View style={{ height: trayH }} pointerEvents="none">
               <WoodRail />
-              <View style={[styles.groove, { height: HAND_H - 12 }]} />
-              {hand.length === 0 ? <Text style={styles.trayEmpty}>Drag cards here to put them in {table.handNames[handIndex]}</Text> : null}
-              {hand.map((c, i) => {
-                const s = handSlot(i);
-                const deck = decksById.get(c.deckId);
-                const isHeld = heldIds.has(c.iid);
-                return deck ? (
-                  <View key={c.iid} style={[styles.handCard, { left: s.x, top: s.y - trayOpenTop }, isHeld && styles.hidden]}>
-                    <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={HAND_CARD_W} />
-                  </View>
-                ) : null;
-              })}
+              <View style={[styles.groove, { top: HAND_TOP_PAD, height: handCardH + HAND_ROW_PAD * 2 }]} />
+              {hand.length === 0 && handGap === null ? (
+                <Text style={[styles.trayEmpty, { top: rowTop + handCardH / 2 - 10 }]}>Drag cards here to put them in {table.handNames[handIndex]}</Text>
+              ) : null}
+              {/* The row, slid sideways as it's scrolled. */}
+              <Animated.View style={[StyleSheet.absoluteFill, handRowStyle]}>
+                {handRow.map((c, k) => {
+                  const deck = decksById.get(c.deckId);
+                  return deck ? (
+                    <View key={c.iid} style={[styles.handCard, { left: rowX(k), top: rowTop }]}>
+                      <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={handW} />
+                    </View>
+                  ) : null;
+                })}
+              </Animated.View>
             </View>
           </Animated.View>
 
@@ -986,7 +1062,7 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(0,0,0,0.45)',
     borderBottomColor: 'rgba(255,220,180,0.12)',
   },
-  trayEmpty: { color: 'rgba(255,255,255,0.5)', fontSize: 14, textAlign: 'center', marginTop: 48 },
+  trayEmpty: { position: 'absolute', left: 0, right: 0, color: 'rgba(255,240,220,0.45)', fontSize: 14, textAlign: 'center' },
   handCard: { position: 'absolute' },
   // Pull tabs standing on the tray's top edge, in the same wood, as table mode's: one per hand.
   tabs: { height: HAND_TAB_H, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', gap: 4, paddingHorizontal: 8 },

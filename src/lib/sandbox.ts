@@ -210,14 +210,22 @@ export function stackTargetAt(t: SandboxTable, x: number, y: number, size: CardS
 
 // ---- Moving cards ----
 
-/** Where cards are taken from: the top card of a stack, a whole stack, or a card from a hand. */
-export type Source = { kind: 'top'; stackId: string } | { kind: 'stack'; stackId: string } | { kind: 'hand'; hand: number; iid: string };
+/**
+ * Where cards are taken from: the top card of a stack, one particular card in a stack, a whole stack, or a card
+ * from a hand.
+ */
+export type Source =
+  | { kind: 'top'; stackId: string }
+  | { kind: 'card'; stackId: string; iid: string }
+  | { kind: 'stack'; stackId: string }
+  | { kind: 'hand'; hand: number; iid: string };
 
 /** The cards a source holds (bottom first), without taking them. */
 export function cardsOf(t: SandboxTable, src: Source): SandboxCard[] {
   if (src.kind === 'hand') return t.hands[src.hand].filter((c) => c.iid === src.iid);
   const s = t.stacks.find((st) => st.id === src.stackId);
   if (!s) return [];
+  if (src.kind === 'card') return s.cards.filter((c) => c.iid === src.iid);
   return src.kind === 'stack' ? s.cards : s.cards.slice(-1);
 }
 
@@ -228,11 +236,14 @@ export function take(t: SandboxTable, src: Source): SandboxTable {
   }
   const stacks = t.stacks.flatMap((s) => {
     if (s.id !== src.stackId) return [s];
-    const left = src.kind === 'stack' ? [] : s.cards.slice(0, -1);
+    const left = src.kind === 'stack' ? [] : src.kind === 'card' ? s.cards.filter((c) => c.iid !== src.iid) : s.cards.slice(0, -1);
     return left.length ? [{ ...s, cards: left }] : [];
   });
   return { ...t, stacks };
 }
+
+/** Takes several sources' cards away, one after another. */
+export const takeAll = (t: SandboxTable, sources: Source[]) => sources.reduce(take, t);
 
 /**
  * Puts cards down on the table: on top of `onto` (they take its angle, and the way it faces), or as a new

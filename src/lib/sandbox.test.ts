@@ -17,6 +17,7 @@ import {
   stackAt,
   stackTargetAt,
   take,
+  takeAll,
   toScreen,
   toTable,
   turnStack,
@@ -162,4 +163,16 @@ test('a deck comes onto the table as one shuffled, face-down stack, copies and a
   // A deck since removed takes its cards with it.
   assert.deepEqual(prune(t, []).stacks, []);
   assert.equal(prune(t, [deck]), t);
+});
+
+test('several cards picked up from different places are taken together, wherever they were', () => {
+  const t = putInHand(tableWith({ id: 's', x: 0, y: 0, angle: 0, cards: [card('a'), card('b'), card('c')] }, { id: 'u', x: 400, y: 0, angle: 0, cards: [card('d')] }), [card('h')], 1);
+  const after = takeAll(t, [
+    { kind: 'card', stackId: 's', iid: 'c' },
+    { kind: 'card', stackId: 's', iid: 'a' },
+    { kind: 'top', stackId: 'u' },
+    { kind: 'hand', hand: 1, iid: 'h' },
+  ]);
+  assert.deepEqual(after.stacks.map((s) => [s.id, s.cards.map((c) => c.iid).join('')]), [['s', 'b']]);
+  assert.deepEqual(after.hands[1], []);
 });

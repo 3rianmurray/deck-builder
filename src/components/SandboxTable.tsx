@@ -34,6 +34,7 @@ import {
   TABLE_H,
   TABLE_W,
   take,
+  takeAll,
   toScreen,
   toTable,
   turnStack,
@@ -55,6 +56,8 @@ import { Text } from './Text';
 const UNDO_STEPS = 30;
 /** A finger moving less than this before lifting is a tap. */
 const TAP_SLOP = 8;
+/** An extra finger down and up within this long (and not moving) is a tap, picking up another card. */
+const EXTRA_TAP_MS = 350;
 /** The hand tray: its height (above the home indicator's space), and its cards' width. */
 const HAND_H = 128;
 /** How far the hand tabs stand up above the tray, and how much of the tray shows when it's folded away. */
@@ -75,7 +78,8 @@ type Menu =
 
 /** A card being carried by a finger. */
 interface Held {
-  src: Source;
+  /** Where each was taken from (the first picked up, then any tapped with another finger). */
+  sources: Source[];
   cards: SandboxCard[];
 }
 
@@ -246,6 +250,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       camFrom: [] as Pt[],
       /** What was pressed: a stack (or its badge), or a hand card. */
       pressed: null as Source | null,
+      /** Everything carried: where each came from, and the cards (the pile's bottom first). */
+      sources: [] as Source[],
+      cards: [] as SandboxCard[],
+      /** When each extra finger came down, to tell a tap (picking up another card) from a twist. */
+      downAt: new Map<number, number>(),
       /** The carried card's middle relative to the carrying finger, and its turn, both on screen. */
       offset: { x: 0, y: 0 },
       screenAngle: 0,
@@ -292,7 +301,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const L = latest.get();
     if (!L.table) return;
     const w = toTable(readCamera(), p.x, p.y);
-    const except = touch.pressed?.kind === 'stack' ? touch.pressed.stackId : undefined;
+    const except = touch.sources.find((src) => src.kind === 'stack')?.stackId;
     const over = p.y < L.handTop ? stackTargetAt(L.table, w.x, w.y, L.size, except) : null;
     L.setTarget(over?.id ?? null);
   };
@@ -306,6 +315,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (!L.table || !src || !f) return;
     const cards = cardsOf(L.table, src);
     if (!cards.length) return;
+    // A stack's top card, as that very card (so more can be taken from the same stack after it).
+    const exact: Source = src.kind === 'top' ? { kind: 'card', stackId: src.stackId, iid: cards[0].iid } : src;
     const cam = readCamera();
     const k = cameraZoom(cam);
     if (src.kind === 'hand') {
@@ -322,7 +333,36 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     touch.mode = 'carry';
     touch.snapped = false;
     showCarried();
-    L.setHeld({ src, cards });
+    touch.sources = [exact];
+    touch.cards = cards;
+    L.setHeld({ sources: touch.sources, cards });
+    haptics.lift();
+  };
+
+  /**
+   * Another finger tapped while cards are carried: the card under it joins them, on top (the next one down, if
+   * that stack's top is already carried). As in the other modes.
+   */
+  const pickUpMore = (x: number, y: number) => {
+    const touch = gestureState.get();
+    const L = latest.get();
+    if (!L.table) return;
+    const carried = new Set(touch.cards.map((c) => c.iid));
+    let add: { src: Source; card: SandboxCard } | null = null;
+    if (y >= L.handTop) {
+      const i = L.handCardAt(x, y);
+      const c = i >= 0 ? L.hand[i] : null;
+      if (c && !carried.has(c.iid)) add = { src: { kind: 'hand', hand: L.handIndex, iid: c.iid }, card: c };
+    } else {
+      const w = toTable(readCamera(), x, y);
+      const hit = stackAt(L.table, w.x, w.y, L.size);
+      const c = hit && [...hit.stack.cards].reverse().find((k) => !carried.has(k.iid));
+      if (hit && c) add = { src: { kind: 'card', stackId: hit.stack.id, iid: c.iid }, card: c };
+    }
+    if (!add) return;
+    touch.sources = [...touch.sources, add.src];
+    touch.cards = [...touch.cards, add.card];
+    L.setHeld({ sources: touch.sources, cards: touch.cards });
     haptics.lift();
   };
 
@@ -330,29 +370,33 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const putDown = () => {
     const touch = gestureState.get();
     const L = latest.get();
-    const src = touch.pressed;
+    const { sources, cards } = touch;
+    touch.sources = [];
+    touch.cards = [];
     const p = carriedPose();
     L.setHeld(null);
     L.setTarget(null);
-    if (!L.table || !src || !p) return;
-    const cards = cardsOf(L.table, src);
-    if (!cards.length) return;
+    if (!L.table || !sources.length || !p || !cards.length) return;
     haptics.drop();
     if (p.y >= L.handTop) {
       const into = L.handInsertAt(p.x);
       // From this very hand: moved within it.
-      const without = take(L.table, src);
-      const at = src.kind === 'hand' && src.hand === L.handIndex ? Math.min(into, without.hands[L.handIndex].length) : into;
+      const without = takeAll(L.table, sources);
+      // Those from this very hand that sat before the drop point no longer push it along.
+      const before = sources.filter((src) => src.kind === 'hand' && src.hand === L.handIndex && L.hand.findIndex((c) => c.iid === src.iid) < into).length;
+      const at = Math.min(into - before, without.hands[L.handIndex].length);
       L.commit(putInHand(without, cards, L.handIndex, at));
       return;
     }
     const w = toTable(readCamera(), p.x, p.y);
     const at = { x: w.x, y: w.y, angle: p.tableAngle };
-    const except = src.kind === 'stack' ? src.stackId : undefined;
-    const onto = stackTargetAt(L.table, w.x, w.y, L.size, except);
-    // A whole stack just moved (and turned) keeps being itself.
-    if (src.kind === 'stack' && !onto) return L.commit(raise(placeStack(L.table, src.stackId, at), src.stackId));
-    L.commit(putOnTable(take(L.table, src), cards, at, newId(), onto));
+    const whole = sources.find((src) => src.kind === 'stack');
+    const onto = stackTargetAt(L.table, w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined);
+    // A whole stack just moved (and turned), on its own, keeps being itself.
+    if (whole?.kind === 'stack' && sources.length === 1 && !onto) {
+      return L.commit(raise(placeStack(L.table, whole.stackId, at), whole.stackId));
+    }
+    L.commit(putOnTable(takeAll(L.table, sources), cards, at, newId(), onto));
   };
 
   const [gesture] = useState(() => {
@@ -392,6 +436,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         if (touch.mode === 'press' || touch.mode === 'carry') {
           // A second finger while a card is held: it twists the card.
           if (touch.mode === 'press') pickUp();
+          for (const c of e.changedTouches) if (c.id !== touch.first) touch.downAt.set(c.id, Date.now());
           const second = e.changedTouches.find((c) => c.id !== touch.first);
           const firstNow = touch.fingers.get(touch.first)?.now;
           if (second && firstNow && !touch.twist) {
@@ -445,15 +490,27 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           if (lifted.includes(touch.first)) {
             putDown();
             touch.mode = 'none';
-          } else if (touch.twist && lifted.includes(touch.twist.id)) {
-            // The twisting finger lifted: the card keeps its new turn, carried on by the first.
-            const p = carriedPose();
-            const f = touch.fingers.get(touch.first);
-            if (p && f) {
-              touch.screenAngle = p.screenAngle;
-              touch.offset = { x: p.x - f.now.x, y: p.y - f.now.y };
+          } else {
+            for (const id of lifted) {
+              const f = touch.fingers.get(id);
+              const tapped = !!f && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) < TAP_SLOP && Date.now() - (touch.downAt.get(id) ?? 0) < EXTRA_TAP_MS;
+              if (touch.twist?.id === id) {
+                // A tap isn't a turn: the card stays as it was. A twist keeps its new turn, carried on by the first.
+                const p = carriedPose();
+                const first = touch.fingers.get(touch.first);
+                if (tapped) {
+                  touch.screenAngle = touch.twist.angle;
+                  touch.offset = touch.twist.offset;
+                } else if (p && first) {
+                  touch.screenAngle = p.screenAngle;
+                  touch.offset = { x: p.x - first.now.x, y: p.y - first.now.y };
+                }
+                touch.twist = null;
+              }
+              if (tapped && f) pickUpMore(f.start.x, f.start.y);
+              touch.downAt.delete(id);
             }
-            touch.twist = null;
+            showCarried();
           }
         }
         for (const id of lifted) touch.fingers.delete(id);
@@ -476,6 +533,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           L.setHeld(null);
           L.setTarget(null);
         }
+        touch.sources = [];
+        touch.cards = [];
+        touch.downAt.clear();
         touch.fingers.clear();
         touch.mode = 'none';
         manager.end();
@@ -620,6 +680,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     );
   }
 
+  const heldIds = new Set(held?.cards.map((c) => c.iid));
   const heldTop = held ? held.cards[held.cards.length - 1] : null;
   const heldDeck = heldTop ? getDeck(heldTop.deckId) : undefined;
   const heldSize = heldTop ? size(heldTop.deckId) : null;
@@ -642,7 +703,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 decks={decksById}
                 size={size(s.cards[s.cards.length - 1].deckId)}
                 // While carried: a whole stack is out of sight; a top card leaves the rest showing.
-                hide={held?.src.kind === 'stack' && held.src.stackId === s.id ? 'all' : held?.src.kind === 'top' && held.src.stackId === s.id ? 'top' : 'none'}
+                // While carried, its carried cards are out of sight (the rest still show).
+                hidden={held ? s.cards.filter((c) => heldIds.has(c.iid)).map((c) => c.iid).join(',') : ''}
                 target={target === s.id}
               />
             ))}
@@ -696,7 +758,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               {hand.map((c, i) => {
                 const s = handSlot(i);
                 const deck = decksById.get(c.deckId);
-                const isHeld = held?.src.kind === 'hand' && held.src.iid === c.iid;
+                const isHeld = heldIds.has(c.iid);
                 return deck ? (
                   <View key={c.iid} style={[styles.handCard, { left: s.x, top: s.y - trayOpenTop }, isHeld && styles.hidden]}>
                     <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={HAND_CARD_W} />
@@ -749,17 +811,19 @@ const StackView = memo(function StackView({
   deck,
   decks,
   size,
-  hide,
+  hidden,
   target,
 }: {
   stack: SandboxStack;
   deck: Deck | undefined;
   decks: Map<string, Deck>;
   size: { w: number; h: number };
-  hide: 'none' | 'top' | 'all';
+  /** Its cards being carried (out of sight here), as their ids joined by commas. */
+  hidden: string;
   target: boolean;
 }) {
-  const shown = hide === 'top' ? stack.cards.slice(0, -1) : hide === 'all' ? [] : stack.cards;
+  const gone = new Set(hidden ? hidden.split(',') : []);
+  const shown = gone.size ? stack.cards.filter((c) => !gone.has(c.iid)) : stack.cards;
   if (!shown.length || !deck) return null;
   const top = shown[shown.length - 1];
   const topDeck = decks.get(top.deckId) ?? deck;

@@ -60,6 +60,8 @@ import { Text } from './Text';
 
 /** Steps of undo kept. */
 const UNDO_STEPS = 30;
+/** A second tap on the same card within this long is a double tap (flipping it); a single tap's menu waits this long. */
+const DOUBLE_TAP_MS = 260;
 /** A finger moving less than this before lifting is a tap. */
 const TAP_SLOP = 8;
 /** An extra finger down and up within this long (and not moving) is a tap, picking up another card. */
@@ -299,6 +301,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const toolsTop = insets.top + TOOLS_FROM_TOP;
   /** The flip button, in the bottom-left corner above the tray, while cards are carried. */
   const flipButton = { x: FLIP_MARGIN, y: handTop - HAND_TAB_H - FLIP_MARGIN - FLIP_SIZE, size: FLIP_SIZE };
+  /** A double tap: the card (or the whole stack) turned over where it lies. */
+  const flipFromTap = (src: Source) => {
+    if (!table) return;
+    if (src.kind === 'hand') commit(flipInHand(table, src.hand, src.iid));
+    else commit(flipStack(table, src.stackId));
+    haptics.tick();
+  };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
   const changeGap = (g: number | null) => {
     if (g === handGap) return;
@@ -329,6 +338,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       handCardAt: (x: number, y: number) => number;
       maxHandScroll: number;
       gridOn: boolean;
+      flipFromTap: (src: Source) => void;
       cameraLocked: boolean;
       toolsOpen: boolean;
       showTools: (open: boolean) => void;
@@ -343,13 +353,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
     type Pt = { x: number; y: number };
     const s = {
       mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress',
+      /** The last tap on a card (to tell a double tap), and the wait before its menu opens. */
+      lastTap: null as null | { key: string; at: number },
+      tapTimer: null as null | ReturnType<typeof setTimeout>,
       /** When a hand card was pressed (it can't be lifted out for a moment, as in table mode). */
       pressedAt: 0,
       /** The table's own finger handling, for hand cards' touches to feed into once a card is lifted out. */
@@ -670,10 +683,28 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       const L = latest.get();
       const lifted = changed.map((t) => t.id);
       if ((touch.mode === 'press' || touch.mode === 'handPress') && lifted.includes(touch.first)) {
-        // A tap: the card's menu.
+        // A tap opens the card's menu, a moment later in case it's the first of two; a second tap on the same
+        // card in that moment flips it instead.
         const src = touch.pressed;
-        if (src?.kind === 'hand') L.setMenu({ kind: 'hand', hand: src.hand, iid: src.iid });
-        else if (src) L.setMenu({ kind: 'stack', id: src.stackId });
+        if (src) {
+          const key = src.kind === 'hand' ? `h:${src.iid}` : `s:${src.stackId}`;
+          const now = Date.now();
+          if (touch.lastTap && touch.lastTap.key === key && now - touch.lastTap.at < DOUBLE_TAP_MS) {
+            if (touch.tapTimer) clearTimeout(touch.tapTimer);
+            touch.tapTimer = null;
+            touch.lastTap = null;
+            L.flipFromTap(src);
+          } else {
+            if (touch.tapTimer) clearTimeout(touch.tapTimer);
+            touch.lastTap = { key, at: now };
+            touch.tapTimer = setTimeout(() => {
+              touch.tapTimer = null;
+              touch.lastTap = null;
+              if (src.kind === 'hand') L.setMenu({ kind: 'hand', hand: src.hand, iid: src.iid });
+              else L.setMenu({ kind: 'stack', id: src.stackId });
+            }, DOUBLE_TAP_MS);
+          }
+        }
         touch.mode = 'none';
       } else if (touch.mode === 'carry') {
         if (lifted.includes(touch.first)) {
@@ -826,6 +857,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     Alert.prompt(title, undefined, (name) => name.trim() && done(name.trim()), 'plain-text', current);
   };
 
+  /** A card shown large at the top of its menu: as big as fits, its options underneath. */
+  const bigCard = (c: SandboxCard) => {
+    const deck = decksById.get(c.deckId);
+    if (!deck) return null;
+    const r = cardRatio(deck);
+    const w = Math.min(screenW * 0.8, area.h * 0.5 * r);
+    return (
+      <View style={styles.bigCard}>
+        <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={w} sharp />
+      </View>
+    );
+  };
   const menuStack = menu?.kind === 'stack' ? table?.stacks.find((s) => s.id === menu.id) : undefined;
   const menuHandCard = menu?.kind === 'hand' ? table?.hands[menu.hand].find((c) => c.iid === menu.iid) : undefined;
   const sheet = (() => {
@@ -854,7 +897,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           onPress: () => commit(take(table, { kind: 'stack', stackId: menuStack.id })),
         },
       ];
-      return { title: n > 1 ? `Stack of ${n}` : top.faceUp ? (cardOf(top)?.name ?? 'Card') : 'Face-down card', tiles, actions: [] };
+      return {
+        title: n > 1 ? `Stack of ${n}` : top.faceUp ? (cardOf(top)?.name ?? 'Card') : 'Face-down card',
+        header: bigCard(top),
+        tiles,
+        actions: [],
+      };
     }
     if (menu.kind === 'hand' && menuHandCard) {
       const src: Source = { kind: 'hand', hand: menu.hand, iid: menu.iid };
@@ -870,7 +918,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           : []),
         { label: 'Off table', icon: { ios: 'trash', android: 'delete', web: 'delete' }, destructive: true, onPress: () => commit(take(table, src)) },
       ];
-      return { title: menuHandCard.faceUp ? (cardOf(menuHandCard)?.name ?? 'Card') : 'Face-down card', tiles, actions: [] };
+      return {
+        title: menuHandCard.faceUp ? (cardOf(menuHandCard)?.name ?? 'Card') : 'Face-down card',
+        header: bigCard(menuHandCard),
+        tiles,
+        actions: [],
+      };
     }
     if (menu.kind === 'table') {
       return {
@@ -1138,6 +1191,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
       <ActionSheet
         visible={!!sheet}
+        header={sheet && 'header' in sheet ? sheet.header : undefined}
         title={sheet?.title}
         tiles={sheet?.tiles}
         actions={sheet?.actions ?? []}
@@ -1286,6 +1340,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 0,
     borderColor: 'rgba(255,255,255,0.22)',
   },
+  bigCard: { alignItems: 'center', marginBottom: 6 },
   flipButton: {
     position: 'absolute',
     alignItems: 'center',

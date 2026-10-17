@@ -92,10 +92,6 @@ const TOOLS_TAB_H = 72;
 const TOOLS_H = 112;
 /** How far below the top of the screen's safe area the tools drawer sits (clear of the top bar). */
 const TOOLS_FROM_TOP = 64;
-/** How far a held card is drawn from its shadow (up and to the left, lit from there), in screen points. */
-const LIFT_OFFSET = { x: -10, y: -26 };
-/** A held card is drawn a little bigger than it lies, as if lifted. */
-const LIFT = 1.08;
 
 const FLIP_ICON = { ios: 'arrow.trianglehead.2.clockwise.rotate.90', android: 'flip', web: 'flip' } as const;
 
@@ -190,25 +186,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const heldY = useSharedValue(0);
   const heldAngle = useSharedValue(0);
   const heldScale = useSharedValue(1);
-  // Lifted off the table: a little up and to the left of where it would lie, over its own hard shadow.
+  // Drawn just where, and as big as, it will lie when let go.
   const heldStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: heldX.value + LIFT_OFFSET.x },
-      { translateY: heldY.value + LIFT_OFFSET.y },
-      { rotate: `${heldAngle.value}deg` },
-      { scale: heldScale.value },
-    ],
-  }));
-  /** The shadow's size (the card's own on the table, unlifted) and whether it shows (not over the hand). */
-  const shadowScale = useSharedValue(1);
-  const shadowOpacity = useSharedValue(1);
-  const shadowStyle = useAnimatedStyle(() => ({
-    opacity: shadowOpacity.value,
     transform: [
       { translateX: heldX.value },
       { translateY: heldY.value },
       { rotate: `${heldAngle.value}deg` },
-      { scale: shadowScale.value },
+      { scale: heldScale.value },
     ],
   }));
 
@@ -437,8 +421,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const except = touch.sources.find((src) => src.kind === 'stack')?.stackId;
     const over = p.y < L.handTop ? stackTargetAt(L.table, w.x, w.y, L.size, except, L.gridOn ? GRID_STEP / 2 : undefined) : null;
     L.setTarget(over?.id ?? null);
-    // Its shadow, just where it would lie, shows on the table (not over the hand, which it would go into).
-    shadowOpacity.set(p.y < L.handTop ? 1 : 0);
     // Over the hand: a gap opens where they'd go in, and near either end the row scrolls along.
     if (p.y >= L.handTop) {
       const edge = p.x < HAND_EDGE ? -1 : p.x > area.w - HAND_EDGE ? 1 : 0;
@@ -476,8 +458,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.offset = { x: mid.x - f.now.x, y: mid.y - f.now.y };
       touch.screenAngle = stack.angle + cameraAngle(cam);
     }
-    heldScale.set(k * LIFT);
-    shadowScale.set(k);
+    heldScale.set(k);
     touch.mode = 'carry';
     touch.snapped = false;
     showCarried();
@@ -1122,26 +1103,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
           ) : null}
 
-          {/*
-            The card being carried, drawn over everything, following the finger; under it, its hard shadow, just
-            where it will lie when let go, to line it up by (with or without the grid, and over stacks too).
-          */}
-          {held && heldTop && heldSize ? (
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.carriedShadow,
-                {
-                  width: heldSize.w,
-                  height: heldSize.h,
-                  left: -heldSize.w / 2,
-                  top: -heldSize.h / 2,
-                  borderRadius: Math.max(4, heldSize.w * 0.06),
-                },
-                shadowStyle,
-              ]}
-            />
-          ) : null}
+          {/* The card being carried, drawn over everything, following the finger, just as it will lie. */}
           {held && heldTop && heldDeck && heldSize ? (
             <Animated.View
               pointerEvents="none"
@@ -1273,8 +1235,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
-  // A carried card's hard shadow: just where (and as big as) it would lie if let go.
-  carriedShadow: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.4)' },
   // The grid's lines, shown for now (for trying the grid out).
   gridLine: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.13)' },
   // The tools drawer: a panel off the left edge, with a tab on its right edge to pull it out by.
@@ -1319,7 +1279,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
   },
-  // Its shadow is the hard one drawn under it (see carriedShadow).
   held: { position: 'absolute' },
   hidden: { opacity: 0 },
   // The tray and its tabs, which slide together when it folds.

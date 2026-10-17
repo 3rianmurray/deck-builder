@@ -57,8 +57,10 @@ export interface SandboxTable {
 /** The table's size, in table units, with (0, 0) its top-left corner. */
 export const TABLE_W = 3600;
 export const TABLE_H = 2400;
-/** How wide a card is on the table, in table units (its height follows from its deck's shape). */
+/** How wide a standard (poker size) card is on the table, in table units: other cards are to the same scale. */
 export const CARD_W = 100;
+/** Table units per millimetre of a real card (a standard card is 63.5 mm wide). */
+export const UNITS_PER_MM = CARD_W / 63.5;
 
 /** A new, empty table. */
 export function newSandbox(id: string, name: string, now: number): SandboxTable {

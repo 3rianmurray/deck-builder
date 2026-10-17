@@ -37,6 +37,7 @@ import {
   TABLE_H,
   TABLE_W,
   take,
+  UNITS_PER_MM,
   takeAll,
   toScreen,
   toTable,
@@ -44,7 +45,7 @@ import {
 } from '../lib/sandbox';
 import type { Camera, CardSize, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
-import { cardRatio } from '../lib/types';
+import { cardRatio, cardSizeMm, PRESET_SIZES_MM } from '../lib/types';
 import type { Deck } from '../lib/types';
 import { colors } from '../theme';
 import { ActionSheet } from './ActionSheet';
@@ -145,9 +146,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   const decksById = useMemo(() => new Map(decks.map((d) => [d.id, d])), [decks]);
   const cardOf = (c: SandboxCard) => decksById.get(c.deckId)?.cards.find((k) => k.id === c.cardId);
+  /** A card's size on the table: its deck's real size (a mini card is smaller; a landscape one, a portrait turned). */
   const size: CardSize = (deckId) => {
     const deck = decksById.get(deckId);
-    return { w: CARD_W, h: CARD_W / (deck ? cardRatio(deck) : 5 / 7) };
+    const mm = deck ? cardSizeMm(deck) : PRESET_SIZES_MM.standard;
+    return { w: mm.w * UNITS_PER_MM, h: mm.h * UNITS_PER_MM };
   };
 
   // ---- The camera: on the animation thread, so moving it never redraws the table. ----
@@ -220,18 +223,31 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** Cards being carried (out of sight where they were). */
   const heldIds = new Set(held?.cards.map((c) => c.iid));
   /** The hand's cards as table mode's: about a quarter of the screen wide; the tray as tall as they need. */
+  // The tray keeps one height whatever's in it: every card is as tall as a standard portrait card would be there
+  // (table mode's size), so a landscape card is just as tall, and wider.
   const handW = Math.min(110, screenW * 0.24);
-  const handCardH = handW * Math.max(7 / 5, ...hand.map((c) => size(c.deckId).h / CARD_W));
+  const handCardH = (handW * PRESET_SIZES_MM.standard.h) / PRESET_SIZES_MM.standard.w;
+  const handWidthOf = (c: SandboxCard) => {
+    const deck = decksById.get(c.deckId);
+    return handCardH * (deck ? cardRatio(deck) : PRESET_SIZES_MM.standard.w / PRESET_SIZES_MM.standard.h);
+  };
   const handH = Math.round(HAND_TOP_PAD + HAND_ROW_PAD * 2 + handCardH + 4);
   // The tray reaches the bottom of the screen; folded, it slides down until just the tops of its cards show.
   const trayH = handH + insets.bottom;
   const trayOpenTop = area.h - trayH;
   const handTop = folded ? area.h - FOLDED_SHOWS : trayOpenTop;
-  const handStep = handW + HAND_GAP;
   /** The row as laid out: the hand without any cards being carried, and a gap where carried ones would go in. */
   const handRow = hand.filter((c) => !heldIds.has(c.iid));
-  const rowX = (k: number) => HAND_PAD + (k + (handGap !== null && k >= handGap ? 1 : 0)) * handStep;
-  const rowWidth = HAND_PAD * 2 + (handRow.length + (handGap !== null ? 1 : 0)) * handStep - HAND_GAP;
+  // Where each card sits along the row (cards differ in width), with the gap taking the carried card's width.
+  const gapWidth = held ? handWidthOf(held.cards[held.cards.length - 1]) : handW;
+  const rowWidths = handRow.map(handWidthOf);
+  const rowXs = rowWidths.reduce<number[]>((xs, w, k) => {
+    const before = k ? xs[k - 1] + rowWidths[k - 1] + HAND_GAP : HAND_PAD;
+    return [...xs, before + (handGap === k ? gapWidth + HAND_GAP : 0)];
+  }, []);
+  const rowX = (k: number) => rowXs[k];
+  const rowWidth =
+    HAND_PAD * 2 + rowWidths.reduce((sum, w) => sum + w + HAND_GAP, 0) + (handGap !== null ? gapWidth + HAND_GAP : 0) - HAND_GAP;
   const maxHandScroll = Math.max(0, rowWidth - area.w);
   /** Where the row's cards sit, down from the tray's top. */
   const rowTop = HAND_TOP_PAD + HAND_ROW_PAD;
@@ -240,7 +256,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // Folded away, its cards peek out but can't be picked up.
     if (folded || y < trayOpenTop + rowTop || y > trayOpenTop + rowTop + handCardH) return -1;
     const at = x + handScroll.get();
-    const k = handRow.findIndex((_, i) => at >= rowX(i) && at <= rowX(i) + handW);
+    const k = handRow.findIndex((_, i) => at >= rowX(i) && at <= rowX(i) + rowWidths[i]);
     return k < 0 ? -1 : hand.indexOf(handRow[k]);
   };
   /** Folds the tray away (just the tops of its cards showing) or opens it, sliding with a little spring. */
@@ -266,8 +282,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setHandGap(g);
   };
   /** Where in the row (of cards not carried) cards dropped with their middle at a point on screen would go. */
-  const handInsertAt = (x: number) =>
-    Math.max(0, Math.min(handRow.length, Math.round((x + handScroll.get() - HAND_PAD - handW / 2) / handStep)));
+  const handInsertAt = (x: number) => {
+    // Before the first card whose middle (as the row is without the gap) lies past the point.
+    const at = x + handScroll.get();
+    let edge = HAND_PAD;
+    for (let k = 0; k < rowWidths.length; k++) {
+      if (edge + rowWidths[k] / 2 > at) return k;
+      edge += rowWidths[k] + HAND_GAP;
+    }
+    return rowWidths.length;
+  };
 
   // ---- Touches: one handler for the table and the hand, so cards can be carried between them. ----
   // Everything it needs that changes from render to render, read when it's needed.
@@ -968,11 +992,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   // The gap goes in its place in the row.
                   .sort((x, y) => order(x) - order(y))
                   .map((item) => {
-                    if (item.kind === 'gap') return <View key="gap" style={{ width: handW, height: handCardH }} />;
+                    if (item.kind === 'gap') return <View key="gap" style={{ width: gapWidth, height: handCardH }} />;
                     const deck = decksById.get(item.c.deckId);
                     return deck ? (
-                      <View key={item.c.iid} {...handTouches.panHandlers} style={{ width: handW, pointerEvents: 'box-only' }}>
-                        <CardView deck={deck} card={cardOf(item.c)} faceUp={item.c.faceUp} width={handW} />
+                      <View key={item.c.iid} {...handTouches.panHandlers} style={{ width: handWidthOf(item.c), pointerEvents: 'box-only' }}>
+                        <CardView deck={deck} card={cardOf(item.c)} faceUp={item.c.faceUp} width={handWidthOf(item.c)} />
                       </View>
                     ) : null;
                   })}

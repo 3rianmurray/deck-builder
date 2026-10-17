@@ -198,12 +198,15 @@ test('the camera settles onto quarter turns when close, keeping the table under 
   near(cameraAngle(snapCamera({ a: Math.cos(r3), b: Math.sin(r3), tx: 0, ty: 0 }, about)), 90);
 });
 
-test("snapping puts a card's middle on the nearest grid crossing or square's middle, leaving its turn as it was", () => {
+test("snapping puts a card's middle on a crossing or halfway between crossings, leaving its turn as it was", () => {
   // Near a crossing: onto it.
   assert.deepEqual(snapToGrid({ x: 83, y: 37, angle: 37 }, 40), { x: 80, y: 40, angle: 37 });
-  // Near the middle of a square: onto that.
+  // Halfway along a line between two crossings.
+  assert.deepEqual(snapToGrid({ x: 98, y: 41, angle: 0 }, 40), { x: 100, y: 40, angle: 0 });
+  // The middle of a square.
   assert.deepEqual(snapToGrid({ x: 58, y: 103, angle: -90 }, 40), { x: 60, y: 100, angle: -90 });
 });
+
 test('with the grid on, a card stacks only when dropped almost exactly on another; near it, it just overlaps', () => {
   const t = tableWith({ id: 's', x: 300, y: 300, angle: 0, cards: [card('a')] });
   assert.equal(stackTargetAt(t, 330, 300, size)?.id, 's');

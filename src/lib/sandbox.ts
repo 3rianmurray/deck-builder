@@ -203,14 +203,13 @@ export const fingerAngle = (p: { x: number; y: number }, q: { x: number; y: numb
 export const GRID_STEP = 40;
 
 /**
- * A card put down with snapping on: its middle on the nearest snap point, which is either a crossing of the grid's
- * lines or the middle of one of its squares. Its turn is its own. Cards are free to overlap.
+ * A card put down with snapping on: its middle on the nearest snap point. Those are the grid's crossings and the
+ * points halfway between neighbouring ones, across and down (so halfway along each line, and the middles of its
+ * squares): a grid half as fine as the lines. Its turn is its own. Cards are free to overlap.
  */
 export function snapToGrid(at: { x: number; y: number; angle: number }, step = GRID_STEP) {
-  const crossing = { x: Math.round(at.x / step) * step, y: Math.round(at.y / step) * step };
-  const middle = { x: (Math.floor(at.x / step) + 0.5) * step, y: (Math.floor(at.y / step) + 0.5) * step };
-  const nearer = Math.hypot(at.x - crossing.x, at.y - crossing.y) <= Math.hypot(at.x - middle.x, at.y - middle.y) ? crossing : middle;
-  return { ...nearer, angle: at.angle };
+  const half = step / 2;
+  return { x: Math.round(at.x / half) * half, y: Math.round(at.y / half) * half, angle: at.angle };
 }
 // ---- Finding cards ----
 

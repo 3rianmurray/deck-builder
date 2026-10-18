@@ -1633,9 +1633,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       },
       {
         label: 'Onto the table, face up',
-        // Then the search goes, to show it there.
+        // Then the search goes, to show it there, picked out to be moved where it belongs.
         onPress: () => {
-          commit(putOnTable(take(table, src), [{ ...card, faceUp: true }], gridOn ? snapToGrid(beside, gridStep) : beside, newId()));
+          const id = newId();
+          commit(putOnTable(take(table, src), [{ ...card, faceUp: true }], gridOn ? snapToGrid(beside, gridStep) : beside, id));
+          setSelected([id]);
           endSearch();
         },
       },
@@ -1658,14 +1660,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return [
       {
         label: 'Onto the table, face up',
-        // Then the search goes, to show them there.
+        // Then the search goes, to show them there, picked out to be moved where they belong.
         onPress: () => {
+          const ids = cards.map(() => newId());
           commit(
             cards.reduce((t, card, i) => {
               const at = { x: beside.x + i * gridStep, y: beside.y, angle: searchStack.angle };
-              return putOnTable(t, [{ ...card, faceUp: true }], gridOn ? snapToGrid(at, gridStep) : at, newId());
+              return putOnTable(t, [{ ...card, faceUp: true }], gridOn ? snapToGrid(at, gridStep) : at, ids[i]);
             }, rest),
           );
+          setSelected(ids);
           endSearch();
         },
       },

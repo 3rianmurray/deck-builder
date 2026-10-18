@@ -27,7 +27,14 @@ export type TourEvent =
   | 'undone'
   | 'table-menu'
   | 'reveal-mode'
-  | 'revealed';
+  | 'revealed'
+  | 'left-table'
+  | 'tables-opened'
+  | 'tables-moved'
+  | 'tables-lifted'
+  | 'tables-flipped'
+  | 'tables-options'
+  | 'tables-to-hand';
 
 /** A control a step can point at, on screen. */
 export type TourTarget =
@@ -41,7 +48,9 @@ export type TourTarget =
   | 'table.hand'
   | 'table.buttons'
   | 'table.undo'
-  | 'table.title';
+  | 'table.title'
+  | 'table.back'
+  | 'home.table';
 
 export interface TourStep {
   title: string;
@@ -120,12 +129,68 @@ export const TOUR: TourStep[] = [
     after: 1300,
   },
   {
+    title: 'Now, tables',
+    text: 'Decks are for turning cards over. To lay cards out, with hands and several decks at once, there are tables. Tap the back arrow.',
+    target: 'table.back',
+    until: 'left-table',
+    dim: true,
+  },
+  {
+    title: 'Open a table',
+    text: "Here's a Solitaire table, already dealt. Tap Open.",
+    target: 'home.table',
+    until: 'tables-opened',
+    dim: true,
+  },
+  {
+    title: 'A table',
+    text: 'A big open table for any of your decks, with four hands at the bottom. Slide one finger to look around; pinch and twist with two to zoom and turn.',
+    next: 'Got it',
+    place: 'top',
+    dim: false,
+  },
+  {
+    title: 'Move a card',
+    text: 'Drag a card and drop it anywhere. Dragging a stack takes its top card.',
+    until: 'tables-moved',
+    place: 'top',
+    dim: false,
+  },
+  {
+    title: 'Move a whole stack',
+    text: 'Hold a stack a moment, until it lifts, then drag it somewhere else.',
+    until: 'tables-lifted',
+    place: 'top',
+    dim: false,
+  },
+  {
+    title: 'Flip a card',
+    text: 'Double-tap a card to turn it over.',
+    until: 'tables-flipped',
+    after: 900,
+    place: 'top',
+    dim: false,
+  },
+  {
+    title: 'Its options',
+    text: 'Tap a card once to pick it out (flip and more buttons show at the bottom left). Tap it again for all its options: draw, shuffle, search, deal and more.',
+    until: 'tables-options',
+    place: 'top',
+    dim: false,
+  },
+  {
+    title: 'Your hand',
+    text: 'Close the options, then drag a card down into the tray at the bottom: that hand holds it. The tabs switch between four hands.',
+    until: 'tables-to-hand',
+    place: 'top',
+    dim: false,
+  },
+  {
     title: "You're all set",
-    text: 'Keep tapping to turn cards over. A session flips through several decks: tap + Session on the home screen. To lay cards out, with hands and many decks, open a table: there\'s a Solitaire one to try. For this again, or a list of gestures, tap ?.',
+    text: 'Tap the table’s name at the top to add decks or cards, or change its color. The wrench on the left snaps cards to a grid. For every gesture, or this tour again, tap ? on the home screen.',
     next: 'Done',
     place: 'top',
-  },
-];interface State {
+  },];interface State {
   /** The step showing, or null when the tour isn't running. */
   step: number | null;
   /** A step whose result is being shown before the next (see `after`): the tour is still on. */

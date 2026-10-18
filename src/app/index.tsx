@@ -292,6 +292,14 @@ export default function HomeScreen() {
       { text: 'Delete', style: 'destructive', onPress: () => deleteSandbox(id) },
     ]);
   };
+  const tourTableId = (sandboxes.find((t) => t.name === 'Solitaire') ?? sandboxes[0])?.id;
+  // The walkthrough opens a table: if there are none (the examples deleted), they're brought back for it.
+  const wantsTable = tour?.step.until === 'tables-opened' && !sandboxes.length;
+  useEffect(() => {
+    if (wantsTable) examples.restore().catch(() => {});
+    // Only as the step comes up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsTable]);
   const sandboxSection = sandboxes.length ? (
     <View style={{ gap: 10, marginBottom: 16 }}>
       <Text style={styles.section}>Tables</Text>
@@ -315,7 +323,14 @@ export default function HomeScreen() {
                   {t.name}
                 </Text>
               </View>
-              <Button label="Open" variant="primary" onPress={open} />
+              {/* The walkthrough's table: the Solitaire one (or the first, without it). */}
+              {t.id === tourTableId ? (
+                <TourSpot id="home.table">
+                  <Button label="Open" variant="primary" onPress={open} />
+                </TourSpot>
+              ) : (
+                <Button label="Open" variant="primary" onPress={open} />
+              )}
             </Pressable>
           </SwipeRow>
         );

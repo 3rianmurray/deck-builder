@@ -153,8 +153,8 @@ export function TourOverlay() {
 
   const frame = (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Without a control to point at, the whole screen dims behind the tip. */}
-      {!pointing ? <View style={[StyleSheet.absoluteFill, styles.dim]} /> : null}
+      {/* Without a control to point at, the whole screen dims behind the tip (unless the step needs it in view). */}
+      {!pointing && step.dim !== false ? <View style={[StyleSheet.absoluteFill, styles.dim]} /> : null}
       {step.dim && hole ? (
         <>
           <View pointerEvents="none" style={[styles.dim, { left: 0, top: 0, width, height: hole.y }]} />

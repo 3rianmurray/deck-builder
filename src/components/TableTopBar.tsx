@@ -4,6 +4,7 @@ import type { SymbolViewProps } from 'expo-symbols';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { tourEvent } from '../lib/tour';
 import { colors } from '../theme';
 import { Text } from './Text';
 import { TourSpot } from './TourSpot';
@@ -25,6 +26,7 @@ export interface TableControls {
 
 /** Back to the screen before, or home if there isn't one (e.g. the app was reloaded straight onto the table). */
 function goBack() {
+  tourEvent('left-table');
   if (router.canGoBack()) router.back();
   else router.replace('/');
 }
@@ -38,12 +40,14 @@ export function TableTopBar({ controls }: { controls: TableControls | null }) {
   if (controls?.hidden) return null;
   return (
     <View style={[styles.bar, { paddingTop: insets.top + 6 }]}>
-      <RoundButton
-        icon={{ ios: 'chevron.backward', android: 'arrow_back', web: 'arrow_back' }}
-        label="Back"
-        onPress={goBack}
-        disabled={!!controls?.busy}
-      />
+      <TourSpot id="table.back">
+        <RoundButton
+          icon={{ ios: 'chevron.backward', android: 'arrow_back', web: 'arrow_back' }}
+          label="Back"
+          onPress={goBack}
+          disabled={!!controls?.busy}
+        />
+      </TourSpot>
       {controls ? (
         <TourSpot id="table.title" style={styles.titleSpot}>
           <Pressable

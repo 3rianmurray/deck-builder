@@ -64,6 +64,7 @@ import {
 } from '../lib/sandbox';
 import type { Camera, CardSize, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
+import { tourEvent } from '../lib/tour';
 import { cardRatio, cardSizeMm, PRESET_SIZES_MM } from '../lib/types';
 import type { Deck } from '../lib/types';
 import { colors } from '../theme';
@@ -437,6 +438,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // Turned over to face the way the stack it lies on does, it joins it.
     else commit(settleOnto(flipStack(table, src.stackId), src.stackId));
     haptics.tick();
+    tourEvent('tables-flipped');
   };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
   const changeGap = (g: number | null) => {
@@ -458,6 +460,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (!table || !chosen.length || (!by.x && !by.y && !turn)) return;
     const place = gridOn ? (p: { x: number; y: number; angle: number }) => snapToGrid(p) : undefined;
     commit(turn ? rotateStacks(table, chosen, gestureState.get().groupFrom, turn, by, place) : moveStacks(table, chosen, by, place));
+    tourEvent('tables-moved');
     haptics.drop();
   };
   /**
@@ -498,6 +501,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const cards = [...(leader ? [...leader.cards].reverse() : []), ...others.flatMap((s) => [...s.cards].reverse())];
     const rest = { ...table, stacks: table.stacks.filter((s) => !chosen.includes(s.id)) };
     commit(putInHand(rest, cards, handIndex, at));
+    tourEvent('tables-to-hand');
     setSelected([]);
     haptics.drop();
   };
@@ -854,6 +858,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       const without = takeAll(L.table, sources);
       const at = Math.min(L.handInsertAt(p.x), without.hands[L.handIndex].length);
       L.commit(putInHand(without, cards, L.handIndex, at));
+      tourEvent('tables-to-hand');
       return;
     }
     const w = toTable(readCamera(), p.x, p.y);
@@ -869,6 +874,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const free = { x: w.x, y: w.y, angle: p.tableAngle };
     const at = L.gridOn && !onto ? snapToGrid(free) : free;
     // A whole stack just moved (and turned), on its own, keeps being itself.
+    // For the walkthrough (a whole stack first, so one drop never counts for two of its steps).
+    if (whole?.kind === 'stack') tourEvent('tables-lifted');
+    tourEvent('tables-moved');
     if (whole?.kind === 'stack' && sources.length === 1 && !onto && !turnedOver) {
       return L.commit(raise(placeStack(L.table, whole.stackId, at), whole.stackId));
     }
@@ -1205,6 +1213,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               else if (wasSelected) {
                 now.setSelected([]);
                 now.setMenu({ kind: 'stack', id: src.stackId });
+                tourEvent('tables-options');
               } else {
                 now.setSelected([src.stackId]);
                 haptics.tick();

@@ -68,6 +68,10 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
   /** The grid worked out from the sheet itself (filled in for the player to check), and while it's being worked out. */
   const [guess, setGuess] = useState<(SheetGuess & { source: string }) | null>(null);
   const [guessing, setGuessing] = useState(false);
+  /** Cards (by number) left out of the import: tapped, or dragged across, to leave out or put back. Per sheet. */
+  const [skipped, setSkipped] = useState<{ source: string | null; cards: number[] }>({ source: null, cards: [] });
+  /** A finger is choosing cards on the sheet (so the screen doesn't scroll under it). */
+  const [painting, setPainting] = useState(false);
 
   const image = loaded && loaded.source === uri ? loaded : null;
 
@@ -114,6 +118,55 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
   const grid: Grid = pickOne
     ? { rows, columns, count: cells, order: 'rows' }
     : { rows, columns, count: parseCount(countText, cells, cells), order };
+  const left = new Set(skipped.source === uri ? skipped.cards.filter((n) => n < grid.count) : []);
+  const taking = grid.count - left.size;
+  /** Leaves cards out of the import, or puts them back. */
+  const mark = (cards: number[], out: boolean) =>
+    setSkipped((was) => {
+      const now = new Set(was.source === uri ? was.cards : []);
+      for (const n of cards) {
+        if (out) now.add(n);
+        else now.delete(n);
+      }
+      return { source: uri, cards: [...now] };
+    });
+  // A finger on the sheet: a tap leaves a card out (or puts it back), and dragging on does the same to every
+  // card it passes over. What it needs that changes from render to render; its handlers are made once.
+  const [paint] = useState(() => {
+    const box = {
+      at: (_x: number, _y: number): number | null => null,
+      isLeft: (_n: number) => false,
+      mark: (_cards: number[], _out: boolean) => {},
+      setPainting: (_on: boolean) => {},
+      start: { x: 0, y: 0 },
+      out: false,
+      last: null as number | null,
+    };
+    const touch = (x: number, y: number) => {
+      const n = box.at(x, y);
+      if (n === null || n === box.last) return;
+      box.last = n;
+      box.mark([n], box.out);
+      haptics.tick();
+    };
+    return {
+      set: (next: Partial<typeof box>) => Object.assign(box, next),
+      responder: PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: (e) => {
+          const { locationX: x, locationY: y } = e.nativeEvent;
+          const n = box.at(x, y);
+          Object.assign(box, { start: { x, y }, last: null, out: n === null ? true : !box.isLeft(n) });
+          box.setPainting(true);
+          touch(x, y);
+        },
+        onPanResponderMove: (_, g) => touch(box.start.x + g.dx, box.start.y + g.dy),
+        onPanResponderRelease: () => box.setPainting(false),
+        onPanResponderTerminate: () => box.setPainting(false),
+      }),
+    };
+  });
   // The chosen cell, kept inside the grid if it shrinks.
   const pick = { r: Math.min(chosen.r, rows - 1), c: Math.min(chosen.c, columns - 1) };
 
@@ -134,11 +187,19 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
   const box = { w: screenW - PADDING * 2, h: screenH * 0.42 };
   const fit = image ? Math.min(box.w / image.width, box.h / image.height) : 0;
   const preview = image ? { w: image.width * fit, h: image.height * fit } : null;
-
+  paint.set({
+    at: (x, y) => {
+      if (!preview || x < 0 || y < 0 || x >= preview.w || y >= preview.h) return null;
+      return cellNumber(Math.floor((y / preview.h) * rows), Math.floor((x / preview.w) * columns), grid);
+    },
+    isLeft: (n) => left.has(n),
+    mark,
+    setPainting,
+  });
   const importCards = async () => {
     if (!image) return;
     const all = cellRects(image.width, image.height, grid);
-    const rects = pickOne ? [all[pick.r * columns + pick.c]] : all;
+    const rects = pickOne ? [all[pick.r * columns + pick.c]] : all.filter((_, n) => !left.has(n));
     const out: string[] = [];
     try {
       for (const [i, rect] of rects.entries()) {
@@ -159,6 +220,7 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
     <Modal visible={uri !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
         <ScrollView
+          scrollEnabled={!painting}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: 24, paddingHorizontal: PADDING, gap: 16 }}>
           <Text style={styles.title}>{pickOne ? 'Choose a card from the sheet' : 'Import sprite sheet'}</Text>
@@ -191,12 +253,23 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
                         />
                       );
                     }
+                    const out = n !== null && left.has(n);
                     return (
-                      <View key={`${r}-${c}`} style={[styles.cell, box, n === null && styles.unusedCell]}>
-                        {n !== null ? <Text style={styles.cellNumber}>{n + 1}</Text> : null}
+                      <View key={`${r}-${c}`} style={[styles.cell, box, n === null && styles.unusedCell, out && styles.otherCell]}>
+                        {n !== null ? <Text style={[styles.cellNumber, out && styles.cellNumberOut]}>{n + 1}</Text> : null}
                       </View>
                     );
                   }),
+                )}
+                {/* Choosing which cards to take: tap one, or drag across several, to leave them out or put them back. */}
+                {pickOne ? null : (
+                  <View
+                    {...paint.responder.panHandlers}
+                    style={StyleSheet.absoluteFill}
+                    accessible
+                    accessibilityLabel={`${taking} of ${grid.count} cards chosen`}
+                    accessibilityHint="Tap or drag across cards to leave them out or put them back."
+                  />
                 )}
               </View>
             ) : (
@@ -227,6 +300,18 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
               />
             )}
           </View>
+          {pickOne ? null : (
+            <View style={styles.chooseRow}>
+              <Text style={[styles.help, { flex: 1, marginTop: 0 }]}>Tap or drag across cards to leave them out.</Text>
+              <Button
+                label={left.size ? 'Select All' : 'Deselect All'}
+                onPress={() => {
+                  mark(Array.from({ length: grid.count }, (_, n) => n), !left.size);
+                  haptics.tick();
+                }}
+              />
+            </View>
+          )}
           {pickOne ? null : (
             <>
               <Text style={styles.help}>
@@ -266,12 +351,12 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
                   ? 'Cutting…'
                   : 'Use this card'
                 : busy
-                  ? `Cutting ${progress + 1} of ${grid.count}…`
-                  : `Add ${grid.count} ${grid.count === 1 ? 'card' : 'cards'}`
+                  ? `Cutting ${progress + 1} of ${taking}…`
+                  : `Add ${taking} ${taking === 1 ? 'card' : 'cards'}`
             }
             variant="primary"
             onPress={importCards}
-            disabled={busy || !image}
+            disabled={busy || !image || (!pickOne && taking === 0)}
             style={{ flex: 2 }}
           />
         </View>
@@ -448,6 +533,8 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
     overflow: 'hidden',
   },
+  cellNumberOut: { backgroundColor: 'rgba(255,255,255,0.35)', color: colors.bg },
+  chooseRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: -6 },
   fields: { flexDirection: 'row', gap: 12 },
   label: { color: colors.textMuted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
   // A number field: slid across to change it, or tapped to type.

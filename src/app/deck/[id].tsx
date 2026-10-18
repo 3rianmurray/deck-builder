@@ -477,7 +477,7 @@ export default function DeckEditorScreen() {
                       <CardView
                         deck={deck}
                         faceUp={false}
-                        width={56}
+                        width={64}
                         onPress={() => {
                           setBackFor(null);
                           if (backSource) setCrop({ uris: [backSource], target: 'back' });
@@ -486,7 +486,7 @@ export default function DeckEditorScreen() {
                       />
                       {backSource ? (
                         <View style={styles.cropBadge}>
-                          <SymbolView name={{ ios: 'crop', android: 'crop', web: 'crop' }} size={12} weight="semibold" tintColor={colors.text} />
+                          <SymbolView name={{ ios: 'crop', android: 'crop', web: 'crop' }} size={14} weight="bold" tintColor={colors.surfaceRaised} />
                         </View>
                       ) : null}
                     </View>
@@ -694,14 +694,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: -6,
     bottom: -6,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surfaceRaised,
-    borderWidth: 1.5,
-    borderColor: colors.bg,
+    backgroundColor: colors.accent,
+    borderWidth: 2,
+    borderColor: colors.surfaceRaised,
     pointerEvents: 'none',
   },
   // A card's tick, while choosing cards.

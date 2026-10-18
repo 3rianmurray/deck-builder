@@ -46,6 +46,13 @@ export function createSandbox(name: string): SandboxTable {
   return table;
 }
 
+/** A new table made from an empty one (e.g. with a ready-made layout on it), added to the top. */
+export function createSandboxWith(name: string, lay: (empty: SandboxTable) => SandboxTable): SandboxTable {
+  const table = lay(newSandbox(newId(), name, Date.now()));
+  set([table, ...all()]);
+  return table;
+}
+
 /** Saves a changed table. */
 export function updateSandbox(table: SandboxTable) {
   set(all().map((t) => (t.id === table.id ? { ...table, updatedAt: Date.now() } : t)));

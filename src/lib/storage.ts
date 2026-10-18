@@ -49,6 +49,8 @@ export interface Settings {
   welcomed?: boolean;
   /** The deck the walkthrough made, reused (started again) when it's run again. */
   sampleDeckId?: string;
+  /** The Playing Cards deck and its Solitaire table (a Free Play example) have been made, once. */
+  solitaireMade?: boolean;
 }
 export const loadSettings = () => readJson<Settings>(SETTINGS_FILE, {});
 export const saveSettings = (settings: Settings) => writeJson(SETTINGS_FILE, settings);

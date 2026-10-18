@@ -28,6 +28,8 @@ interface DecksApi {
   decks: Deck[];
   getDeck: (id: string) => Deck | undefined;
   createDeck: (name: string) => Deck;
+  /** Makes a deck from ready card-shaped pictures (each its own original) and a back, at the top of the list. */
+  createReadyDeck: (name: string, cards: { uri: string; name: string }[], back: string) => Deck;
   /** Copies a deck, art and all, placing the copy right after it. Returns the copy. */
   duplicateDeck: (id: string) => Deck | undefined;
   /** Adds decks read from a deck file (see deckFile.ts), pictures and all, at the top of the list. */
@@ -161,6 +163,22 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       createDeck(name) {
         const now = Date.now();
         const deck: Deck = { id: newId(), name, backImage: null, cards: [], createdAt: now, updatedAt: now };
+        setDecks((all) => [deck, ...all]);
+        return deck;
+      },
+      createReadyDeck(name, cards, back) {
+        const now = Date.now();
+        const id = newId();
+        // Each picture is copied in twice, as the card and as its original, as `addCards` does.
+        const deck: Deck = {
+          id,
+          name,
+          backImage: importImage(id, back),
+          backOriginal: importImage(id, back),
+          cards: cards.map((c) => ({ id: newId(), name: c.name, image: importImage(id, c.uri), original: importImage(id, c.uri) })),
+          createdAt: now,
+          updatedAt: now,
+        };
         setDecks((all) => [deck, ...all]);
         return deck;
       },

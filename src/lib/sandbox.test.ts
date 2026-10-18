@@ -14,6 +14,8 @@ import {
   putInHand,
   putOnTable,
   snapAngle,
+  solitaire,
+  startCamera,
   snapToGrid,
   snapCamera,
   stackAt,
@@ -283,4 +285,32 @@ test('dealing takes cards off the top, one at a time, into the chosen hand', () 
   const all = dealToHand(t, 's', 9, 0);
   assert.deepEqual(all.stacks, []);
   assert.deepEqual(all.hands[0].map((c) => c.iid), ['c', 'b', 'a']);
+});
+test('solitaire deals seven fanned columns on the grid, the stock beside them, and the camera starts on it', () => {
+  const deck = { id: 'd', name: 'P', backImage: null, cards: Array.from({ length: 52 }, (_, i) => ({ id: `c${i}`, name: '', image: '' })), createdAt: 0, updatedAt: 0 } as Deck;
+  let n = 0;
+  const t = solitaire(newSandbox('t', 'S', 0), deck, () => `id${n++}`, () => 0.5);
+  assert.equal(t.snapToGrid, true);
+  const singles = t.stacks.filter((s) => s.cards.length === 1);
+  const [stock] = t.stacks.filter((s) => s.cards.length > 1);
+  assert.equal(singles.length, 28);
+  assert.equal(stock.cards.length, 24);
+  assert.ok(stock.cards.every((c) => !c.faceUp));
+  assert.equal(singles.filter((s) => s.cards[0].faceUp).length, 7);
+  // Every card lies on a snap point, so moving one and putting it back puts it where it was.
+  for (const s of t.stacks) assert.deepEqual(snapToGrid(s), { x: s.x, y: s.y, angle: s.angle });
+  // Each column's cards go down a step at a time, its last on top and face up.
+  const columns = new Map<number, typeof singles>();
+  for (const s of singles) columns.set(s.x, [...(columns.get(s.x) ?? []), s]);
+  assert.deepEqual([...columns.values()].map((c) => c.length), [1, 2, 3, 4, 5, 6, 7]);
+  for (const c of columns.values()) {
+    c.forEach((s, i) => i && assert.equal(s.y - c[i - 1].y, 40));
+    assert.ok(c[c.length - 1].cards[0].faceUp);
+  }
+  // The whole layout fits across a phone's screen.
+  const cam = startCamera({ w: 390, h: 600 }, t.focus);
+  const left = toScreen(cam, t.focus!.x, 0).x;
+  const right = toScreen(cam, t.focus!.x + t.focus!.w, 0).x;
+  near(left, 0);
+  near(right, 390);
 });

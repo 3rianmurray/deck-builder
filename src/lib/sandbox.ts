@@ -54,6 +54,8 @@ export interface SandboxTable {
   lockCamera?: boolean;
   /** The camera as it was left, or none yet (it starts looking at the middle of the table). */
   camera?: Camera;
+  /** The part of the table a ready-made layout lies in: the camera starts on it (and goes back to it on reset). */
+  focus?: Area;
   createdAt: number;
   updatedAt: number;
 }
@@ -120,8 +122,23 @@ export const cameraAngle = (c: Camera) => (Math.atan2(c.b, c.a) * 180) / Math.PI
 export const MIN_ZOOM = 0.12;
 export const MAX_ZOOM = 4;
 
-/** The camera looking at the middle of the table, upright, zoomed to fit the given screen area. */
-export function startCamera(view: { w: number; h: number }): Camera {
+/** A rectangle of the table, in table units. */
+export interface Area {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * The camera upright, zoomed to fit the given screen area: looking at the middle of the table, or, given a part of
+ * it to look at, fitting that in, across the middle and from the top.
+ */
+export function startCamera(view: { w: number; h: number }, focus?: Area): Camera {
+  if (focus) {
+    const k = Math.min(view.w / focus.w, view.h / focus.h, MAX_ZOOM);
+    return { a: k, b: 0, tx: view.w / 2 - k * (focus.x + focus.w / 2), ty: -k * focus.y };
+  }
   const k = Math.min(view.w / (TABLE_W * 0.45), view.h / (TABLE_H * 0.45), 1);
   return { a: k, b: 0, tx: view.w / 2 - (k * TABLE_W) / 2, ty: view.h / 2 - (k * TABLE_H) / 2 };
 }
@@ -514,6 +531,44 @@ export function addDeck(
   );
   if (!cards.length) return t;
   return { ...t, stacks: [...t.stacks, { id: ids(), x: at.x, y: at.y, angle: 0, cards: shuffled(cards, random) }] };
+}
+
+/** Where the Solitaire example's columns start (the first's middle), and how far apart they are, on the grid. */
+const SOLITAIRE_LEFT = 1440;
+const SOLITAIRE_TOP = 1000;
+const SOLITAIRE_COLUMN = 3 * GRID_STEP;
+
+/**
+ * A deck (a 52-card one) laid out for Klondike solitaire, on the grid: the stock face down at the top left, room
+ * for the waste and the four foundations along the top, and below them seven columns of one to seven cards,
+ * fanned down a grid step at a time (each card its own stack, so all show), the last of each face up. Snapping
+ * is on, so cards played onto a column drop into place a step below its last card.
+ */
+export function solitaire(t: SandboxTable, deck: Deck, ids: () => string, random: () => number = Math.random): SandboxTable {
+  const cards = shuffled(
+    deck.cards.map((c) => ({ iid: ids(), deckId: deck.id, cardId: c.id, faceUp: false })),
+    random,
+  );
+  const stacks: SandboxStack[] = [];
+  let next = 0;
+  for (let col = 0; col < 7; col++) {
+    for (let row = 0; row <= col && next < cards.length; row++) {
+      const card = { ...cards[next++], faceUp: row === col };
+      const x = SOLITAIRE_LEFT + col * SOLITAIRE_COLUMN;
+      stacks.push({ id: ids(), x, y: SOLITAIRE_TOP + 5 * GRID_STEP + row * GRID_STEP, angle: 0, cards: [card] });
+    }
+  }
+  const stock = cards.slice(next);
+  if (stock.length) stacks.unshift({ id: ids(), x: SOLITAIRE_LEFT, y: SOLITAIRE_TOP, angle: 0, cards: stock });
+  // In view: the top row, and the columns with room to grow down (to a king's run on the longest).
+  const margin = GRID_STEP / 2;
+  const focus = {
+    x: SOLITAIRE_LEFT - CARD_W / 2 - margin,
+    y: SOLITAIRE_TOP - 70 - margin,
+    w: 6 * SOLITAIRE_COLUMN + CARD_W + 2 * margin,
+    h: 5 * GRID_STEP + 18 * GRID_STEP + 140 + 2 * margin,
+  };
+  return { ...t, stacks, snapToGrid: true, focus };
 }
 
 /** The table without any cards from decks that no longer exist (or cards since removed from their deck). */

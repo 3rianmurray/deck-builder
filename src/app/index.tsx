@@ -18,7 +18,10 @@ import { deleteDeckWarning } from '../lib/deckInUse';
 import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
-import { createSandbox, deleteSandbox, useSandboxes } from '../lib/sandboxStore';
+import { newId } from '../lib/id';
+import { playingCards } from '../lib/playingCards';
+import { solitaire } from '../lib/sandbox';
+import { createSandbox, createSandboxWith, deleteSandbox, useSandboxes } from '../lib/sandboxStore';
 import { loadSettings, saveSettings } from '../lib/storage';
 import { startTour, tourEvent, useTourStep } from '../lib/tour';
 import { deckSize } from '../lib/types';
@@ -36,6 +39,7 @@ export default function HomeScreen() {
   const {
     decks,
     createDeck,
+    createReadyDeck,
     deleteDeck,
     resetDeck,
     importDecks,
@@ -60,6 +64,22 @@ export default function HomeScreen() {
     if (settings.welcomed) return;
     saveSettings({ ...settings, welcomed: true });
     startTour();
+  }, []);
+
+  // Once: a deck of playing cards and a Solitaire table dealt from it, to show what Free Play can do.
+  useEffect(() => {
+    const settings = loadSettings();
+    if (settings.solitaireMade) return;
+    saveSettings({ ...settings, solitaireMade: true });
+    playingCards()
+      .then(({ cards, back }) => {
+        const deck = createReadyDeck('Playing Cards', cards, back);
+        createSandboxWith('Solitaire', (empty) => solitaire(empty, deck, newId));
+      })
+      // Tried again next time.
+      .catch(() => saveSettings({ ...loadSettings(), solitaireMade: false }));
+    // Once, on opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const [groupMenu, setGroupMenu] = useState<string | null>(null);

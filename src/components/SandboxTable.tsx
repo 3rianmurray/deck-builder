@@ -245,7 +245,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const space = { w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height };
     setView(space);
     if (placed.done() || !table) return;
-    writeCamera(table.camera ?? startCamera({ w: space.w, h: space.h - HAND_H }));
+    writeCamera(table.camera ?? startCamera({ w: space.w, h: space.h - HAND_H }, table.focus));
     placed.mark();
   };
 
@@ -1265,7 +1265,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             label: 'Reset the view',
             onPress: () => {
               if (!view) return;
-              writeCamera(startCamera({ w: view.w, h: view.h - HAND_H }));
+              writeCamera(startCamera({ w: view.w, h: view.h - HAND_H }, table?.focus));
               saveCamera();
             },
           },

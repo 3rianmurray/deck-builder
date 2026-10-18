@@ -19,7 +19,7 @@ const CARDS = [
 const BACK = require('../../assets/sample/back.png');
 
 /** A bundled picture as a file on the phone, ready to be copied into a deck. */
-async function fileOf(art: number): Promise<string> {
+export async function fileOf(art: number): Promise<string> {
   const [asset] = await Asset.loadAsync(art);
   if (!asset.localUri) throw new Error('Sample art could not be loaded');
   return asset.localUri;

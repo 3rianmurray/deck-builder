@@ -151,7 +151,8 @@ type Menu =
   | { kind: 'hand'; hand: number; iid: string }
   | { kind: 'table' }
   | { kind: 'addDeck' }
-  | { kind: 'color' };
+  | { kind: 'color' }
+  | { kind: 'selection' };
 
 /** A card being carried by a finger. */
 interface Held {
@@ -495,15 +496,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setSelected([]);
     haptics.drop();
   };
-  /** With cards picked out (and nothing carried): the trash button, above the gather one (or in its place). */
-  const trashButton = { x: flipButton.x, y: chosen.length > 1 ? stackButton.y - FLIP_SIZE - 12 : stackButton.y, size: FLIP_SIZE };
+  /** With cards picked out (and nothing carried): the selection's ••• button (its other options, taking it off the table among them), above the gather one (or in its place). */
+  const moreButton = { x: flipButton.x, y: chosen.length > 1 ? stackButton.y - FLIP_SIZE - 12 : stackButton.y, size: FLIP_SIZE };
   /** Which of the selection's buttons is at a point on screen, if any (while nothing's carried). */
-  const selectionButtonAt = (x: number, y: number): 'flip' | 'gather' | 'trash' | null => {
+  const selectionButtonAt = (x: number, y: number): 'flip' | 'gather' | 'more' | null => {
     const on = (b: { x: number; y: number; size: number }) => Math.hypot(x - (b.x + b.size / 2), y - (b.y + b.size / 2)) <= b.size / 2 + 8;
     if (!chosen.length || held || groupMoving) return null;
     if (on(flipButton)) return 'flip';
     if (chosen.length > 1 && on(stackButton)) return 'gather';
-    if (on(trashButton)) return 'trash';
+    if (on(moreButton)) return 'more';
     return null;
   };
   /**
@@ -571,11 +572,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       setLassoPath: (p: { x: number; y: number }[] | null) => void;
       setGroupMoving: (moving: boolean) => void;
       stackButton: { x: number; y: number; size: number };
-      trashButton: { x: number; y: number; size: number };
+      moreButton: { x: number; y: number; size: number };
       dropGroup: (by: { x: number; y: number }) => void;
       flipGroup: () => void;
       trashSelection: () => void;
-      selectionButtonAt: (x: number, y: number) => 'flip' | 'gather' | 'trash' | null;
+      selectionButtonAt: (x: number, y: number) => 'flip' | 'gather' | 'more' | null;
       gatherGroup: (lead: string) => string | undefined;
       flipFromTap: (src: Source) => void;
       cameraLocked: boolean;
@@ -592,7 +593,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, trashButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -919,7 +920,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             touch.mode = 'button';
             if (b === 'flip') L.flipGroup();
             else if (b === 'gather') L.gatherGroup(L.selected[L.selected.length - 1]);
-            else L.trashSelection();
+            else L.setMenu({ kind: 'selection' });
             return;
           }
         }
@@ -982,7 +983,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           if (c.id === touch.first) continue;
           if (on(c, L.flipButton)) L.flipGroup();
           else if (on(c, L.stackButton)) L.gatherGroup(touch.groupLead);
-          else if (on(c, L.trashButton)) L.trashSelection();
           else if (!touch.groupTwist) {
             // Anywhere else, a second finger twists the group round the first.
             const first = touch.fingers.get(touch.first);
@@ -1557,6 +1557,23 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         ],
       };
     }
+    if (menu.kind === 'selection') {
+      const n = chosen.length;
+      const allLocked = chosen.every((id) => table.stacks.find((s) => s.id === id)?.locked);
+      return {
+        title: n === 1 ? 'Selected' : `${n} selected`,
+        tiles: [],
+        actions: [
+          { label: 'Turn left', onPress: () => commit(chosen.reduce((t, id) => turnStack(t, id, -90), table)) },
+          { label: 'Turn right', onPress: () => commit(chosen.reduce((t, id) => turnStack(t, id), table)) },
+          {
+            label: allLocked ? 'Unlock' : 'Lock in place',
+            onPress: () => commit(chosen.reduce((t, id) => setStack(t, id, { locked: !allLocked }), table)),
+          },
+          { label: n === 1 ? 'Take it off the table' : `Take all ${n} off the table`, destructive: true, onPress: trashSelection },
+        ],
+      };
+    }
     if (menu.kind === 'addDeck') {
       const playable = decks.filter((d) => d.cards.length);
       return {
@@ -1880,12 +1897,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
           ) : null}
 
-          {/* With cards picked out (dragged or not): one to take them off the table. */}
-          {!held && chosen.length ? (
+          {/* With cards picked out (not dragged): the selection's other options, taking it off the table among them. */}
+          {!held && !groupMoving && chosen.length ? (
             <View
               pointerEvents="none"
-              style={[styles.flipButton, styles.trashButton, { left: trashButton.x, top: trashButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }]}>
-              <SymbolView name={{ ios: 'trash', android: 'delete', web: 'delete' }} size={24} weight="semibold" tintColor="#fff" />
+              style={[styles.flipButton, styles.moreButtonLook, { left: moreButton.x, top: moreButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }]}>
+              <SymbolView name={{ ios: 'ellipsis', android: 'more_horiz', web: 'more_horiz' }} size={24} weight="bold" tintColor={colors.text} />
             </View>
           ) : null}
 
@@ -2028,7 +2045,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection')}
         title={sheet?.title}
         actions={sheet?.actions ?? []}
         onClose={() => setMenu(null)}
@@ -2398,7 +2415,7 @@ const styles = StyleSheet.create({
   },
   held: { position: 'absolute' },
   hidden: { opacity: 0 },
-  trashButton: { backgroundColor: colors.danger },
+  moreButtonLook: { backgroundColor: 'rgba(8,18,26,0.85)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.3)' },
   lockBadge: {
     position: 'absolute',
     left: -6,

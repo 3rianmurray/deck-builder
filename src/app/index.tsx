@@ -80,7 +80,7 @@ export default function HomeScreen() {
   }, []);
 
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
-  /** The Free Play table whose options are showing. */
+  /** The Table (Free Play, sandbox in the code) whose options are showing. */
   const [tableMenu, setTableMenu] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   /**
@@ -280,9 +280,9 @@ export default function HomeScreen() {
     );
   };
 
-  // Free Play tables (sandboxes in the code): big open tables to bring decks onto, Tabletop Simulator style.
+  // Tables (sandboxes in the code, once called Free Play): big open tables to bring decks onto, Tabletop Simulator style.
   const newSandboxTable = () => {
-    const table = createSandbox(`Free Play ${sandboxes.length + 1}`);
+    const table = createSandbox(`Table ${sandboxes.length + 1}`);
     router.push({ pathname: '/sandbox/[id]', params: { id: table.id } });
   };
   const confirmDeleteSandbox = (id: string, name: string) => {
@@ -294,7 +294,7 @@ export default function HomeScreen() {
   };
   const sandboxSection = sandboxes.length ? (
     <View style={{ gap: 10, marginBottom: 16 }}>
-      <Text style={styles.section}>Free Play</Text>
+      <Text style={styles.section}>Tables</Text>
       {sandboxes.map((t) => {
         const open = () => router.push({ pathname: '/sandbox/[id]', params: { id: t.id } });
         return (
@@ -304,7 +304,7 @@ export default function HomeScreen() {
               // The row shows the table's options (as a group's ••• does); Open goes straight in.
               onPress={() => setTableMenu(t.id)}
               accessibilityRole="button"
-              accessibilityLabel={`${t.name}, free play table`}
+              accessibilityLabel={`${t.name}, table`}
               accessibilityHint="Shows the table's options."
               {...rowActions([
                 { name: 'open', label: 'Open', run: open },
@@ -395,8 +395,8 @@ export default function HomeScreen() {
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 100 }]}
         header={
           <>
-            {sessionsSection}
             {sandboxSection}
+            {sessionsSection}
             <View style={styles.sectionRow}>
               <Text style={styles.section}>Decks</Text>
               <Pressable
@@ -412,7 +412,7 @@ export default function HomeScreen() {
               <View style={styles.empty}>
                 <Text style={styles.emptyTitle}>No decks yet</Text>
                 <Text style={styles.emptyBody}>
-                  Create a deck, add your own card art from Photos, then take it to the table to draw, shuffle and play.
+                  Create a deck and add your own card art. Then play it, turning its cards over one by one, or lay it out on a table.
                 </Text>
               </View>
             )}
@@ -425,15 +425,12 @@ export default function HomeScreen() {
         }
       />
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+        {/* The three things to make: a deck (the cards), a session (decks to flip through), a table (to lay out). */}
         <TourSpot id="home.newDeck" style={{ flex: 1 }}>
-          <Button label="+ New Deck" variant="primary" onPress={newDeck} />
+          <Button label="+ Deck" variant="primary" onPress={newDeck} />
         </TourSpot>
-        <Button
-          label="+ New Session"
-          onPress={() => router.push('/session/edit')}
-          disabled={decks.length === 0}
-          style={{ flex: 1 }}
-        />
+        <Button label="+ Session" onPress={() => router.push('/session/edit')} disabled={decks.length === 0} style={{ flex: 1 }} />
+        <Button label="+ Table" onPress={newSandboxTable} style={{ flex: 1 }} />
       </View>
 
       <ActionSheet
@@ -444,7 +441,6 @@ export default function HomeScreen() {
           { label: 'New Deck', onPress: newDeck },
           // The name prompt is another modal, which iOS can only show once this menu has gone.
           { label: 'New Group', opensModal: true, onPress: newGroup },
-          { label: 'New Free Play Table', onPress: newSandboxTable },
           // The file picker and share sheet are system screens too.
           { label: 'Import decks from a file…', opensModal: true, onPress: importFromFile },
           ...(decks.length ? [{ label: 'Back up all decks…', opensModal: true, onPress: backUpAll }] : []),

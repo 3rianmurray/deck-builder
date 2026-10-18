@@ -35,7 +35,7 @@ import * as T from '../lib/table';
 import { fitTilt, project, tiltTransform, unproject } from '../lib/tilt';
 import { setTourTarget, tourEvent, tourRunning, useTourStep } from '../lib/tour';
 import { cardRadius, cardRatio } from '../lib/types';
-import type { Card, CardInstance, Deck, PlayMode, Spot, TableState, Zone } from '../lib/types';
+import type { Card, CardInstance, Deck, Spot, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
 import { Text } from './Text';
 
@@ -363,6 +363,12 @@ interface PageProps {
  * Memoised: a session's screen redraws whenever its pager is held still or let go (e.g. as a finger lands on the
  * hand), and redrawing every deck's table then would be slow enough for the pager to start moving first.
  */
+/** A table with nothing in the hand or on the table: anything there goes onto the discard pile, face up. */
+function revealOnly(t: TableState | undefined): TableState | undefined {
+  if (!t || (!t.hand.length && !t.table.length)) return t;
+  return { ...t, hand: [], table: [], discard: [...t.hand, ...t.table].map((c) => ({ ...c, faceUp: true })).concat(t.discard) };
+}
+
 export const DeckTable = memo(function DeckTable({
   deckId,
   sessionId,
@@ -372,7 +378,9 @@ export const DeckTable = memo(function DeckTable({
 }: PageProps & { deckId: string; sessionId?: string }) {
   const decks = useDecks();
   const deck = decks.getDeck(deckId);
-  const [table, setTable] = useState<TableState | undefined>(() => decks.getTable(deckId, sessionId));
+  // Cards left in the hand or on the table from when decks had a table mode would be out of sight in reveal mode,
+  // so they start on the discard pile, face up.
+  const [table, setTable] = useState<TableState | undefined>(() => revealOnly(decks.getTable(deckId, sessionId)));
 
   useEffect(() => {
     if (table) decks.setTable(deckId, sessionId, table);
@@ -393,7 +401,6 @@ export const DeckTable = memo(function DeckTable({
         deck={deck}
         table={table}
         setTable={setTable}
-        setMode={(mode) => decks.setPlayMode(deck.id, mode)}
         setHandFolded={(folded) => decks.setHandFolded(deck.id, folded)}
         active={active}
         onTouchingCard={onTouchingCard}
@@ -407,7 +414,6 @@ function Table({
   deck,
   table,
   setTable,
-  setMode,
   setHandFolded,
   active,
   onTouchingCard,
@@ -416,11 +422,10 @@ function Table({
   deck: Deck;
   table: TableState;
   setTable: Dispatch<SetStateAction<TableState | undefined>>;
-  setMode: (mode: PlayMode) => void;
   setHandFolded: (folded: boolean) => void;
 }) {
-  const mode: PlayMode = deck.playMode ?? 'table';
-  const reveal = mode === 'reveal';
+  // Decks play in reveal mode: cards are laid out on Tables (see SandboxTable). Table mode's code stays for now.
+  const reveal = true as boolean;
   const { width, height: windowHeight } = useWindowDimensions();
   /** The whole screen, for showing a card full size over a menu. */
   const screen = { w: width, h: windowHeight };
@@ -978,30 +983,6 @@ function Table({
     // Once per revealed card.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flyingId]);
-
-  const switchMode = (next: PlayMode) => {
-    setMode(next);
-    haptics.tick();
-    const outside = table.hand.length + table.table.length;
-    // The walkthrough moves on once the switch is settled: straight away, or once the question below is answered.
-    if (next === 'reveal' && outside === 0) tourEvent('reveal-mode');
-    if (next !== 'reveal' || outside === 0) return;
-    // Reveal mode only shows the deck and discard pile, so offer to clear cards that would be hidden.
-    Alert.alert(
-      `${outside} ${outside === 1 ? 'card is' : 'cards are'} in your hand or on the table`,
-      'Reveal mode only shows the deck and discard pile.',
-      [
-        { text: 'Keep them aside', style: 'cancel', onPress: () => tourEvent('reveal-mode') },
-        {
-          text: 'Discard them',
-          onPress: () => {
-            apply((t) => ({ ...t, hand: [], table: [], discard: [...t.hand, ...t.table].map((c) => ({ ...c, faceUp: true })).concat(t.discard) }));
-            tourEvent('reveal-mode');
-          },
-        },
-      ],
-    );
-  };
 
   // ---- Drop zones and the FLIP button, in root-view coordinates ----
 
@@ -2310,9 +2291,6 @@ function Table({
         return {
           title: deck.name,
           actions: [
-            reveal
-              ? { label: 'Switch to table mode', onPress: () => switchMode('table') }
-              : { label: 'Switch to reveal mode', opensModal: true, onPress: () => switchMode('reveal') },
             ...(reveal
               ? []
               : [

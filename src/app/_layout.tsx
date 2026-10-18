@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { NamePrompt } from '../components/NamePrompt';
 import { TourOverlay } from '../components/TourOverlay';
 import { DecksProvider } from '../lib/DecksContext';
 import { colors } from '../theme';
@@ -43,6 +44,8 @@ export default function RootLayout() {
         </Stack>
         {/* The walkthrough, over every screen. */}
         <TourOverlay />
+        {/* The prompt for naming things, over every screen. */}
+        <NamePrompt />
       </DecksProvider>
     </GestureHandlerRootView>
   );

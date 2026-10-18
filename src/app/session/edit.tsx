@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { CardView } from '../../components/CardView';
 import { useDecks } from '../../lib/DecksContext';
+import { titleCase } from '../../lib/names';
 import { buildRows } from '../../lib/groups';
 import { deckSize } from '../../lib/types';
 import { colors } from '../../theme';
@@ -73,7 +74,7 @@ export default function EditSessionScreen() {
             <TextInput
               maxFontSizeMultiplier={MAX_TEXT_SCALE}
               value={name}
-              onChangeText={setName}
+              onChangeText={(t) => setName(titleCase(t))}
               style={styles.input}
               placeholder="e.g. Zombicide"
               placeholderTextColor={colors.textMuted}

@@ -2,7 +2,7 @@ import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { memo, useEffect, useMemo, useState } from 'react';
-import { Alert, Animated as RNAnimated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
+import { Animated as RNAnimated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing as ReEasing, LinearTransition, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
@@ -11,6 +11,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useDecks } from '../lib/DecksContext';
+import { askName } from '../lib/names';
 import * as haptics from '../lib/haptics';
 import { newId } from '../lib/id';
 import {
@@ -1185,10 +1186,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     haptics.drop();
   };
 
-  const rename = (title: string, current: string, done: (name: string) => void) => {
-    if (Platform.OS !== 'ios') return;
-    Alert.prompt(title, undefined, (name) => name.trim() && done(name.trim()), 'plain-text', current);
-  };
+  const rename = askName;
 
   /** A card brought up close, for its menu: about half the screen across (less, for a tall screen's sake). */
   const bigCard = (c: SandboxCard) => {

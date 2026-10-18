@@ -14,6 +14,7 @@ import { CropModal } from '../../components/CropModal';
 import { ReorderableGrid } from '../../components/ReorderableGrid';
 import { SpriteSheetModal } from '../../components/SpriteSheetModal';
 import { useDecks } from '../../lib/DecksContext';
+import { askName, titleCase } from '../../lib/names';
 import { appleScannerAvailable, fitScan, scanCards } from '../../lib/appleScanner';
 import { shareDecks } from '../../lib/deckExport';
 import { deleteDeckWarning } from '../../lib/deckInUse';
@@ -79,6 +80,8 @@ export default function DeckEditorScreen() {
   const [menu, setMenu] = useState<ArtTarget | `sheet-${ArtTarget}` | null>(null);
   /** The walkthrough, if it's running: only then are the sample pictures offered. */
   const tour = useTourStep();
+  /** The deck's name as it's being typed (in title case), until it's done. */
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
   /** Images waiting in the cropper, and what they become once cropped. */
   const [crop, setCrop] = useState<{ uris: string[]; target: ArtTarget | { cardId: string } } | null>(null);
   /** A photo of a card being found and straightened, and what it's for. */
@@ -244,8 +247,7 @@ export default function DeckEditorScreen() {
     ]);
 
   const renameCard = (card: Card) => {
-    if (Platform.OS !== 'ios') return;
-    Alert.prompt('Rename card', undefined, (name) => name.trim() && decks.renameCard(deck.id, card.id, name.trim()), 'plain-text', card.name);
+    askName('Rename card', card.name, (name) => decks.renameCard(deck.id, card.id, name));
   };
 
   const cardActions = selected
@@ -297,10 +299,12 @@ export default function DeckEditorScreen() {
             <Text style={styles.label}>Deck name</Text>
             <TextInput
               maxFontSizeMultiplier={MAX_TEXT_SCALE}
-              defaultValue={deck.name}
+              value={nameDraft ?? deck.name}
+              onChangeText={(t) => setNameDraft(titleCase(t))}
               onEndEditing={(e) => {
                 const name = e.nativeEvent.text.trim();
                 if (name && name !== deck.name) decks.renameDeck(deck.id, name);
+                setNameDraft(null);
               }}
               style={styles.input}
               placeholder="Deck name"

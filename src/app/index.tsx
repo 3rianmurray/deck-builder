@@ -12,6 +12,7 @@ import { LIFT_HOLD_MS, ReorderableList } from '../components/ReorderableList';
 import { SwipeRow } from '../components/SwipeRow';
 import type { SwipeSide } from '../components/SwipeRow';
 import { useDecks } from '../lib/DecksContext';
+import { askName } from '../lib/names';
 import { DeckFileError } from '../lib/deckFile';
 import { pickDeckFile, shareDecks } from '../lib/deckExport';
 import { deleteDeckWarning } from '../lib/deckInUse';
@@ -144,11 +145,6 @@ export default function HomeScreen() {
     tourEvent('deck-created');
   };
 
-  // Naming uses the system prompt, which only iOS has; elsewhere groups get a numbered name to rename later.
-  const askName = (title: string, current: string, done: (name: string) => void) => {
-    if (Platform.OS !== 'ios') return done(current);
-    Alert.prompt(title, undefined, (name) => name.trim() && done(name.trim()), 'plain-text', current);
-  };
 
   // Decks to and from files: a backup of them all to keep somewhere safe, and adding the decks in a file.
   const backUpAll = async () => {

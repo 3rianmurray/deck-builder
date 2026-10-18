@@ -2095,7 +2095,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   <Text style={styles.toolButtonText}>{label}</Text>
                 </Pressable>
               ))}
-            </ScrollView>            <Pressable
+            </ScrollView>
+            <Pressable
               onPress={() => showTools(!toolsOpen)}
               hitSlop={{ right: 10, top: 6, bottom: 6 }}
               accessibilityRole="button"

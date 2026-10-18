@@ -57,18 +57,18 @@ export function CardScanModal({ uri, cardRatio, onDone, onCropByHand, onCancel, 
 
   useEffect(() => {
     if (!uri) return;
-    let cancelled = false;
+    let canceled = false;
     startScan(uri)
       .then((s) => {
-        if (cancelled) return;
+        if (canceled) return;
         setScan({ ...s, source: uri });
         setCorners(s.corners);
         // A card photographed sideways is turned to stand the deck's way.
         setTurns(uprightCorners(s.corners, cardRatio) === s.corners ? 0 : 1);
       })
-      .catch((e) => !cancelled && Alert.alert('Could not open the photo', String(e)));
+      .catch((e) => !canceled && Alert.alert('Could not open the photo', String(e)));
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, [uri, cardRatio]);
 

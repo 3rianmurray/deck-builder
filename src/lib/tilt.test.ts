@@ -33,7 +33,7 @@ test('the far edge looks smaller than the near edge, and the near edge just fits
   close(nearRight.x - nearLeft.x, size.w);
 });
 
-test('the centre stays put, and a flat table maps straight through', () => {
+test('the center stays put, and a flat table maps straight through', () => {
   const c = project(size.w / 2, size.h / 2, size, tilt);
   close(c.x, size.w / 2);
   close(c.y, size.h / 2);

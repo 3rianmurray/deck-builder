@@ -74,7 +74,7 @@ export function cardRatio(deck: Pick<Deck, 'cardShape'>): number {
   return Number.isFinite(ratio) ? Math.min(MAX_RATIO, Math.max(MIN_RATIO, ratio)) : PRESET_RATIOS.standard;
 }
 
-/** Real card sizes of the presets, in millimetres, held upright. */
+/** Real card sizes of the presets, in millimeters, held upright. */
 export const PRESET_SIZES_MM = {
   /** Poker size, 2.5 × 3.5 in. */
   standard: { w: 63.5, h: 88.9 },
@@ -85,7 +85,7 @@ export const PRESET_SIZES_MM = {
 const INCH_LIMIT = 12;
 
 /**
- * A deck's real card size, in millimetres, as its cards lie: a landscape card is the same card as a portrait
+ * A deck's real card size, in millimeters, as its cards lie: a landscape card is the same card as a portrait
  * one, turned, so the same size with its sides swapped.
  */
 export function cardSizeMm(deck: Pick<Deck, 'cardShape'>): { w: number; h: number } {

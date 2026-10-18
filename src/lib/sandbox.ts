@@ -56,7 +56,7 @@ export interface SandboxTable {
   snapToGrid?: boolean;
   /** The camera stays put: sliding, zooming and turning the table do nothing (cards still move). */
   lockCamera?: boolean;
-  /** The table's cloth colour (a key of the app's colours), or none for green felt. */
+  /** The table's cloth color (a key of the app's colors), or none for green felt. */
   background?: string;
   /** The camera as it was left, or none yet (it starts looking at the middle of the table). */
   camera?: Camera;
@@ -71,7 +71,7 @@ export const TABLE_W = 3600;
 export const TABLE_H = 2400;
 /** How wide a standard (poker size) card is on the table, in table units: other cards are to the same scale. */
 export const CARD_W = 100;
-/** Table units per millimetre of a real card (a standard card is 63.5 mm wide). */
+/** Table units per millimeter of a real card (a standard card is 63.5 mm wide). */
 export const UNITS_PER_MM = CARD_W / 63.5;
 
 /** A new, empty table. */
@@ -496,7 +496,7 @@ const updateStack = (t: SandboxTable, stackId: string, fn: (s: SandboxStack) => 
 export const flipStack = (t: SandboxTable, stackId: string) =>
   updateStack(t, stackId, (s) => ({ ...s, cards: [...s.cards].reverse().map((c) => ({ ...c, faceUp: !c.faceUp })) }));
 
-/** Turns a stack a quarter turn, clockwise (or by y degrees: −90 for anticlockwise), landing on the table's 45° steps. */
+/** Turns a stack a quarter turn, clockwise (or by `by` degrees: −90 for counterclockwise), landing on the table's 45° steps. */
 export const turnStack = (t: SandboxTable, stackId: string, by = 90) =>
   updateStack(t, stackId, (s) => ({ ...s, angle: normalizeAngle(Math.round((s.angle + by) / SNAP_STEP) * SNAP_STEP) }));
 

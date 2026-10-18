@@ -3,7 +3,7 @@
 // Everything here is plain maths so touches can be mapped between the screen and the tilted table.
 
 export interface Tilt {
-  /** Distance from the viewer to the table's centre, in points. Smaller means stronger perspective. */
+  /** Distance from the viewer to the table's center, in points. Smaller means stronger perspective. */
   perspective: number;
   /** How far the table leans back, in degrees. 0 is flat. */
   angle: number;
@@ -33,7 +33,7 @@ export function project(x: number, y: number, size: Size, t: Tilt): { x: number;
   const dy = (y - size.h / 2) * t.scale;
   const sin = Math.sin(rad(t.angle));
   const cos = Math.cos(rad(t.angle));
-  // Leaning back: points above the centre (dy < 0) move away from the viewer, points below come closer.
+  // Leaning back: points above the center (dy < 0) move away from the viewer, points below come closer.
   const s = t.perspective / (t.perspective - dy * sin);
   return { x: size.w / 2 + dx * s, y: size.h / 2 + dy * cos * s };
 }
@@ -53,7 +53,7 @@ export function unproject(x: number, y: number, size: Size, t: Tilt): { x: numbe
   return { x: size.w / 2 + dx / t.scale, y: size.h / 2 + dy / t.scale };
 }
 
-/** The React Native transform that draws a table with this tilt, about its centre. */
+/** The React Native transform that draws a table with this tilt, about its center. */
 export function tiltTransform(t: Tilt) {
   return [{ perspective: t.perspective }, { rotateX: `${t.angle}deg` }, { scale: t.scale }];
 }

@@ -24,7 +24,7 @@ AccessibilityInfo.addEventListener('reduceMotionChanged', (on) => (reduceMotion 
 export const prefersReducedMotion = () => reduceMotion;
 
 /**
- * Which face (and which card) to draw, plus a 0→1 value for how far the card is turned towards edge-on.
+ * Which face (and which card) to draw, plus a 0→1 value for how far the card is turned toward edge-on.
  * When `faceUp` changes, the card turns edge-on, swaps faces out of sight, then turns back. If the card itself
  * changes in the same moment (a held stack turned over shows its bottom card), the old card is kept until the
  * swap, so the new one's face is never glimpsed on the way.
@@ -105,7 +105,7 @@ interface Props {
 }
 
 /**
- * Renders a card face, or the deck's back when `faceUp` is false or there is no card. Memoised: a busy table
+ * Renders a card face, or the deck's back when `faceUp` is false or there is no card. Memoized: a busy table
  * redraws often while cards are dragged, and most of its cards haven't changed, so they're skipped.
  */
 export const CardView = memo(function CardView({
@@ -127,7 +127,7 @@ export const CardView = memo(function CardView({
   const { shown, shownCard: card, transform, turning } = useFlip(faceUp, flipIn, cardProp);
   const showFace = shown && card;
   // While it turns, the face it's turning to is already there underneath, hidden, so its picture has loaded by
-  // the time it shows at the halfway point (rather than a grey card while it loads). Each side keeps its own
+  // the time it shows at the halfway point (rather than a gray card while it loads). Each side keeps its own
   // view, so a side doesn't reload when it goes from hidden to shown.
   const faceCard = shown ? card : cardProp;
   const faceVisible = !!showFace;
@@ -148,7 +148,7 @@ export const CardView = memo(function CardView({
   // While it turns, the card is drawn inside a clipping layer a little bigger than it (room for the lift and a
   // little shadow). On iOS that flattens the turning card into its own plane; otherwise its 3D turn is sorted
   // against the views beside it, and the half turning away goes behind them (the edges of a held stack, a
-  // shadow layer), showing grey where the card should be. Clipping only while it turns keeps its shadow whole
+  // shadow layer), showing gray where the card should be. Clipping only while it turns keeps its shadow whole
   // the rest of the time. The layer is always there, so starting a turn never rebuilds the card.
   // Room for the lift, the perspective bulge of the near edge as it turns, and a little shadow.
   const room = Math.ceil(Math.max(10, height * 0.15));
@@ -157,7 +157,7 @@ export const CardView = memo(function CardView({
     <Animated.View
       style={[
         { transform },
-        // Sized to the card exactly: unsized, it can stretch wider than the card and show as a grey card behind.
+        // Sized to the card exactly: unsized, it can stretch wider than the card and show as a gray card behind.
         tabletop && !flat && [tabletopShadow.resting, { width, height, borderRadius: radius, backgroundColor: colors.surfaceRaised }],
         style,
       ]}>
@@ -218,7 +218,7 @@ function DefaultBack({ radius }: { radius: number }) {
   );
 }
 
-/** A pile at least this big shows its full thickness; smaller piles thin out towards a single flat card. */
+/** A pile at least this big shows its full thickness; smaller piles thin out toward a single flat card. */
 const FULL_PILE = 20;
 /** Gap between drawn card edges, in points. */
 const EDGE_STEP = 1.5;
@@ -246,7 +246,7 @@ const DEFAULT_LEAN: Lean = { x: -0.7, y: -0.7 };
 
 /**
  * Gives a pile some depth. The bottom card sits exactly in the pile's spot, and each card above it steps
- * towards its top card, which is risen out of the spot. The pile's own box stays the size of one card, so
+ * toward its top card, which is risen out of the spot. The pile's own box stays the size of one card, so
  * nothing around it moves as it grows or shrinks.
  *
  * `lean` is which way the top card rises, in pile thicknesses: away from the middle of the table, as a real
@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   backMark: { color: colors.accent, fontSize: 18 },
-  // Paper-coloured card edges with a dark line between each, like the side of a real deck.
+  // Paper-colored card edges with a dark line between each, like the side of a real deck.
   edge: {
     position: 'absolute',
     backgroundColor: '#d8d3c8',

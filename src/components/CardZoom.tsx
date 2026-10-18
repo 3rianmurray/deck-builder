@@ -35,8 +35,8 @@ interface Props {
   onClose: () => void;
 }
 
-/** Space between the zoomed card and its neighbours waiting just off the sides of the screen. */
-const NEIGHBOUR_GAP = 32;
+/** Space between the zoomed card and its neighbors waiting just off the sides of the screen. */
+const NEIGHBOR_GAP = 32;
 
 /**
  * A face-up card blown up to nearly fill the screen, for reading small print. Swipe sideways to step to the
@@ -47,8 +47,8 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
   const ratio = cardRatio(deck);
   const width = Math.min(area.w * 0.92, area.h * 0.9 * ratio);
   const height = width / ratio;
-  // Neighbours sit one card-width-and-a-gap to either side, so they ride in with the swipe.
-  const spacing = width + NEIGHBOUR_GAP;
+  // Neighbors sit one card-width-and-a-gap to either side, so they ride in with the swipe.
+  const spacing = width + NEIGHBOR_GAP;
   const hasPrev = !!prev;
   const hasNext = !!next;
   const [anim] = useState(() => ({
@@ -56,12 +56,12 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
     scale: new Animated.Value(0.6),
     opacity: new Animated.Value(0),
   }));
-  // Neighbours stay hidden whenever the card isn't full size (opening, pinching, closing): shrinking pulls
+  // Neighbors stay hidden whenever the card isn't full size (opening, pinching, closing): shrinking pulls
   // them in from off screen, where they'd look like a mistake.
-  const [showNeighbours, setShowNeighbours] = useState(false);
+  const [showNeighbors, setShowNeighbors] = useState(false);
   // The cards sit on one long strip at fixed spots, `spacing` apart; `slot` is the spot of the card in the
-  // middle. A step slides the strip one spot along and moves `slot` with it. Nothing is ever recentred: the
-  // slide runs on the native animation thread while a recentre would come from here, and the two landing on
+  // middle. A step slides the strip one spot along and moves `slot` with it. Nothing is ever recenterd: the
+  // slide runs on the native animation thread while a recenter would come from here, and the two landing on
   // different frames is what made the art flicker between the old and new card.
   const [slot, setSlot] = useState(0);
 
@@ -69,8 +69,8 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
     Animated.parallel([
       Animated.spring(anim.scale, { toValue: 1, friction: 7, tension: 80, useNativeDriver: true }),
       Animated.timing(anim.opacity, { toValue: 1, duration: 140, useNativeDriver: true }),
-    // Only if it actually got there: closing mid-open stops it, and the neighbours mustn't show while it shrinks.
-    ]).start(({ finished }) => finished && setShowNeighbours(true));
+    // Only if it actually got there: closing mid-open stops it, and the neighbors mustn't show while it shrinks.
+    ]).start(({ finished }) => finished && setShowNeighbors(true));
   }, [anim]);
 
   // What the gesture handling needs that changes from render to render, read when it's needed. The handler
@@ -96,8 +96,8 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
     };
 
     const close = (to: { x: number; y: number; scale: number }) => {
-      // A swipe away keeps its neighbours in view as it slides; anything that shrinks hides them first.
-      if (to.scale < 1) setShowNeighbours(false);
+      // A swipe away keeps its neighbors in view as it slides; anything that shrinks hides them first.
+      if (to.scale < 1) setShowNeighbors(false);
       return Animated.parallel([
         Animated.timing(anim.pan, { toValue: { x: rest() + to.x, y: to.y }, duration: 180, easing: Easing.in(Easing.quad), useNativeDriver: true }),
         Animated.timing(anim.scale, { toValue: to.scale, duration: 180, useNativeDriver: true }),
@@ -132,7 +132,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
             s.pinching = true;
             s.pinchStart = distance(touches[0], touches[1]);
             anim.pan.setValue({ x: rest(), y: 0 });
-            setShowNeighbours(false);
+            setShowNeighbors(false);
           }
           const k = s.pinchStart > 0 ? distance(touches[0], touches[1]) / s.pinchStart : 1;
           s.pinchScale = Math.min(1, Math.max(0.4, k));
@@ -151,7 +151,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
         if (s.pinching) {
           // Released after pinching: closed if it was squeezed far enough, otherwise back to full size.
           if (s.pinchScale <= PINCH_CLOSE) return close({ x: 0, y: 0, scale: 0.3 });
-          return Animated.spring(anim.scale, { toValue: 1, useNativeDriver: true }).start(({ finished }) => finished && setShowNeighbours(true));
+          return Animated.spring(anim.scale, { toValue: 1, useNativeDriver: true }).start(({ finished }) => finished && setShowNeighbors(true));
         }
         if (!s.swiping) return close({ x: 0, y: 0, scale: 0.6 }); // a tap
         // Only the locked direction counts, so a slightly crooked swipe still reads as straight.
@@ -164,7 +164,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
         const dir: 1 | -1 = d < 0 ? 1 : -1;
         const { hasNext, hasPrev, onStep, area } = latest.get();
         if (s.axis === 'x' && onStep && (dir === 1 ? hasNext : hasPrev)) {
-          // Slide the strip one spot along, so the neighbour is in the middle, then make it the zoomed card.
+          // Slide the strip one spot along, so the neighbor is in the middle, then make it the zoomed card.
           // The strip stays where it ends up; the new card's spot is simply one further along.
           Object.assign(strip, { slot: strip.slot + dir, stepping: { dir } });
           Animated.timing(anim.pan, {
@@ -199,7 +199,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
             item ? (
               <View
                 key={item.key}
-                style={[styles.slot, { left: spot * spacing }, spot !== slot && !showNeighbours && styles.hidden]}>
+                style={[styles.slot, { left: spot * spacing }, spot !== slot && !showNeighbors && styles.hidden]}>
                 <CardView deck={deck} card={item.card} width={width} sharp />
               </View>
             ) : null,

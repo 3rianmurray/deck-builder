@@ -30,7 +30,7 @@ function sideText(n: number, shape: Extract<FixedShape, { kind: 'custom' }>): st
   return `${n}${unit}`;
 }
 
-/** Two typed sides as a custom size: in one unit (millimetres, if they were typed in different ones). */
+/** Two typed sides as a custom size: in one unit (millimeters, if they were typed in different ones). */
 function customFrom(w: string, h: string): FixedShape | null {
   const a = parseSizeWithUnit(w);
   const b = parseSizeWithUnit(h);

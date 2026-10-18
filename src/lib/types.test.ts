@@ -34,7 +34,7 @@ test('a landscape card is the portrait card turned: the same size, sides swapped
   assert.deepEqual(cardSizeMm({ cardShape: { kind: 'usMini', landscape: true } }), { w: 63, h: 41 });
 });
 
-test('custom sizes can be typed in inches or millimetres', () => {
+test('custom sizes can be typed in inches or millimeters', () => {
   const inches = cardSizeMm({ cardShape: { kind: 'custom', width: 2.5, height: 3.5 } });
   assert.ok(Math.abs(inches.w - 63.5) < 1e-9 && Math.abs(inches.h - 88.9) < 1e-9);
   assert.deepEqual(cardSizeMm({ cardShape: { kind: 'custom', width: 120, height: 70 } }), { w: 120, h: 70 });
@@ -65,7 +65,7 @@ test('custom sizes need a unit, and are read in it', () => {
   assert.equal(parseSizeWithUnit('2.5'), null);
   assert.equal(parseSizeWithUnit('mm'), null);
   assert.equal(parseSizeWithUnit('0mm'), null);
-  // A size in millimetres stays millimetres, however small.
+  // A size in millimeters stays millimeters, however small.
   assert.deepEqual(cardSizeMm({ cardShape: { kind: 'custom', width: 10, height: 12, unit: 'mm' } }), { w: 10, h: 12 });
   assert.ok(Math.abs(cardSizeMm({ cardShape: { kind: 'custom', width: 2, height: 3, unit: 'in' } }).h - 76.2) < 1e-9);
 });

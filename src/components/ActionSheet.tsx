@@ -20,7 +20,7 @@ export interface SheetAction {
   keepsOpen?: boolean;
 }
 
-/** An action shown as a small labelled icon tile, in a grid above the other actions. */
+/** An action shown as a small labeled icon tile, in a grid above the other actions. */
 export interface SheetTile extends SheetAction {
   /** SF Symbol on iOS, Material Symbol on Android and web. */
   icon: SymbolViewProps['name'];
@@ -90,7 +90,7 @@ export function ActionSheet(props: Props) {
     }
   }, [guided, visible, guide]);
   const isGuided = (a: SheetAction) => guided?.step.tile === a.label;
-  // Everything else is greyed out and can't be pressed meanwhile (Cancel still closes the menu).
+  // Everything else is grayed out and can't be pressed meanwhile (Cancel still closes the menu).
   const isOff = (a: SheetAction) => !!guided && !isGuided(a);
 
   useEffect(() => {

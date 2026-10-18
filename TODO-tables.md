@@ -9,7 +9,7 @@
 - [x] 8. Turn 90° left
 - [ ] 9. (on hold) Scale a card/stack: from its menu, a transform box to drag, in 10% steps
 - [x] 10. Rotate a selection of cards
-- [x] 11. Change the table's background colour
+- [x] 11. Change the table's background color
 - [x] 12. Fan a stack: vertical or horizontal, as close as the grid allows
 - [x] 14. Lock position (card/stack option)
 - [x] 15. Selected: one card or stack shows the flip button; several show flip and group, without dragging

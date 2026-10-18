@@ -91,8 +91,8 @@ function listen() {
     const sign = Platform.OS === 'android' ? -1 : 1;
     const g = { x: a.x * sign, y: a.y * sign };
     rest = rest ? { x: rest.x + (g.x - rest.x) * SETTLE, y: rest.y + (g.y - rest.y) * SETTLE } : g;
-    // Tilting the phone's right edge down moves the eye left (towards the raised edge) as seen on screen, so
-    // tops lean right; the top edge down moves it towards the bottom of the screen, so tops lean up.
+    // Tilting the phone's right edge down moves the eye left (toward the raised edge) as seen on screen, so
+    // tops lean right; the top edge down moves it toward the bottom of the screen, so tops lean up.
     const target = { x: (g.x - rest.x) * TILT_GAIN, y: -(g.y - rest.y) * TILT_GAIN };
     smoothed = { x: smoothed.x + (target.x - smoothed.x) * SMOOTH, y: smoothed.y + (target.y - smoothed.y) * SMOOTH };
     const limit = (v: number) => Math.max(-MAX_TILT, Math.min(MAX_TILT, v));
@@ -120,13 +120,13 @@ function stop() {
 export function useViewTilt(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
-    let cancelled = false;
+    let canceled = false;
     users++;
     Accelerometer.isAvailableAsync().then((ok) => {
-      if (ok && !cancelled && users > 0) start();
+      if (ok && !canceled && users > 0) start();
     });
     return () => {
-      cancelled = true;
+      canceled = true;
       users--;
       if (users === 0) stop();
     };

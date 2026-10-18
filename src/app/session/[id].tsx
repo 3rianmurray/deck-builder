@@ -34,7 +34,7 @@ export default function SessionScreen() {
   const decks = (session?.deckIds ?? []).flatMap((deckId) => getDeck(deckId) ?? []);
   const current = Math.max(0, Math.min(index, decks.length - 1));
 
-  // Keep the current deck's tab centred, so swiping to a deck far along the row doesn't leave its tab off screen.
+  // Keep the current deck's tab centerd, so swiping to a deck far along the row doesn't leave its tab off screen.
   const currentTab = tabLayouts[current];
   useEffect(() => {
     if (!currentTab) return;
@@ -70,7 +70,7 @@ export default function SessionScreen() {
       <TableTopBar controls={controls} />
       <View>
         {/* Sized from the text size setting, so changing it (even while the app is open) re-fits the row: the pills
-            stay centred in it and it can't be nudged up and down. */}
+            stay centerd in it and it can't be nudged up and down. */}
         <ScrollView
           ref={tabsRef}
           horizontal

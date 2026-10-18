@@ -56,7 +56,7 @@ async function pickFiles(multiple: boolean): Promise<string[]> {
   return result.canceled ? [] : result.assets.map((a) => a.uri);
 }
 
-/** Returns the photo's uri, or null if the user cancelled or denied camera access. */
+/** Returns the photo's uri, or null if the user canceled or denied camera access. */
 async function takePhoto(): Promise<string | null> {
   const { granted } = await ImagePicker.requestCameraPermissionsAsync();
   if (!granted) {

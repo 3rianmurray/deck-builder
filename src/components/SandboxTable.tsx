@@ -104,7 +104,7 @@ const TAP_SLOP = 8;
 const EXTRA_TAP_MS = 350;
 /** Roughly the hand tray's height, for placing the camera at the start (the tray sizes itself to its cards). */
 const HAND_H = 160;
-/** Cloth colours a table can have (beside the classic felt, its default), by key: name and colour. */
+/** Cloth colors a table can have (beside the classic felt, its default), by key: name and color. */
 const CLOTHS: Record<string, { name: string; color: string }> = {
   blue: { name: 'Blue', color: '#1d3a5c' },
   green: { name: 'Green', color: '#1f4d33' },
@@ -152,7 +152,7 @@ type Menu =
   | { kind: 'hand'; hand: number; iid: string }
   | { kind: 'table' }
   | { kind: 'addDeck' }
-  | { kind: 'colour' };
+  | { kind: 'color' };
 
 /** A card being carried by a finger. */
 interface Held {
@@ -1498,7 +1498,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         tiles: [],
         actions: [
           { label: 'Add a deck…', onPress: () => setTimeout(() => setMenu({ kind: 'addDeck' }), 250) },
-          { label: 'Table colour…', onPress: () => setTimeout(() => setMenu({ kind: 'colour' }), 250) },
+          { label: 'Table color…', onPress: () => setTimeout(() => setMenu({ kind: 'color' }), 250) },
           {
             label: 'Reset the view',
             onPress: () => {
@@ -1522,14 +1522,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         ],
       };
     }
-    if (menu.kind === 'colour') {
+    if (menu.kind === 'color') {
       const pick = (background: string | undefined) => {
         const { background: _old, ...rest } = table;
         updateSandbox(background ? { ...rest, background } : rest);
         haptics.tick();
       };
       return {
-        title: 'Table colour',
+        title: 'Table color',
         tiles: [],
         actions: [
           { label: `Classic felt${table.background ? '' : '  ✓'}`, onPress: () => pick(undefined) },
@@ -1600,7 +1600,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           {/* The table, seen through the camera. */}
           <Animated.View style={[styles.world, worldStyle]} pointerEvents="none">
             <View style={styles.tableEdge} />
-            {/* The cloth's colour, if one's been chosen: under a lighter weave. */}
+            {/* The cloth's color, if one's been chosen: under a lighter weave. */}
             {cloth ? <View style={[styles.cloth, { backgroundColor: cloth.color }]} /> : null}
             <Image source={require('../../assets/textures/felt.png')} resizeMode="repeat" style={[styles.felt, cloth && styles.feltOverCloth]} />
             {gridOn ? <GridLines /> : null}
@@ -1957,7 +1957,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'colour')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color')}
         title={sheet?.title}
         actions={sheet?.actions ?? []}
         onClose={() => setMenu(null)}

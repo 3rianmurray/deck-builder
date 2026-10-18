@@ -15,7 +15,7 @@ function random(seed: number) {
 
 /**
  * A made-up sprite sheet: `columns` × `rows` cells of `cardW` × `cardH` pixels, `gutter` pixels apart (and round
- * the edge), on a flat background. Each card is drawn as busy art in its own colours, with a dark frame; cells
+ * the edge), on a flat background. Each card is drawn as busy art in its own colors, with a dark frame; cells
  * at or past `count` are left as background, and `back` puts art in the very last cell too.
  */
 function sheet(opts: {

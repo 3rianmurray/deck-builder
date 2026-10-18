@@ -91,7 +91,7 @@ export interface GridHold {
 }
 
 /**
- * One grid cell. Memoised so that during a drag only the cells whose state changes (picked up, or the
+ * One grid cell. Memoized so that during a drag only the cells whose state changes (picked up, or the
  * landing slot) re-render, not the whole grid.
  */
 const Cell = memo(function Cell<T>({

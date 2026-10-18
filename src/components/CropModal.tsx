@@ -24,7 +24,7 @@ interface Size {
   w: number;
   h: number;
 }
-/** `zoom` is relative to the scale where the image just covers the frame; x/y offset the image centre from the frame centre. */
+/** `zoom` is relative to the scale where the image just covers the frame; x/y offset the image center from the frame center. */
 interface Transform {
   zoom: number;
   x: number;
@@ -91,19 +91,19 @@ export function CropModal({ uris, ratio, roundness, onDone, onCancel }: Props) {
 
   useEffect(() => {
     if (!visible || index >= uris.length) return;
-    let cancelled = false;
+    let canceled = false;
     (async () => {
       try {
         const img = await loadUpright(uris[index]);
-        if (cancelled) return;
+        if (canceled) return;
         setT(INITIAL);
         setLoaded({ index, uri: img.uri, w: img.width, h: img.height });
       } catch (e) {
-        if (!cancelled) Alert.alert('Could not open image', String(e));
+        if (!canceled) Alert.alert('Could not open image', String(e));
       }
     })();
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, [visible, uris, index]);
 

@@ -10,7 +10,7 @@ export const MAX_TEXT_SCALE = 1.25;
 /**
  * Text that follows the phone's text size setting (up to `MAX_TEXT_SCALE`), and is laid out afresh when the
  * setting changes. iOS otherwise keeps text measured at the old size until the screen is rebuilt, leaving words
- * off centre in their buttons.
+ * off center in their buttons.
  */
 export function Text(props: TextProps) {
   const { fontScale } = useWindowDimensions();

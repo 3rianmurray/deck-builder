@@ -2,7 +2,7 @@
 // player to adjust), and the perspective transform that maps them onto a flat card of the deck's shape. Pure
 // maths on a small decoded copy of the photo, so it can be tested without a phone.
 //
-// Finding the card: the background's colour is taken from the photo's edges, everything that differs enough
+// Finding the card: the background's color is taken from the photo's edges, everything that differs enough
 // from it is the card's side of the line, and the biggest such region is the card. Its outline is cut down to
 // four corners, then each side is fitted with a straight line through the outline's points along it (leaving
 // out the ends, where corners are rounded), and the corners put where those lines meet, as on a card with
@@ -107,14 +107,14 @@ export function outputSize(q: Quad, cardRatio: number): { width: number; height:
 
 // ---- Finding the card ----
 
-/** How far a pixel's colour must be from the background's to count as card (at least). */
+/** How far a pixel's color must be from the background's to count as card (at least). */
 const MIN_DIFFERENCE = 28;
 /** The found card must cover between these fractions of the photo to be believed. */
 const MIN_AREA = 0.04;
 const MAX_AREA = 0.97;
 
-/** The background's colour: the middle value of each channel round the photo's edges. */
-function backgroundColour({ width, height, data }: Pixels): [number, number, number] {
+/** The background's color: the middle value of each channel round the photo's edges. */
+function backgroundColor({ width, height, data }: Pixels): [number, number, number] {
   const band = Math.max(2, Math.round(Math.min(width, height) * 0.03));
   const ch: number[][] = [[], [], []];
   for (let y = 0; y < height; y++) {
@@ -174,8 +174,8 @@ function largestRegion(mask: Uint8Array, width: number, height: number): { regio
       const i = stack[--top];
       size++;
       const x = i % width;
-      const neighbours = [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, i - width, i + width];
-      for (const n of neighbours) {
+      const neighbors = [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, i - width, i + width];
+      for (const n of neighbors) {
         if (n < 0 || n >= mask.length || !mask[n] || label[n]) continue;
         label[n] = next;
         stack[top++] = n;
@@ -289,7 +289,7 @@ function toSegment(p: Point, a: Point, b: Point) {
 
 /**
  * Sharpens rough corners: fits a line to each side through the outline points along it (but not near its
- * ends, where the card's corners are rounded) and puts the corners where neighbouring lines meet.
+ * ends, where the card's corners are rounded) and puts the corners where neighboring lines meet.
  */
 function refineCorners(q: Quad, pts: Point[]): Quad {
   // Wide enough to take in a side that bows out past the rough corners (which sit where the rounding starts).
@@ -334,7 +334,7 @@ function isConvex(q: Quad): boolean {
 export function findCard(img: Pixels): { corners: Quad; found: boolean } {
   const { width, height, data } = img;
   const fallback = { corners: insetQuad(width, height), found: false };
-  const bg = backgroundColour(img);
+  const bg = backgroundColor(img);
   const diff = new Float32Array(width * height);
   for (let i = 0; i < diff.length; i++) {
     diff[i] = Math.hypot(data[i * 4] - bg[0], data[i * 4 + 1] - bg[1], data[i * 4 + 2] - bg[2]);

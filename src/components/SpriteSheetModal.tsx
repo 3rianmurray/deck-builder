@@ -77,17 +77,17 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
 
   useEffect(() => {
     if (!uri) return;
-    let cancelled = false;
+    let canceled = false;
     loadUpright(uri)
       .then(async (img) => {
-        if (cancelled) return;
+        if (canceled) return;
         setLoaded({ ...img, source: uri });
         // Then an educated guess at its grid, filled in as a start. If it can't be worked out, the numbers
         // stay as they were (sheets from one game usually share a layout).
         setGuessing(true);
         try {
           const found = guessSheet(await smallPixels(img.uri, img.width), cardRatio);
-          if (cancelled) return;
+          if (canceled) return;
           setRowsText(String(found.rows));
           setColsText(String(found.columns));
           if (pickOne) {
@@ -100,12 +100,12 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
         } catch {
           // Not worth bothering the player about: they set the grid by hand, as before.
         } finally {
-          if (!cancelled) setGuessing(false);
+          if (!canceled) setGuessing(false);
         }
       })
-      .catch((e) => !cancelled && Alert.alert('Could not open image', String(e)));
+      .catch((e) => !canceled && Alert.alert('Could not open image', String(e)));
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, [uri, cardRatio, pickOne]);
 

@@ -113,7 +113,7 @@ const HAND_TAB_HEIGHT = 24;
 /** Size of the trash can that appears while dragging. */
 const TRASH_SIZE = 56;
 /**
- * Between two cards side by side, how far towards each card's middle (as a fraction of the step from one to the
+ * Between two cards side by side, how far toward each card's middle (as a fraction of the step from one to the
  * next) still counts as between them, for putting cards in there.
  */
 const INSERT_REACH = 0.72;
@@ -360,7 +360,7 @@ interface PageProps {
  * A deck's play table: piles, play area and hand, or reveal mode. Loads and saves the deck's table state,
  * which is kept separately for each session (`sessionId`) and for playing the deck on its own.
  *
- * Memoised: a session's screen redraws whenever its pager is held still or let go (e.g. as a finger lands on the
+ * Memoized: a session's screen redraws whenever its pager is held still or let go (e.g. as a finger lands on the
  * hand), and redrawing every deck's table then would be slow enough for the pager to start moving first.
  */
 /** A table with nothing in the hand or on the table: anything there goes onto the discard pile, face up. */
@@ -531,7 +531,7 @@ function Table({
   /**
    * Where the held cards are headed right now, as worked out from the finger: the zone it's over, the gap or
    * spot they'd land in, and the stack they'd go on. Kept here as well as in state, because the table redraws
-   * for them at low priority (see ollowFinger), so the rendered ones can be a moment behind the finger.
+   * for them at low priority (see `followFinger`), so the rendered ones can be a moment behind the finger.
    */
   const target = useMemo(() => {
     const now: { hover: Zone | null; insertAt: InsertAt | null; stackTarget: string | null } = {
@@ -581,7 +581,7 @@ function Table({
   const [flight] = useState(() => ({ pos: new Animated.ValueXY(), scale: new Animated.Value(1), shadow: new Animated.Value(0) }));
   /** The flying card is gone once the real top card of the discard pile has been drawn under it. */
   const flightDone = (iid: string) => setFlying((f) => (f?.landed && f.iid === iid ? null : f));
-  /** The card (by instance, so its neighbours can be found) blown up to nearly full screen, if any. */
+  /** The card (by instance, so its neighbors can be found) blown up to nearly full screen, if any. */
   const [zoomed, setZoomed] = useState<string | null>(null);
   /** A card shown full size over its menu (see `cardMenu`). */
   const [menuZoom, setMenuZoom] = useState<string | null>(null);
@@ -1015,7 +1015,7 @@ function Table({
 
   /**
    * The hand's tray floats over the bottom of the table, and folds away by sliding down (natively, so nothing
-   * else moves) until only the tops of its cards show above the bottom of the screen. oldShift is how far it
+   * else moves) until only the tops of its cards show above the bottom of the screen. `foldShift` is how far it
    * slides; handShows is how much of it shows, which the table leaves room for at its bottom.
    */
   const foldShift = handRect ? Math.max(0, handRect.h - handDrop - HAND_FOLDED_SHOWS) : 0;
@@ -1339,12 +1339,12 @@ function Table({
   const waitingFlights = flights.filter((f) => !f.to).map((f) => f.iid).join(',');
   useEffect(() => {
     if (!waitingFlights) return;
-    let cancelled = false;
+    let canceled = false;
     // A moment for the new layout to be in place to measure.
     const timer = setTimeout(() => {
       const waiting = flights.filter((f) => !f.to);
       Promise.all(waiting.map((f) => measureLanding(f.iid))).then((tos) => {
-        if (cancelled) return;
+        if (canceled) return;
         const measured = new Map(waiting.map((f, i) => [f.iid, tos[i]]));
         // Any that can't be found (gone, or off screen) just appear where they are.
         setFlights((all) =>
@@ -1357,7 +1357,7 @@ function Table({
       });
     }, MEASURE_WAIT_MS);
     return () => {
-      cancelled = true;
+      canceled = true;
       clearTimeout(timer);
     };
     // Measures once per batch of flights; everything else is read fresh.
@@ -1456,7 +1456,7 @@ function Table({
   };
 
   // Press and hold a face-up card without moving to open it full size. The timer restarts with each press and
-  // is cancelled as soon as the card lifts, a pinch starts, or the finger lets go (any of which changes `holdKey`).
+  // is canceled as soon as the card lifts, a pinch starts, or the finger lets go (any of which changes `holdKey`).
   const holding = drag && drag.zoomable && !drag.active && !drag.abandoned && !drag.pinch;
   const holdKey = holding ? drag.pressedAt : null;
   const holdIid = holding ? drag.iid : null;
@@ -2035,7 +2035,7 @@ function Table({
       </>,
       measureCard(inst.iid),
       // The card being dragged keeps its spot, as the blank space that moves to where it will land; any other
-      // cards carried with it step out of the row, and their neighbours close up.
+      // cards carried with it step out of the row, and their neighbors close up.
       isHeld(inst.iid) && inst.iid !== drag?.iid,
       place,
     );
@@ -2352,7 +2352,7 @@ function Table({
     if (!landing || landing.revealed || !landingRect || !landingOrigin) return;
     /** Glides the stand-in onto a card at this spot and size on the (flat) table. */
     const glideTo = (x: number, y: number, w: number, h: number) => {
-      // The stand-in scales about its centre, so aim its centre at the card's centre (risen, on a stack).
+      // The stand-in scales about its center, so aim its center at the card's center (risen, on a stack).
       const toX = x + landing.rise.x + w / 2 - landing.width / 2;
       const toY = y + landing.rise.y + h / 2 - landing.width / ratio / 2;
       Animated.parallel([
@@ -2422,7 +2422,7 @@ function Table({
   const openSearch = () => setSearchZone(table.deck.length ? 'deck' : 'discard');
 
   // Between the piles. While cards are dragged they step aside for the flip button, the only one that does
-  // anything then (see lipRect).
+  // anything then (see `flipRect`).
   const pileButtons = (
     <>
       <Button label="Draw" variant="primary" onPress={drawOne} disabled={!table.deck.length || shuffleStep} />
@@ -2778,7 +2778,7 @@ function Table({
                 bottom: -handDrop,
                 // A little into the home indicator's space.
                 paddingBottom: Math.max(4, insets.bottom - 14) + handDrop,
-                // Folded away, it slides down until just the tops of its cards show (see oldShift).
+                // Folded away, it slides down until just the tops of its cards show (see `foldShift`).
                 transform: [{ translateY: handFold.interpolate({ inputRange: [0, 1], outputRange: [0, foldShift] }) }],
               },
               highlight('hand'),
@@ -3196,18 +3196,18 @@ function StackTurn({
   const [t] = useState(() => new Animated.Value(0));
   const [over, setOver] = useState(false);
   useEffect(() => {
-    let cancelled = false;
+    let canceled = false;
     const half = (toValue: number, easing: (v: number) => number) =>
       Animated.timing(t, { toValue, duration: STACK_TURN_HALF_MS, easing, useNativeDriver: true });
     const timer = setTimeout(() => {
       half(1, Easing.in(Easing.quad)).start(({ finished }) => {
-        if (!finished || cancelled) return;
+        if (!finished || canceled) return;
         setOver(true);
-        half(0, Easing.out(Easing.quad)).start(({ finished: done }) => done && !cancelled && onDone());
+        half(0, Easing.out(Easing.quad)).start(({ finished: done }) => done && !canceled && onDone());
       });
     }, SHEET_CLEAR_MS);
     return () => {
-      cancelled = true;
+      canceled = true;
       clearTimeout(timer);
     };
     // Turns once.

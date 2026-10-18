@@ -25,7 +25,7 @@ export const tabletopShadow = {
 export function TabletopSurface() {
   return (
     <View style={[StyleSheet.absoluteFill, styles.surface]}>
-      {/* Base cloth colour, lighter where the lamp is (top centre), darker nearer the player. */}
+      {/* Base cloth color, lighter where the lamp is (top center), darker nearer the player. */}
       <LinearGradient colors={[colors.feltLight, colors.felt, colors.feltDeep]} locations={[0, 0.45, 1]} style={StyleSheet.absoluteFill} />
       {/*
         The weave, on a plane tilted back. It's oversized so the tilt never shows its edges. The clipping
@@ -37,7 +37,7 @@ export function TabletopSurface() {
           <Image source={FELT_TEXTURE} resizeMode="repeat" style={styles.texture} />
         </View>
       </View>
-      {/* Vignette: the cloth darkens towards the far edge and towards the player (not at the sides). */}
+      {/* Vignette: the cloth darkens toward the far edge and toward the player (not at the sides). */}
       <LinearGradient colors={['rgba(0,0,0,0.45)', 'transparent']} style={[styles.edge, { top: 0, height: '22%' }]} />
       <LinearGradient colors={['transparent', 'rgba(0,0,0,0.5)']} style={[styles.edge, { bottom: 0, height: '25%' }]} />
     </View>

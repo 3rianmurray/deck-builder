@@ -2,13 +2,13 @@
 // the cells hold a card. Pure maths on a (small) decoded image, so it can be tested without a phone.
 //
 // Three clues:
-// 1. Where cards meet. Between two cards there's usually a gutter (a line of one even colour) or at least a
+// 1. Where cards meet. Between two cards there's usually a gutter (a line of one even color) or at least a
 //    sharp change from one card's art to the next. For each possible number of columns, the lines where
 //    boundaries would fall are compared with the lines halfway between them (the middles of cards). The right
 //    count has strong boundaries where it expects them and none in between. Half the right count fails too,
 //    since its "middles" land on real boundaries; double it puts half its boundaries mid-card.
 // 2. The card shape. A grid whose cells come out the deck's card shape is likelier than one that doesn't.
-// 3. Empty cells. Cells of one flat colour are unused; the cards are the cells before them.
+// 3. Empty cells. Cells of one flat color are unused; the cards are the cells before them.
 
 /** A decoded image: `data` holds 4 bytes (red, green, blue, alpha) per pixel, row by row. */
 export interface Pixels {
@@ -33,7 +33,7 @@ export interface SheetGuess {
 
 /** The most columns or rows considered. */
 const MAX_SIDE = 20;
-/** Cells narrower than this (in the analysed image's pixels) are too small to be cards. */
+/** Cells narrower than this (in the analyzed image's pixels) are too small to be cards. */
 const MIN_CELL_PX = 6;
 /** How clearly a grid's boundaries must stand out (see `lineContrast`) to count as seen. */
 const CLEAR = 1.2;
@@ -52,7 +52,7 @@ function brightness({ width, height, data }: Pixels): Float32Array {
 /**
  * For each line across one direction of the image (each column, for `along` 'x'): how much it looks like a
  * boundary between cards, as a score where 0 is ordinary for this image and each 1 is a standard deviation
- * more boundary-like. A line counts if it's a sharp change from the line before, or if it's one even colour.
+ * more boundary-like. A line counts if it's a sharp change from the line before, or if it's one even color.
  */
 function boundaryProfile(lum: Float32Array, width: number, height: number, along: 'x' | 'y'): Float32Array {
   const lines = along === 'x' ? width : height;
@@ -114,7 +114,7 @@ export function lineContrast(profile: Float32Array, n: number): number {
   return on / (n - 1) - off / n;
 }
 
-/** How close a cell's shape (width over height) is to the card's, from 1 (exact) towards 0. */
+/** How close a cell's shape (width over height) is to the card's, from 1 (exact) toward 0. */
 function shapeFit(cell: number, card: number): number {
   const miss = Math.log(cell / card);
   // Art drawn sideways (cards played landscape) fits too, a little less readily.
@@ -123,7 +123,7 @@ function shapeFit(cell: number, card: number): number {
   return Math.max(fit(miss), 0.7 * fit(sideways));
 }
 
-/** Whether a cell's middle is one flat colour (an unused cell). */
+/** Whether a cell's middle is one flat color (an unused cell). */
 function cellIsEmpty(lum: Float32Array, width: number, x0: number, y0: number, x1: number, y1: number): boolean {
   // Its middle only, clear of any border or gutter.
   const ix = (x1 - x0) * 0.15;

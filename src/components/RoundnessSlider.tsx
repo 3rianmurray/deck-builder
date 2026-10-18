@@ -10,7 +10,7 @@ import { Text } from './Text';
 
 const THUMB = 26;
 /** The card beside it (given a deck), big enough to see its corners. */
-const PREVIEW_W = 88;
+const PREVIEW_W = 44;
 
 /**
  * How round a deck's card corners are: a slider from square to very round, with one of its cards beside it

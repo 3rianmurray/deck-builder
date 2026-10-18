@@ -12,7 +12,6 @@ import { CardView } from '../../components/CardView';
 import { CardScanModal } from '../../components/CardScanModal';
 import { CropModal } from '../../components/CropModal';
 import { ReorderableGrid } from '../../components/ReorderableGrid';
-import { RoundnessSlider } from '../../components/RoundnessSlider';
 import { SpriteSheetModal } from '../../components/SpriteSheetModal';
 import { useDecks } from '../../lib/DecksContext';
 import { askName, titleCase } from '../../lib/names';
@@ -101,8 +100,6 @@ export default function DeckEditorScreen() {
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   /** The card being given its own back (a two-sided card), while its back's picture is chosen; else the deck's. */
   const [backFor, setBackFor] = useState<string | null>(null);
-  /** The corners slider is being moved (the screen holds still meanwhile). */
-  const [sliding, setSliding] = useState(false);
   /** The deck settings panel is open: at first only for a deck with no cards yet. */
   const [settingsOpen, setSettingsOpen] = useState(() => !decks.getDeck(id)?.cards.length);
   /** Choosing cards, e.g. to delete several at once: tapping a card ticks it rather than opening it. */
@@ -413,7 +410,6 @@ export default function DeckEditorScreen() {
         gap={GAP}
         padding={PADDING}
         bottomInset={insets.bottom + 72}
-        scrollLocked={sliding}
         // Holding a chosen card picks up every chosen card (it first, the rest in deck order), to move them
         // together; they stay chosen. Holding any other card lets the choice go.
         liftWith={(index) => {
@@ -469,9 +465,6 @@ export default function DeckEditorScreen() {
 
                   <Text style={[styles.label, styles.gapAbove]}>Card size</Text>
                   <CardSizePicker shape={deck.cardShape ?? { kind: 'standard' }} onChange={changeShape} />
-
-                  <Text style={[styles.label, styles.gapAbove]}>Corners</Text>
-                  <RoundnessSlider deck={deck} onChange={(r) => decks.setRoundness(deck.id, r)} onSliding={setSliding} />
 
                   <Text style={[styles.label, styles.gapAbove]}>Card back</Text>
                   <View style={styles.backRow}>

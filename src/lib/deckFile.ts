@@ -18,6 +18,8 @@ interface FileCard {
   copies?: number;
   /** Key into the file's `images`. */
   image: string;
+  /** Its own back, for a two-sided card (key into `images`). */
+  back?: string;
 }
 
 interface FileDeck {
@@ -45,7 +47,7 @@ export interface UnpackedDeck {
   roundness?: number;
   playMode?: PlayMode;
   back: FileImage | null;
-  cards: { name: string; copies?: number; image: FileImage }[];
+  cards: { name: string; copies?: number; image: FileImage; back?: FileImage }[];
 }
 
 /** The type of a picture, from its saved path (e.g. `decks/abc/123.png` is png). */
@@ -74,7 +76,12 @@ export function packDecks(decks: Deck[], read: (path: string) => string): DeckFi
       ...(d.roundness !== undefined ? { roundness: d.roundness } : {}),
       ...(d.playMode ? { playMode: d.playMode } : {}),
       back: d.backImage ? keyOf(d.backImage) : null,
-      cards: d.cards.map((c) => ({ name: c.name, ...(c.copies ? { copies: c.copies } : {}), image: keyOf(c.image) })),
+      cards: d.cards.map((c) => ({
+        name: c.name,
+        ...(c.copies ? { copies: c.copies } : {}),
+        image: keyOf(c.image),
+        ...(c.back ? { back: keyOf(c.back) } : {}),
+      })),
     })),
     images,
   };
@@ -121,6 +128,7 @@ export function unpackDecks(text: string): UnpackedDeck[] {
           name: typeof c.name === 'string' && c.name ? c.name : `Card ${i + 1}`,
           ...(copies ? { copies } : {}),
           image: image(c.image),
+          ...(c.back ? { back: image(c.back) } : {}),
         };
       }),
     };

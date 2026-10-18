@@ -133,7 +133,9 @@ export const CardView = memo(function CardView({
   const faceVisible = !!showFace;
   const faceMounted = !!faceCard && (faceVisible || (turning && faceUp));
   const backMounted = !faceVisible || (turning && !faceUp);
-  const hasPicture = !!showFace || !!deck.backImage;
+  // A card with its own back (a two-sided card) shows that; others, the deck's.
+  const backImage = (card ?? cardProp)?.back ?? deck.backImage;
+  const hasPicture = !!showFace || !!backImage;
   useEffect(() => {
     if (!hasPicture) onReady?.();
     // Only on mount: the built-in back is there as soon as the card is.
@@ -174,9 +176,9 @@ export const CardView = memo(function CardView({
         ]}>
         {backMounted ? (
           <View key="back" style={[StyleSheet.absoluteFill, faceVisible && styles.hiddenSide]}>
-            {deck.backImage ? (
+            {backImage ? (
               <Image
-                source={{ uri: imageUri(deck.backImage) }}
+                source={{ uri: imageUri(backImage) }}
                 style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
                 contentFit="cover"
                 onDisplay={faceVisible ? undefined : onReady}

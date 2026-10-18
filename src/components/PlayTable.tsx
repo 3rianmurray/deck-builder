@@ -2469,7 +2469,8 @@ function Table({
               deckShowing > 0 ? (
                 // Out of sight while the riffle plays over it, so the shuffle doesn't show a third half.
                 <Animated.View style={shuffling !== null && { opacity: deckTopShown }}>
-                  <CardView deck={deck} faceUp={false} width={pileWidth} />
+                  {/* Its card, face down: a two-sided card shows its own back. */}
+                  <CardView deck={deck} card={cardsById.get(deckTop.cardId)} faceUp={false} width={pileWidth} />
                 </Animated.View>
               ) : (
                 <EmptySlot deck={deck} width={pileWidth} />

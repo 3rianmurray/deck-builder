@@ -55,6 +55,11 @@ interface DecksApi {
    * cut it again if the card size changes; leave it out when the back is just cut again from the one kept.
    */
   setCardBack: (deckId: string, imageUri: string | null, original?: string | null) => void;
+  /**
+   * Gives one card its own back (null to go back to the deck's), for a card with two different sides. `original`
+   * is the uncropped picture, as for `setCardBack`.
+   */
+  setOwnBack: (deckId: string, cardId: string, imageUri: string | null, original?: string | null) => void;
   setPlayMode: (deckId: string, mode: PlayMode) => void;
   setHandFolded: (deckId: string, folded: boolean) => void;
   setCardShape: (deckId: string, shape: CardShape) => void;
@@ -206,6 +211,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
               name: c.name,
               ...(c.copies ? { copies: c.copies } : {}),
               image: save(c.image),
+              ...(c.back ? { back: save(c.back) } : {}),
             })),
             createdAt: now,
             updatedAt: now,
@@ -235,6 +241,8 @@ export function DecksProvider({ children }: { children: ReactNode }) {
             id: newId(),
             image: copyImage(c.image),
             ...(c.original ? { original: copyImage(c.original) } : {}),
+            ...(c.back ? { back: copyImage(c.back) } : {}),
+            ...(c.backOriginal ? { backOriginal: copyImage(c.backOriginal) } : {}),
           })),
           backImage: original.backImage ? copyImage(original.backImage) : null,
           backOriginal: original.backOriginal ? copyImage(original.backOriginal) : null,
@@ -295,6 +303,8 @@ export function DecksProvider({ children }: { children: ReactNode }) {
           deck.backImage === card.image || deck.cards.some((c) => c.id !== cardId && c.image === card.image);
         if (!stillUsed) deleteImage(card.image);
         if (card.original) deleteImage(card.original);
+        if (card.back) deleteImage(card.back);
+        if (card.backOriginal) deleteImage(card.backOriginal);
         updateDeck(deckId, (d) => ({ ...d, cards: d.cards.filter((c) => c.id !== cardId) }));
       },
       reorderCards(deckId, picked, to) {
@@ -328,6 +338,24 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         if (replacing && deck.backOriginal && !inUse(deck.backOriginal)) deleteImage(deck.backOriginal);
         const backOriginal = replacing ? (uri && original ? importImage(deckId, original) : null) : (deck.backOriginal ?? null);
         updateDeck(deckId, (d) => ({ ...d, backImage, backOriginal }));
+      },
+      setOwnBack(deckId, cardId, uri, original) {
+        const card = getDeck(deckId)?.cards.find((c) => c.id === cardId);
+        if (!card) return;
+        // Its own back's files are its alone, so the old ones simply go (the original only when it's replaced).
+        if (card.back) deleteImage(card.back);
+        const replacing = original !== undefined || !uri;
+        if (replacing && card.backOriginal) deleteImage(card.backOriginal);
+        const back = uri ? importImage(deckId, uri) : undefined;
+        const backOriginal = replacing ? (uri && original ? importImage(deckId, original) : undefined) : card.backOriginal;
+        updateDeck(deckId, (d) => ({
+          ...d,
+          cards: d.cards.map((c) => {
+            if (c.id !== cardId) return c;
+            const { back: _b, backOriginal: _o, ...rest } = c;
+            return { ...rest, ...(back ? { back } : {}), ...(back && backOriginal ? { backOriginal } : {}) };
+          }),
+        }));
       },
       setPlayMode(deckId, playMode) {
         updateDeck(deckId, (d) => ({ ...d, playMode }));

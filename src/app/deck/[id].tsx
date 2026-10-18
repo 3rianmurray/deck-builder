@@ -83,6 +83,8 @@ export default function DeckEditorScreen() {
   const tour = useTourStep();
   /** The deck's name as it's being typed (in title case), until it's done. */
   const [nameDraft, setNameDraft] = useState<string | null>(null);
+  /** The card being given its own back (a two-sided card), while its back's picture is chosen; else the deck's. */
+  const [backFor, setBackFor] = useState<string | null>(null);
   /** Images waiting in the cropper, and what they become once cropped. */
   const [crop, setCrop] = useState<{ uris: string[]; target: ArtTarget | { cardId: string } } | null>(null);
   /** A photo of a card being found and straightened, and what it's for. */
@@ -125,7 +127,7 @@ export default function DeckEditorScreen() {
         const ratio = cardRatio(deck);
         if (target === 'back') {
           const back = await fitScan(scans[0], ratio);
-          decks.setCardBack(deck.id, back, back);
+          setBack(back, back);
         } else {
           const cards = await Promise.all(scans.map((s) => fitScan(s, ratio)));
           decks.addCards(deck.id, cards, undefined, cards);
@@ -151,7 +153,7 @@ export default function DeckEditorScreen() {
     withBusy(async () => {
       if (target === 'back') {
         const back = await sampleBack();
-        decks.setCardBack(deck.id, back, back);
+        setBack(back, back);
         tourEvent('back-set');
       } else {
         const { uris, names } = await sampleCards();
@@ -184,6 +186,15 @@ export default function DeckEditorScreen() {
     // The app's own art, just for the walkthrough.
     ...(tour ? [{ label: target === 'cards' ? 'Sample cards' : 'Sample back', onPress: () => fromSamples(target) }] : []),
   ];
+  /** A new back: the card's own, if one's being given one (see `backFor`), else the deck's. */
+  const setBack = (uri: string, original: string) => {
+    if (backFor) decks.setOwnBack(deck.id, backFor, uri, original);
+    else decks.setCardBack(deck.id, uri, original);
+  };
+  const openDeckBackMenu = () => {
+    setBackFor(null);
+    openArtMenu('back');
+  };
   /** Opens the art menu for new cards or the back (and tells the walkthrough, which may be waiting for it). */
   const openArtMenu = (target: ArtTarget) => {
     setMenu(target);
@@ -197,7 +208,7 @@ export default function DeckEditorScreen() {
     menu === 'cards'
       ? { title: 'Add cards', actions: sourceActions('cards') }
       : menu === 'back'
-        ? { title: 'Card back', actions: sourceActions('back') }
+        ? { title: backFor ? 'This card’s back' : 'Card back', actions: sourceActions('back') }
         : menu === 'sheet-cards'
           ? { title: 'Sprite sheet from…', actions: sheetSourceActions('cards') }
           : menu === 'sheet-back'
@@ -216,10 +227,12 @@ export default function DeckEditorScreen() {
     const after = cardRatio({ cardShape: shape });
     const back = deck.backOriginal;
     const cards = deck.cards.flatMap((c) => (c.original ? [{ id: c.id, original: c.original }] : []));
-    if (Math.abs(after - before) < 0.001 || (!back && !cards.length)) return;
+    const ownBacks = deck.cards.flatMap((c) => (c.backOriginal ? [{ id: c.id, original: c.backOriginal }] : []));
+    if (Math.abs(after - before) < 0.001 || (!back && !cards.length && !ownBacks.length)) return;
     withBusy(async () => {
       if (back) decks.setCardBack(deck.id, await cropToShape(imageUri(back), after));
       for (const c of cards) decks.replaceCardImage(deck.id, c.id, await cropToShape(imageUri(c.original), after));
+      for (const c of ownBacks) decks.setOwnBack(deck.id, c.id, await cropToShape(imageUri(c.original), after));
     });
   };
 
@@ -227,7 +240,7 @@ export default function DeckEditorScreen() {
   // size changes.
   const saveCropped = (uris: string[], originals: string[]) => {
     const target = crop?.target;
-    if (target === 'back') decks.setCardBack(deck.id, uris[0], originals[0]);
+    if (target === 'back') setBack(uris[0], originals[0]);
     else if (typeof target === 'object') decks.replaceCardImage(deck.id, target.cardId, uris[0], originals[0]);
     else decks.addCards(deck.id, uris, undefined, originals);
     setCrop(null);
@@ -260,6 +273,18 @@ export default function DeckEditorScreen() {
           // From the picture it was cut from, where that's kept.
           onPress: () => setCrop({ uris: [imageUri(selected.original ?? selected.image)], target: { cardId: selected.id } }),
         },
+        // A card with two different sides: its own back, rather than the deck's.
+        {
+          label: selected.back ? 'Change its back' : 'Give it its own back',
+          opensModal: true,
+          onPress: () => {
+            setBackFor(selected.id);
+            openArtMenu('back');
+          },
+        },
+        ...(selected.back
+          ? [{ label: 'Use the deck’s back', onPress: () => decks.setOwnBack(deck.id, selected.id, null) }]
+          : []),
         { label: 'Remove from deck', destructive: true, onPress: () => decks.removeCard(deck.id, selected.id) },
       ]
     : [];
@@ -325,13 +350,17 @@ export default function DeckEditorScreen() {
                 deck={deck}
                 faceUp={false}
                 width={64}
-                onPress={() => (backSource ? setCrop({ uris: [backSource], target: 'back' }) : openArtMenu('back'))}
+                onPress={() => {
+                  setBackFor(null);
+                  if (backSource) setCrop({ uris: [backSource], target: 'back' });
+                  else openArtMenu('back');
+                }}
               />
               <View style={{ flex: 1, gap: 8 }}>
                 <Text style={styles.label}>Card back</Text>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <TourSpot id="deck.back">
-                    <Button label="Choose image" onPress={() => openArtMenu('back')} disabled={busy} />
+                    <Button label="Choose image" onPress={() => openDeckBackMenu()} disabled={busy} />
                   </TourSpot>
                   {deck.backImage ? <Button label="Reset" onPress={() => decks.setCardBack(deck.id, null)} /> : null}
                 </View>
@@ -431,7 +460,7 @@ export default function DeckEditorScreen() {
         cardRatio={cardRatio(deck)}
         onDone={(card) => {
           // Already exactly card shaped: it's its own original, should the card size change.
-          if (scan?.target === 'back') decks.setCardBack(deck.id, card, card);
+          if (scan?.target === 'back') setBack(card, card);
           else decks.addCards(deck.id, [card], undefined, [card]);
           setScan(null);
         }}
@@ -453,7 +482,7 @@ export default function DeckEditorScreen() {
         pickOne={spriteSheet?.target === 'back'}
         cardRatio={cardRatio(deck)}
         onDone={(uris) => {
-          if (spriteSheet?.target === 'back') decks.setCardBack(deck.id, uris[0], uris[0]);
+          if (spriteSheet?.target === 'back') setBack(uris[0], uris[0]);
           else decks.addCards(deck.id, uris, undefined, uris);
           setSpriteSheet(null);
         }}

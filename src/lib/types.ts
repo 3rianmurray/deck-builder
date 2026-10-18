@@ -10,6 +10,10 @@ export interface Card {
   original?: string;
   /** How many copies of this card are in the deck. Missing means 1 (decks saved before this existed). */
   copies?: number;
+  /** Its own back (relative path), for a card with two different sides; missing means the deck's back. */
+  back?: string;
+  /** The picture its own back was cut from, to cut again if the card size changes. */
+  backOriginal?: string;
 }
 
 export function copiesOf(card: Card): number {

@@ -20,6 +20,15 @@ export interface SandboxCard {
   single?: boolean;
 }
 
+/** A die lying on the table: where, its turn, and the number on top. */
+export interface SandboxDie {
+  id: string;
+  x: number;
+  y: number;
+  angle: number;
+  value: number;
+}
+
 /** A pile of one or more cards lying somewhere on the table, all at one angle. Its last card is on top. */
 export interface SandboxStack {
   id: string;
@@ -68,6 +77,10 @@ export interface SandboxTable {
   hideCounts?: boolean;
   /** Cards taken off the table, kept to put back (newest last). */
   trash?: SandboxCard[];
+  /** Dice lying on the table (a trial: just a d20 for now). */
+  dice?: SandboxDie[];
+  /** The trial d20 has been put on this table once (so taking it off keeps it off). */
+  diceTried?: boolean;
   /** The camera as it was left, or none yet (it starts looking at the middle of the table). */
   camera?: Camera;
   /** The part of the table a ready-made layout lies in: the camera starts on it (and goes back to it on reset). */

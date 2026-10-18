@@ -23,6 +23,8 @@ import {
   take,
   takeAll,
   dealToHand,
+  fitCamera,
+  tableBounds,
   gatherStacks,
   moveStacks,
   stacksInShape,
@@ -313,4 +315,22 @@ test('solitaire deals seven fanned columns on the grid, the stock beside them, a
   const right = toScreen(cam, t.focus!.x + t.focus!.w, 0).x;
   near(left, 0);
   near(right, 390);
+});
+test('reset the view: every card fits in the space given, below the top bar, upright', () => {
+  const t = tableWith(
+    { id: 'a', x: 100, y: 100, angle: 0, cards: [card('1')] },
+    { id: 'b', x: 2000, y: 900, angle: 90, cards: [card('2')] },
+  );
+  const bounds = tableBounds(t, size)!;
+  // The turned card is 140 wide, 100 tall.
+  assert.deepEqual(bounds, { x: 50, y: 30, w: 2020, h: 920 });
+  const space = { x: 16, y: 120, w: 358, h: 500 };
+  const cam = fitCamera(bounds, space);
+  assert.equal(cam.b, 0);
+  for (const [x, y] of [[bounds.x, bounds.y], [bounds.x + bounds.w, bounds.y + bounds.h]]) {
+    const p = toScreen(cam, x, y);
+    assert.ok(p.x >= space.x - 1e-6 && p.x <= space.x + space.w + 1e-6);
+    assert.ok(p.y >= space.y - 1e-6 && p.y <= space.y + space.h + 1e-6);
+  }
+  assert.equal(tableBounds(tableWith(), size), null);
 });

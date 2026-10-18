@@ -515,6 +515,34 @@ export function shuffled<T>(items: T[], random: () => number = Math.random): T[]
   return out;
 }
 
+/** The box round every card on the table (each stack as it's turned), or null with nothing on it. */
+export function tableBounds(t: SandboxTable, size: CardSize): Area | null {
+  const points = t.stacks.flatMap((s) => stackCorners(s, size));
+  if (!points.length) return null;
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+/** How close a fitted view comes in, at most: a card or two shouldn't fill the screen. */
+export const FIT_MAX_ZOOM = 1.5;
+
+/**
+ * The camera upright, showing all of `bounds` (a part of the table) as big as it fits inside `space` (a part of
+ * the screen), in its middle.
+ */
+export function fitCamera(bounds: Area, space: Area): Camera {
+  const k = Math.max(MIN_ZOOM, Math.min(space.w / Math.max(1, bounds.w), space.h / Math.max(1, bounds.h), FIT_MAX_ZOOM));
+  return {
+    a: k,
+    b: 0,
+    tx: space.x + space.w / 2 - k * (bounds.x + bounds.w / 2),
+    ty: space.y + space.h / 2 - k * (bounds.y + bounds.h / 2),
+  };
+}
+
 /**
  * Brings a deck onto the table: every card (and every copy) in one shuffled, face-down stack at (x, y). `ids`
  * makes unique ids for the stack and its cards.

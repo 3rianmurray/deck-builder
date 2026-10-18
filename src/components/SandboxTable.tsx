@@ -41,6 +41,8 @@ import {
   stackAt,
   stackTargetAt,
   startCamera,
+  tableBounds,
+  fitCamera,
   TABLE_H,
   TABLE_W,
   GRID_STEP,
@@ -89,6 +91,10 @@ const TAP_SLOP = 8;
 const EXTRA_TAP_MS = 350;
 /** Roughly the hand tray's height, for placing the camera at the start (the tray sizes itself to its cards). */
 const HAND_H = 160;
+/** How far down the screen the top bar's buttons reach, below the safe area (see TableTopBar). */
+const TOP_BAR_H = 56;
+/** Room left round the cards when the view is fitted to them. */
+const FIT_MARGIN = 16;
 /** The hand's row, as table mode's: space above the groove, round the cards in it, between them, and at its ends. */
 const HAND_TOP_PAD = 6;
 const HAND_ROW_PAD = 9;
@@ -1278,7 +1284,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             label: 'Reset the view',
             onPress: () => {
               if (!view) return;
-              writeCamera(startCamera({ w: view.w, h: view.h - HAND_H }, table?.focus));
+              // Every card in sight: below the top bar's buttons, above the hand, upright.
+              const bounds = tableBounds(table, size);
+              const top = insets.top + TOP_BAR_H;
+              const space = { x: FIT_MARGIN, y: top + FIT_MARGIN, w: view.w - FIT_MARGIN * 2, h: view.h - HAND_H - top - FIT_MARGIN * 2 };
+              writeCamera(bounds ? fitCamera(bounds, space) : startCamera({ w: view.w, h: view.h - HAND_H }, table.focus));
               saveCamera();
             },
           },

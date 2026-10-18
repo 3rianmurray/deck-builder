@@ -2,7 +2,7 @@ import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { memo, useEffect, useMemo, useState } from 'react';
-import { Animated as RNAnimated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated as RNAnimated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing as ReEasing, LinearTransition, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
@@ -46,7 +46,14 @@ import {
   TABLE_H,
   TABLE_W,
   GRID_STEP,
-  GRID_STACK_REACH,
+  CARD_W,
+  gatherDecks,
+  gridStackReach,
+  gridStepOf,
+  GRID_SIZES,
+  tidyTable,
+  trashCards,
+  takeFromTrash,
   take,
   UNITS_PER_MM,
   takeAll,
@@ -73,6 +80,7 @@ import type { SheetAction, SheetTile } from './ActionSheet';
 import { CardFocus } from './CardFocus';
 import type { FocusRow } from './CardFocus';
 import { AddCardsModal } from './AddCardsModal';
+import { TrashModal } from './TrashModal';
 import { DealPanel } from './DealPanel';
 import { Riffle } from './Riffle';
 import { StackSearchPanel } from './StackSearchPanel';
@@ -144,7 +152,9 @@ type Finger = { id: number; x: number; y: number };
 const TOOLS_W = 230;
 const TOOLS_TAB_W = 26;
 const TOOLS_TAB_H = 72;
-const TOOLS_H = 156;
+const TOOLS_H = 432;
+/** How far down the drawer its pull tab sits: near the top, where it's always been (the drawer's grown taller). */
+const TOOLS_TAB_TOP = 42;
 /** How far below the top of the screen's safe area the tools drawer sits (clear of the top bar). */
 const TOOLS_FROM_TOP = 64;
 
@@ -258,6 +268,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   };
   /** Choosing cards from a deck to bring onto the table. */
   const [addingCards, setAddingCards] = useState(false);
+  /** The table's trash is open, to put cards back. */
+  const [trashOpen, setTrashOpen] = useState(false);
   /** A stack just brought onto the table, flying in to where the camera's taking it on screen. */
   const [arriving, setArriving] = useState<{ stackId: string; key: string; to: { x: number; y: number }; scale: number; angle: number } | null>(null);
   /** A stack being riffle shuffled (as in a deck's play screen): which, a fresh key each time, and whether it's started. */
@@ -356,6 +368,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   // ---- The grid: invisible lines at a fixed spacing; cards put down with snapping on sit on their crossings. ----
   const gridOn = !!table?.snapToGrid;
+  /** The grid's spacing (its size, chosen in the tools). */
+  const gridStep = table ? gridStepOf(table) : GRID_STEP;
   // The tools drawer on the left edge: pulled out to show the tools, tucked away again to hide them.
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsX = useSharedValue(-TOOLS_W);
@@ -458,7 +472,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const turn = gestureState.get().groupAngle;
     // Nothing left to move (e.g. trashed mid-drag), or not moved at all.
     if (!table || !chosen.length || (!by.x && !by.y && !turn)) return;
-    const place = gridOn ? (p: { x: number; y: number; angle: number }) => snapToGrid(p) : undefined;
+    const place = gridOn ? (p: { x: number; y: number; angle: number }) => snapToGrid(p, gridStep) : undefined;
     commit(turn ? rotateStacks(table, chosen, gestureState.get().groupFrom, turn, by, place) : moveStacks(table, chosen, by, place));
     tourEvent('tables-moved');
     haptics.drop();
@@ -585,6 +599,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       handCardAt: (x: number, y: number) => number;
       maxHandScroll: number;
       gridOn: boolean;
+      gridStep: number;
       setGroupInHand: (lead: string | null) => void;
       flyPile: (into: boolean, finger: { x: number; y: number }) => void;
       groupToHand: (at: number) => void;
@@ -618,7 +633,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -746,7 +761,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // Cards that never stack go onto nothing.
     const solo = touch.cards.some((c) => c.solo);
     // Looked for on the table as it'll be once they're taken: a card can't go back onto where it alone lay.
-    const over = p.y < L.handTop && !solo ? stackTargetAt(takeAll(L.table, touch.sources), w.x, w.y, L.size, except, L.gridOn ? GRID_STACK_REACH : undefined, face) : null;
+    const over = p.y < L.handTop && !solo ? stackTargetAt(takeAll(L.table, touch.sources), w.x, w.y, L.size, except, L.gridOn ? gridStackReach(L.gridStep) : undefined, face) : null;
     L.setTarget(over?.id ?? null);
     // Over the hand: a gap opens where they'd go in, and near either end the row scrolls along.
     if (p.y >= L.handTop) {
@@ -869,10 +884,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       ? null
       : // On the table as it'll be once they're taken: where a card alone lay is nowhere to go back onto (it would
         // land, unsnapped, as if joining it). The rest of a stack it came off still counts.
-        stackTargetAt(takeAll(L.table, sources), w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined, L.gridOn ? GRID_STACK_REACH : undefined, face);
+        stackTargetAt(takeAll(L.table, sources), w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined, L.gridOn ? gridStackReach(L.gridStep) : undefined, face);
     // With snapping on, its middle on the nearest grid crossing.
     const free = { x: w.x, y: w.y, angle: p.tableAngle };
-    const at = L.gridOn && !onto ? snapToGrid(free) : free;
+    const at = L.gridOn && !onto ? snapToGrid(free, L.gridStep) : free;
     // A whole stack just moved (and turned), on its own, keeps being itself.
     // For the walkthrough (a whole stack first, so one drop never counts for two of its steps).
     if (whole?.kind === 'stack') tourEvent('tables-lifted');
@@ -887,7 +902,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   // buttons; the tray has table mode's scroll view and card handling). Read by the gesture, on the UI thread.
   const tabBand = useSharedValue({ top: 0, bottom: 0, tray: 0, toolsRight: 0, toolsTop: 0, toolsBottom: 0, panel: false });
   useEffect(() => {
-    const tabTop = toolsTop + (TOOLS_H - TOOLS_TAB_H) / 2;
+    const tabTop = toolsTop + TOOLS_TAB_TOP;
     tabBand.set({
       top: handTop - HAND_TAB_H,
       bottom: handTop,
@@ -1480,7 +1495,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const playToView = (t: SandboxTable, cards: SandboxCard[]) => {
     const m = viewMiddle();
     const at = { x: m.x, y: m.y, angle: snapAngle(-cameraAngle(readCamera()), 45, 45) };
-    return putOnTable(t, cards, gridOn ? snapToGrid(at) : at, newId());
+    return putOnTable(t, cards, gridOn ? snapToGrid(at, gridStep) : at, newId());
   };
 
   /**
@@ -1494,9 +1509,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (!added) return;
     const { h } = size(added.cards[added.cards.length - 1].deckId);
     const all = tableBounds(table, size);
-    let at = all ? { x: all.x + all.w / 2, y: all.y - GRID_STEP - h / 2 } : viewMiddle();
-    if (all && at.y < h / 2) at = { x: at.x, y: all.y + all.h + GRID_STEP + h / 2 };
-    if (gridOn) at = snapToGrid({ ...at, angle: 0 });
+    let at = all ? { x: all.x + all.w / 2, y: all.y - gridStep - h / 2 } : viewMiddle();
+    if (all && at.y < h / 2) at = { x: at.x, y: all.y + all.h + gridStep + h / 2 };
+    if (gridOn) at = snapToGrid({ ...at, angle: 0 }, gridStep);
     at = { x: Math.min(TABLE_W, Math.max(0, at.x)), y: Math.min(TABLE_H, Math.max(0, at.y)) };
     const placed = { ...next, stacks: next.stacks.map((s) => (s.id === added.id ? { ...s, x: at.x, y: at.y } : s)) };
     commit(next.lockCamera ? { ...placed, lockCamera: false } : placed);
@@ -1524,6 +1539,45 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   const rename = askName;
 
+  /** Every card in sight: below the top bar's buttons, above the hand, upright (for this table, as it'll be). */
+  const fitView = (t: SandboxTable) => {
+    if (!view) return;
+    const bounds = tableBounds(t, size);
+    const top = insets.top + TOP_BAR_H;
+    const space = { x: FIT_MARGIN, y: top + FIT_MARGIN, w: view.w - FIT_MARGIN * 2, h: view.h - HAND_H - top - FIT_MARGIN * 2 };
+    writeCamera(bounds ? fitCamera(bounds, space) : startCamera({ w: view.w, h: view.h - HAND_H }, t.focus));
+    // Saved with the table as it is by then (this render's may be a change behind).
+    setTimeout(() => latest.get().saveCamera(), 50);
+    haptics.tick();
+  };
+  /** The tools' Clean Up: every card straight and on the grid, none sharing a spot. */
+  const cleanUp = () => {
+    if (!table) return;
+    commit(tidyTable(table, gridStep));
+    haptics.drop();
+  };
+  /** The tools' Gather by Deck: a new game, every deck used whole again, in a row in the middle of the view. */
+  const gatherUp = () => {
+    if (!table) return;
+    haptics.warn();
+    Alert.alert('Gather everything by deck?', 'Every card on the table, in the hands and in the trash goes back into its deck, shuffled and face down. Undo puts it all back.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Gather',
+        onPress: () => {
+          const m = viewMiddle();
+          const used = new Set([...table.stacks.flatMap((s) => s.cards), ...table.hands.flat(), ...(table.trash ?? [])].map((c) => c.deckId));
+          const start = { x: m.x - ((used.size - 1) * CARD_W * 1.5) / 2, y: m.y };
+          const place = gridOn ? (p: { x: number; y: number; angle: number }) => snapToGrid(p, gridStep) : undefined;
+          const next = gatherDecks(table, decks, start, newId, Math.random, place);
+          commit(next);
+          fitView(next);
+          haptics.drop();
+        },
+      },
+    ]);
+  };
+
   /** A card brought up close, for its menu: about half the screen across (less, for a tall screen's sake). */
   const bigCard = (c: SandboxCard, withList = false) => {
     const deck = decksById.get(c.deckId);
@@ -1543,7 +1597,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (!card) return [];
     const src: Source = { kind: 'card', stackId: searchStack.id, iid };
     const { w } = size(card.deckId);
-    const beside = { x: searchStack.x + w + GRID_STEP, y: searchStack.y, angle: searchStack.angle };
+    const beside = { x: searchStack.x + w + gridStep, y: searchStack.y, angle: searchStack.angle };
     return [
       ...(i > 0 ? [{ label: 'Move to the top', onPress: () => commit(reorderStack(table, searchStack.id, [i], 0)) }] : []),
       ...(i < topFirst.length - 1
@@ -1555,9 +1609,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       },
       {
         label: 'Onto the table, face up',
-        onPress: () => commit(putOnTable(take(table, src), [{ ...card, faceUp: true }], gridOn ? snapToGrid(beside) : beside, newId())),
+        onPress: () => commit(putOnTable(take(table, src), [{ ...card, faceUp: true }], gridOn ? snapToGrid(beside, gridStep) : beside, newId())),
       },
-      { label: 'Take off the table', destructive: true, onPress: () => commit(take(table, src)) },
+      { label: 'Take off the table', destructive: true, onPress: () => commit(trashCards(take(table, src), [card])) },
     ];
   };
   const menuStack = menu?.kind === 'stack' ? table?.stacks.find((s) => s.id === menu.id) : undefined;
@@ -1628,7 +1682,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // A single card can be kept from stacking: nothing goes onto it, and it goes onto nothing.
         ...(n === 1 ? [{ kind: 'toggle' as const, label: 'Never stack', value: !!top.solo, onChange: (on: boolean) => commit(setSolo(table, menuStack.id, on)) }] : []),
         ...(top.faceUp ? [{ kind: 'action' as const, label: 'Full size', keepsOpen: true, onPress: () => setZoomed(top) }] : []),
-        { kind: 'action', label: 'Take off the table', destructive: true, onPress: () => commit(take(table, { kind: 'stack', stackId: menuStack.id })) },
+        { kind: 'action', label: 'Take off the table', destructive: true, onPress: () => commit(removeStacks(table, [menuStack.id])) },
       ];
       return {
         title: n > 1 ? `Stack of ${n}` : top.faceUp ? (cardOf(top)?.name ?? 'Card') : 'Face-down card',
@@ -1649,7 +1703,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         ...(menuHandCard.faceUp
           ? [{ label: 'Full size', icon: { ios: 'arrow.up.left.and.arrow.down.right', android: 'open_in_full', web: 'open_in_full' } as const, keepsOpen: true, onPress: () => setZoomed(menuHandCard) }]
           : []),
-        { label: 'Off table', icon: { ios: 'trash', android: 'delete', web: 'delete' }, destructive: true, onPress: () => commit(take(table, src)) },
+        { label: 'Off table', icon: { ios: 'trash', android: 'delete', web: 'delete' }, destructive: true, onPress: () => commit(trashCards(take(table, src), [menuHandCard])) },
       ];
       return {
         title: menuHandCard.faceUp ? (cardOf(menuHandCard)?.name ?? 'Card') : 'Face-down card',
@@ -1669,15 +1723,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Table color…', onPress: () => setTimeout(() => setMenu({ kind: 'color' }), 250) },
           {
             label: 'Reset the view',
-            onPress: () => {
-              if (!view) return;
-              // Every card in sight: below the top bar's buttons, above the hand, upright.
-              const bounds = tableBounds(table, size);
-              const top = insets.top + TOP_BAR_H;
-              const space = { x: FIT_MARGIN, y: top + FIT_MARGIN, w: view.w - FIT_MARGIN * 2, h: view.h - HAND_H - top - FIT_MARGIN * 2 };
-              writeCamera(bounds ? fitCamera(bounds, space) : startCamera({ w: view.w, h: view.h - HAND_H }, table.focus));
-              saveCamera();
-            },
+            onPress: () => fitView(table),
+
           },
           ...(Platform.OS === 'ios'
             ? [{ label: 'Rename table', opensModal: true, onPress: () => rename('Rename table', table.name, (name) => updateSandbox({ ...table, name })) }]
@@ -1685,7 +1732,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           {
             label: 'Clear the table',
             destructive: true,
-            onPress: () => commit({ ...table, stacks: [], hands: table.hands.map(() => []) }),
+            // Everything into the trash, so it can be put back (or gathered up again).
+            onPress: () => commit(trashCards({ ...table, stacks: [], hands: table.hands.map(() => []) }, [...table.stacks.flatMap((s) => s.cards), ...table.hands.flat()])),
           },
         ],
       };
@@ -1793,7 +1841,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             {/* The cloth's color, if one's been chosen: under a lighter weave. */}
             {cloth ? <View style={[styles.cloth, { backgroundColor: cloth.color }]} /> : null}
             <Image source={require('../../assets/textures/felt.png')} resizeMode="repeat" style={[styles.felt, cloth && styles.feltOverCloth]} />
-            {gridOn ? <GridLines /> : null}
+            {table.showGrid ? <GridLines step={gridStep} /> : null}
             {table.stacks.map((s) =>
               groupMoving && chosenIds.has(s.id) && !s.locked ? null : (
                 <StackView
@@ -1812,6 +1860,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   }
                   target={target === s.id}
                   selected={chosenIds.has(s.id)}
+                  showCount={!table.hideCounts}
                 />
               ),
             )}
@@ -1853,6 +1902,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                       hidden=""
                       target={false}
                       selected
+                      showCount={!table.hideCounts}
                     />
                   ))}
                 {flyers.map((f) => {
@@ -1965,7 +2015,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                       key={c.iid}
                       layout={HAND_SLIDE}
                       style={carried ? styles.carried : { width: handWidthOf(c), pointerEvents: 'box-only' }}>
-                      <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={handWidthOf(c)} />
+                      {/* Folded away, the hand's cards show their backs: nobody sees them as the phone goes round. */}
+                      <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp && !folded} width={handWidthOf(c)} />
                     </Animated.View>
                   );
                   return gapHere ? [<Animated.View key="gap" layout={HAND_SLIDE} style={{ width: gapWidth, height: handCardH }} />, view] : [view];
@@ -1979,38 +2030,72 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
           {/* The tools drawer, on the left edge: its tab pulls it out, and tucks it away again. */}
           <Animated.View style={[styles.tools, { top: toolsTop }, toolsStyle]} pointerEvents="box-none">
-            <View style={styles.toolsPanel}>
+            <ScrollView style={styles.toolsPanel} contentContainerStyle={{ gap: 10 }} showsVerticalScrollIndicator={false}>
               <Text style={styles.toolsTitle}>Tools</Text>
-              <View style={styles.toolRow}>
-                <SymbolView name={{ ios: 'square.grid.3x3', android: 'grid_on', web: 'grid_on' }} size={18} tintColor={colors.text} />
-                <Text style={styles.toolText}>Snap to grid</Text>
-                <Switch
-                  value={gridOn}
-                  onValueChange={(on) => {
-                    updateSandbox({ ...table, snapToGrid: on });
-                    haptics.tick();
-                  }}
-                  trackColor={{ true: colors.accent, false: undefined }}
-                  accessibilityLabel="Snap to grid"
-                  accessibilityHint="Cards put down line up in an invisible grid. Cards already on the table stay put."
-                />
+              {(
+                [
+                  ['square.grid.3x3', 'grid_on', 'Snap to grid', gridOn, (on: boolean) => ({ snapToGrid: on }), 'Cards put down line up on the grid. Cards already on the table stay put.'],
+                  ['grid', 'grid_4x4', 'Show grid', !!table.showGrid, (on: boolean) => ({ showGrid: on }), 'Draws the grid’s lines on the table.'],
+                  ['number', 'tag', 'Stack counts', !table.hideCounts, (on: boolean) => ({ hideCounts: !on }), 'Shows how many cards each stack holds.'],
+                  ['lock', 'lock', 'Lock camera', !!table.lockCamera, (on: boolean) => ({ lockCamera: on }), 'The view stays put: sliding, zooming and turning the table do nothing. Cards still move.'],
+                ] as const
+              ).map(([ios, android, label, value, change, hint]) => (
+                <View key={label} style={styles.toolRow}>
+                  <SymbolView name={{ ios, android, web: android }} size={18} tintColor={colors.text} />
+                  <Text style={styles.toolText}>{label}</Text>
+                  <Switch
+                    value={value}
+                    onValueChange={(on) => {
+                      updateSandbox({ ...table, ...change(on) });
+                      haptics.tick();
+                    }}
+                    trackColor={{ true: colors.accent, false: undefined }}
+                    accessibilityLabel={label}
+                    accessibilityHint={hint}
+                  />
+                </View>
+              ))}
+              {/* The grid's size: its spacing, for snapping and its lines. */}
+              <View style={styles.toolSegment}>
+                {(Object.entries(GRID_SIZES) as [keyof typeof GRID_SIZES, number][]).map(([name, step]) => (
+                  <Pressable
+                    key={name}
+                    onPress={() => {
+                      updateSandbox({ ...table, gridStep: step });
+                      haptics.tick();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${name} grid`}
+                    accessibilityState={{ selected: gridStep === step }}
+                    style={[styles.toolSegmentItem, gridStep === step && styles.toolSegmentOn]}>
+                    <Text style={[styles.toolSegmentText, gridStep === step && { color: colors.accentText }]}>
+                      {name === 'small' ? 'Small' : name === 'medium' ? 'Medium' : 'Large'}
+                    </Text>
+                  </Pressable>
+                ))}
               </View>
-              <View style={styles.toolRow}>
-                <SymbolView name={{ ios: 'lock', android: 'lock', web: 'lock' }} size={18} tintColor={colors.text} />
-                <Text style={styles.toolText}>Lock camera</Text>
-                <Switch
-                  value={!!table.lockCamera}
-                  onValueChange={(on) => {
-                    updateSandbox({ ...table, lockCamera: on });
-                    haptics.tick();
+              <View style={styles.toolDivider} />
+              {(
+                [
+                  ['arrow.up.left.and.arrow.down.right', 'fit_screen', 'Fit All Cards', () => fitView(table)],
+                  ['wand.and.stars', 'auto_fix_high', 'Clean Up', cleanUp],
+                  ['rectangle.stack', 'layers', 'Gather by Deck', gatherUp],
+                  ['trash', 'delete', `Trash${table.trash?.length ? ` (${table.trash.length})` : ''}`, () => setTrashOpen(true)],
+                ] as const
+              ).map(([ios, android, label, run]) => (
+                <Pressable
+                  key={ios}
+                  onPress={() => {
+                    showTools(false);
+                    run();
                   }}
-                  trackColor={{ true: colors.accent, false: undefined }}
-                  accessibilityLabel="Lock camera"
-                  accessibilityHint="The view stays put: sliding, zooming and turning the table do nothing. Cards still move."
-                />
-              </View>
-            </View>
-            <Pressable
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.toolButton, pressed && { opacity: 0.6 }]}>
+                  <SymbolView name={{ ios, android, web: android }} size={17} tintColor={colors.accent} />
+                  <Text style={styles.toolButtonText}>{label}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>            <Pressable
               onPress={() => showTools(!toolsOpen)}
               hitSlop={{ right: 10, top: 6, bottom: 6 }}
               accessibilityRole="button"
@@ -2199,6 +2284,17 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           ) : undefined
         }
       />
+      <TrashModal
+        visible={trashOpen}
+        cards={table.trash ?? []}
+        decks={decksById}
+        onPutBack={(iids) => {
+          const back = (table.trash ?? []).filter((c) => iids.includes(c.iid)).map((c) => ({ ...c, faceUp: true }));
+          arrive(putOnTable(takeFromTrash(table, iids), back, { ...viewMiddle(), angle: 0 }, newId()));
+        }}
+        onEmpty={() => commit({ ...table, trash: [] })}
+        onClose={() => setTrashOpen(false)}
+      />
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
@@ -2215,13 +2311,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
  * The grid's lines across the whole table, shown while snapping is on (for now, for trying it out: the grid is
  * meant to be invisible). Cards snap to their crossings and the middles of their squares.
  */
-const GridLines = memo(function GridLines() {
+const GridLines = memo(function GridLines({ step }: { step: number }) {
   return [
-    ...Array.from({ length: Math.floor(TABLE_W / GRID_STEP) + 1 }, (_, i) => (
-      <View key={`v${i}`} style={[styles.gridLine, { left: i * GRID_STEP - 0.75, top: 0, width: 1.5, height: TABLE_H }]} />
+    ...Array.from({ length: Math.floor(TABLE_W / step) + 1 }, (_, i) => (
+      <View key={`v${i}`} style={[styles.gridLine, { left: i * step - 0.75, top: 0, width: 1.5, height: TABLE_H }]} />
     )),
-    ...Array.from({ length: Math.floor(TABLE_H / GRID_STEP) + 1 }, (_, i) => (
-      <View key={`h${i}`} style={[styles.gridLine, { top: i * GRID_STEP - 0.75, left: 0, height: 1.5, width: TABLE_W }]} />
+    ...Array.from({ length: Math.floor(TABLE_H / step) + 1 }, (_, i) => (
+      <View key={`h${i}`} style={[styles.gridLine, { top: i * step - 0.75, left: 0, height: 1.5, width: TABLE_W }]} />
     )),
   ];
 });
@@ -2441,6 +2537,7 @@ const StackView = memo(function StackView({
   hidden,
   target,
   selected,
+  showCount = true,
 }: {
   stack: SandboxStack;
   deck: Deck | undefined;
@@ -2451,6 +2548,8 @@ const StackView = memo(function StackView({
   target: boolean;
   /** Picked out with the lasso: outlined in gold. */
   selected: boolean;
+  /** Whether a stack shows how many cards it holds (the table's choice). */
+  showCount?: boolean;
 }) {
   const gone = new Set(hidden ? hidden.split(',') : []);
   const shown = gone.size ? stack.cards.filter((c) => !gone.has(c.iid)) : stack.cards;
@@ -2471,7 +2570,7 @@ const StackView = memo(function StackView({
       <View style={styles.shadow}>
         <CardView deck={topDeck} card={card} faceUp={top.faceUp} width={size.w} sharp />
       </View>
-      {shown.length > 1 ? (
+      {shown.length > 1 && showCount ? (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{shown.length}</Text>
         </View>
@@ -2542,10 +2641,17 @@ const styles = StyleSheet.create({
   toolsTitle: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   toolText: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '600' },
+  toolSegment: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 9, padding: 2 },
+  toolSegmentItem: { flex: 1, paddingVertical: 6, borderRadius: 7, alignItems: 'center' },
+  toolSegmentOn: { backgroundColor: colors.accent },
+  toolSegmentText: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  toolDivider: { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.18)', marginVertical: 2 },
+  toolButton: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+  toolButtonText: { color: colors.text, fontSize: 15, fontWeight: '600' },
   toolsTab: {
     position: 'absolute',
     left: TOOLS_W,
-    top: (TOOLS_H - TOOLS_TAB_H) / 2,
+    top: TOOLS_TAB_TOP,
     width: TOOLS_TAB_W,
     height: TOOLS_TAB_H,
     alignItems: 'center',

@@ -58,7 +58,8 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
       ['A card’s options', 'Flip, draw, shuffle and search up top; deal, turn, fan out, lock in place, never stack and more in the list below.'],
       ['Search a stack', 'Every card, face up. Tap one for its options; hold one to move it within the stack. While holding, tap Close to take it out onto the table.'],
       ['Table menu', 'Add a whole deck or chosen cards, reset the view, change the table color.'],
-      ['Tools tab (left edge)', 'Snap to grid, and lock the camera.'],
+      ['Tools tab (left edge)', 'Snap to grid, show the grid and its size, stack counts, lock the camera; fit all cards in view, clean up, gather by deck, and the trash.'],
+      ['Fold the hand away', 'Its cards turn face down while it’s folded, so the phone can be passed round.'],
       ['Hold a hand’s tab', 'Rename that hand.'],    ],
   },
 ];

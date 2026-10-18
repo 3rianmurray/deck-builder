@@ -58,6 +58,14 @@ export interface SandboxTable {
   lockCamera?: boolean;
   /** The table's cloth color (a key of the app's colors), or none for green felt. */
   background?: string;
+  /** The grid's lines are drawn (snapping is separate: see snapToGrid). */
+  showGrid?: boolean;
+  /** The grid's spacing, in table units, or none for GRID_STEP. */
+  gridStep?: number;
+  /** Stacks don't show how many cards they hold. */
+  hideCounts?: boolean;
+  /** Cards taken off the table, kept to put back (newest last). */
+  trash?: SandboxCard[];
   /** The camera as it was left, or none yet (it starts looking at the middle of the table). */
   camera?: Camera;
   /** The part of the table a ready-made layout lies in: the camera starts on it (and goes back to it on reset). */
@@ -226,6 +234,12 @@ export const fingerAngle = (p: { x: number; y: number }, q: { x: number; y: numb
 
 /** The grid's spacing, in table units (about 25 mm of real card). */
 export const GRID_STEP = 40;
+/** The grid sizes a table can have: its spacing, in table units. */
+export const GRID_SIZES = { small: 20, medium: GRID_STEP, large: 60 } as const;
+/** A table's grid spacing. */
+export const gridStepOf = (t: Pick<SandboxTable, 'gridStep'>) => t.gridStep ?? GRID_STEP;
+/** How close a dropped card must come to a stack to join it, with a grid this size (see GRID_STACK_REACH). */
+export const gridStackReach = (step: number) => (step * GRID_STACK_REACH) / GRID_STEP;
 
 /**
  * A card put down with snapping on: its middle on the nearest snap point, which is either a crossing of the grid's
@@ -647,8 +661,13 @@ export function prune(t: SandboxTable, decks: Deck[]): SandboxTable {
   const keep = (c: SandboxCard) => known.has(`${c.deckId}:${c.cardId}`);
   const stacks = t.stacks.map((s) => ({ ...s, cards: s.cards.filter(keep) })).filter((s) => s.cards.length);
   const hands = t.hands.map((h) => h.filter(keep));
-  const same = stacks.length === t.stacks.length && stacks.every((s, i) => s.cards.length === t.stacks[i].cards.length) && hands.every((h, i) => h.length === t.hands[i].length);
-  return same ? t : { ...t, stacks, hands };
+  const trash = (t.trash ?? []).filter(keep);
+  const same =
+    stacks.length === t.stacks.length &&
+    stacks.every((s, i) => s.cards.length === t.stacks[i].cards.length) &&
+    hands.every((h, i) => h.length === t.hands[i].length) &&
+    trash.length === (t.trash ?? []).length;
+  return same ? t : { ...t, stacks, hands, ...(t.trash ? { trash } : {}) };
 }
 
 /**
@@ -741,5 +760,74 @@ export function reorderStack(t: SandboxTable, stackId: string, picked: number[],
   });
 }
 
-/** Takes stacks off the table altogether. */
-export const removeStacks = (t: SandboxTable, ids: string[]) => ({ ...t, stacks: t.stacks.filter((s) => !ids.includes(s.id)) });
+/** Cards into the table's trash (to be put back, or gathered up again). */
+export const trashCards = (t: SandboxTable, cards: SandboxCard[]): SandboxTable => (cards.length ? { ...t, trash: [...(t.trash ?? []), ...cards] } : t);
+
+/** Takes stacks off the table, into its trash. */
+export const removeStacks = (t: SandboxTable, ids: string[]): SandboxTable =>
+  trashCards(
+    { ...t, stacks: t.stacks.filter((s) => !ids.includes(s.id)) },
+    t.stacks.filter((s) => ids.includes(s.id)).flatMap((s) => s.cards),
+  );
+
+/** Takes cards out of the trash (by instance), e.g. to put them back on the table. */
+export const takeFromTrash = (t: SandboxTable, iids: string[]): SandboxTable => ({ ...t, trash: (t.trash ?? []).filter((c) => !iids.includes(c.iid)) });
+
+/**
+ * Tidies the table: every stack (but locked ones) turned to the nearest 45° and moved onto the grid. Two never
+ * share a spot (which would look like one stack): a stack whose spot is taken goes to the nearest free one.
+ */
+export function tidyTable(t: SandboxTable, step = GRID_STEP): SandboxTable {
+  const key = (p: { x: number; y: number }) => `${Math.round(p.x)},${Math.round(p.y)}`;
+  // Locked ones stay where they are, and keep their spots.
+  const taken = new Set(t.stacks.filter((s) => s.locked).map(key));
+  const stacks = t.stacks.map((s) => {
+    if (s.locked) return s;
+    const angle = normalizeAngle(Math.round(s.angle / SNAP_STEP) * SNAP_STEP);
+    let at = snapToGrid({ x: s.x, y: s.y, angle }, step);
+    if (taken.has(key(at))) {
+      // The nearest free grid spot: crossings and square middles round it, nearest first.
+      const spots: { x: number; y: number }[] = [];
+      for (let i = -6; i <= 6; i++) {
+        for (let j = -6; j <= 6; j++) {
+          spots.push({ x: at.x + i * step, y: at.y + j * step }, { x: at.x + (i + 0.5) * step, y: at.y + (j + 0.5) * step });
+        }
+      }
+      const inside = (p: { x: number; y: number }) => p.x >= 0 && p.y >= 0 && p.x <= TABLE_W && p.y <= TABLE_H;
+      const free = spots
+        .filter((p) => inside(p) && !taken.has(key(p)))
+        .sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y))[0];
+      if (free) at = { ...free, angle };
+    }
+    taken.add(key(at));
+    return { ...s, x: at.x, y: at.y, angle };
+  });
+  return { ...t, stacks };
+}
+
+/**
+ * Gathers the table up by deck, for a new game: every deck with a card anywhere on it (the table, a hand or the
+ * trash) back as one complete deck (every card and copy, as the deck is now), shuffled and face down, in a row from
+ * `at` a card and a half apart (`place` settles each spot, e.g. onto the grid). Hands and trash are emptied.
+ */
+export function gatherDecks(
+  t: SandboxTable,
+  decks: Deck[],
+  at: { x: number; y: number },
+  ids: () => string,
+  random: () => number = Math.random,
+  place = (p: { x: number; y: number; angle: number }) => p,
+): SandboxTable {
+  const used: string[] = [];
+  for (const c of [...t.stacks.flatMap((s) => s.cards), ...t.hands.flat(), ...(t.trash ?? [])]) {
+    if (!used.includes(c.deckId)) used.push(c.deckId);
+  }
+  const empty: SandboxTable = { ...t, stacks: [], hands: t.hands.map(() => []), trash: [] };
+  return used
+    .map((id) => decks.find((d) => d.id === id))
+    .filter((d): d is Deck => !!d && d.cards.length > 0)
+    .reduce((table, deck, i) => {
+      const spot = place({ x: at.x + i * CARD_W * 1.5, y: at.y, angle: 0 });
+      return addDeck(table, deck, { x: spot.x, y: spot.y }, ids, random);
+    }, empty);
+}

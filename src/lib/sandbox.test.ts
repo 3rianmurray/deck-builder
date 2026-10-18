@@ -3,6 +3,9 @@ import { test } from 'node:test';
 
 import {
   GRID_STACK_REACH,
+  gatherDecks,
+  takeFromTrash,
+  tidyTable,
   reorderStack,
   addCards,
   addDeck,
@@ -451,4 +454,45 @@ test('searching a stack: cards moved within it, as the search shows them (top fi
   assert.deepEqual(reorderStack(t, 's', [2], 0).stacks[0].cards.map((c) => c.iid), ['a', 'c', 'd', 'b']);
   // d (the top) to the bottom.
   assert.deepEqual(reorderStack(t, 's', [0], 3).stacks[0].cards.map((c) => c.iid), ['d', 'a', 'b', 'c']);
+});
+test('taking stacks off the table keeps their cards in its trash, to put back', () => {
+  const t = tableWith({ id: 'a', x: 0, y: 0, angle: 0, cards: [card('1'), card('2')] }, { id: 'b', x: 200, y: 0, angle: 0, cards: [card('3')] });
+  const gone = removeStacks(t, ['a']);
+  assert.deepEqual(gone.stacks.map((s) => s.id), ['b']);
+  assert.deepEqual(gone.trash?.map((c) => c.iid), ['1', '2']);
+  assert.deepEqual(takeFromTrash(gone, ['1']).trash?.map((c) => c.iid), ['2']);
+});
+
+test('cleaning up: straight, on the grid, never two stacks in one spot, locked ones left alone', () => {
+  const t = tableWith(
+    { id: 'a', x: 101, y: 99, angle: 10, cards: [card('1')] },
+    { id: 'b', x: 98, y: 103, angle: 50, cards: [card('2')] },
+    { id: 'l', x: 333, y: 333, angle: 7, locked: true, cards: [card('3')] },
+  );
+  const tidy = tidyTable(t, 40);
+  const [a, b, l] = tidy.stacks;
+  assert.deepEqual([a.x, a.y, a.angle], [100, 100, 0]);
+  assert.equal(b.angle, 45);
+  // Both nearest (100, 100): the second goes to the nearest free spot instead.
+  assert.notDeepEqual([b.x, b.y], [100, 100]);
+  assert.ok(Math.hypot(b.x - 100, b.y - 100) <= 40);
+  assert.deepEqual([l.x, l.y, l.angle], [333, 333, 7]);
+});
+
+test('gathering up: each deck used anywhere comes back whole, shuffled and face down; hands and trash emptied', () => {
+  const deck = { id: 'd', name: 'D', backImage: null, cards: [{ id: 'x', name: 'X', image: '' }, { id: 'y', name: 'Y', image: '', copies: 2 }], createdAt: 0, updatedAt: 0 } as Deck;
+  const other = { ...deck, id: 'unused' } as Deck;
+  const t = {
+    ...tableWith({ id: 's', x: 500, y: 500, angle: 0, cards: [{ iid: '1', deckId: 'd', cardId: 'x', faceUp: true }] }),
+    hands: [[{ iid: '2', deckId: 'd', cardId: 'y', faceUp: true }], [], [], []],
+    trash: [{ iid: '3', deckId: 'd', cardId: 'y', faceUp: true }],
+  };
+  let n = 0;
+  const g = gatherDecks(t, [deck, other], { x: 100, y: 100 }, () => `g${n++}`, () => 0.5);
+  assert.equal(g.stacks.length, 1);
+  assert.equal(g.stacks[0].cards.length, 3);
+  assert.ok(g.stacks[0].cards.every((c) => !c.faceUp));
+  assert.deepEqual([g.stacks[0].x, g.stacks[0].y], [100, 100]);
+  assert.ok(g.hands.every((h) => !h.length));
+  assert.deepEqual(g.trash, []);
 });

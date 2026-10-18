@@ -34,7 +34,6 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
     title: 'Playing a deck or session',
     tips: [
       ['Drag the top card', 'Onto the discard pile to turn it over, or onto the trash can to take it out of the game.'],
-      ['Hold the deck', 'Search it.'],
       ['Swipe sideways', 'In a session, move between its decks.'],
     ],
   },

@@ -12,7 +12,6 @@ export const TIPS = {
   'tables-second-finger': 'While carrying cards, tap others with a second finger to pick them up too.',
   'tables-fold-hand': 'Tap the hand’s tab to fold it away: its cards turn face down, so the phone can be passed round.',
   'session-swipe': 'Swipe sideways to move between this session’s decks.',
-  'deck-hold-search': 'Hold the deck to search through it.',
   'home-swipe': 'Swipe a row right to duplicate it, or left to delete it.',
   'deck-hold-reorder': 'Hold a card and drag it to reorder the deck.',
 } as const;

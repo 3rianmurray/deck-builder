@@ -16,3 +16,5 @@
 - [x] 14. Card size: drop-down (Auto default, Standard, US Mini, Custom); auto detect.
 - [x] 15. Sprite sheet for cards: tap/drag to select which cards to import; Select all / Deselect all.
 - [x] 16. Require "in" or "mm" with custom card size numbers.
+- [x] 1b. No scrolling while the corners slider is moved
+- [x] 17. Delete several cards at once in Edit Deck (Select)

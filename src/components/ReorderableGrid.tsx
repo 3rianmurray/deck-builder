@@ -72,6 +72,8 @@ interface Props<T> {
    * the finger holds the first item.
    */
   onHold?: (held: GridHold | null) => void;
+  /** Keeps the grid from scrolling, e.g. while a slider in its header is being moved. */
+  scrollLocked?: boolean;
 }
 
 /** Items being carried in a grid, for its `onHold`. */
@@ -155,6 +157,7 @@ export function ReorderableGrid<T>({
   onPress,
   onMove,
   onHold,
+  scrollLocked = false,
 }: Props<T>) {
   // Kept in state, not a ref, because touch handlers scroll it; created once so it isn't re-attached each render.
   const [list, setList] = useState<ScrollView | null>(null);
@@ -487,7 +490,7 @@ export function ReorderableGrid<T>({
       <ScrollView
         ref={attachList}
         contentContainerStyle={{ padding, gap }}
-        scrollEnabled={!lifted}
+        scrollEnabled={!lifted && !scrollLocked}
         onContentSizeChange={(_, h) => setContentHeight(h)}
         // Only recorded, never rendered, so following every scroll event is cheap.
         scrollEventThrottle={16}

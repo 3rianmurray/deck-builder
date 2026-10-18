@@ -19,6 +19,7 @@ import { askName, titleCase } from '../../lib/names';
 import { appleScannerAvailable, fitScan, scanCards } from '../../lib/appleScanner';
 import { shareDecks } from '../../lib/deckExport';
 import { deleteDeckWarning } from '../../lib/deckInUse';
+import * as haptics from '../../lib/haptics';
 import { sampleBack, sampleCards } from '../../lib/sampleDeck';
 import { cropToShape, loadUpright, smallPixels } from '../../lib/images';
 import { guessSheet } from '../../lib/sheetGuess';
@@ -97,6 +98,11 @@ export default function DeckEditorScreen() {
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   /** The card being given its own back (a two-sided card), while its back's picture is chosen; else the deck's. */
   const [backFor, setBackFor] = useState<string | null>(null);
+  /** The corners slider is being moved (the screen holds still meanwhile). */
+  const [sliding, setSliding] = useState(false);
+  /** Choosing cards, e.g. to delete several at once: tapping a card ticks it rather than opening it. */
+  const [choosing, setChoosing] = useState(false);
+  const [chosen, setChosen] = useState<string[]>([]);
   /** Images waiting in the cropper, and what they become once cropped. */
   const [crop, setCrop] = useState<{ uris: string[]; target: ArtTarget | { cardId: string } } | null>(null);
   /** A photo of a card being found and straightened, and what it's for. */
@@ -343,6 +349,31 @@ export default function DeckEditorScreen() {
       ]
     : [];
 
+  const toggleChosen = (cardId: string) => {
+    setChosen((c) => (c.includes(cardId) ? c.filter((id) => id !== cardId) : [...c, cardId]));
+    haptics.tick();
+  };
+  const stopChoosing = () => {
+    setChoosing(false);
+    setChosen([]);
+  };
+  const deleteChosen = () => {
+    const ids = chosen.filter((id) => deck.cards.some((c) => c.id === id));
+    if (!ids.length) return;
+    haptics.warn();
+    Alert.alert(`Delete ${ids.length} ${ids.length === 1 ? 'card' : 'cards'}?`, 'They’re removed from this deck, art and all.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          decks.removeCards(deck.id, ids);
+          stopChoosing();
+        },
+      },
+    ]);
+  };
+
   // Saved as soon as the field holds a valid number, so closing the sheet never loses an edit.
   const changeCopies = (text: string) => {
     const digits = text.replace(/\D/g, '');
@@ -367,8 +398,11 @@ export default function DeckEditorScreen() {
         gap={GAP}
         padding={PADDING}
         bottomInset={insets.bottom + 72}
+        scrollLocked={sliding}
         onMove={(picked, to) => decks.reorderCards(deck.id, picked, to)}
         onPress={(item) => {
+          // Choosing cards (to delete several): a tap ticks or unticks it.
+          if (choosing) return toggleChosen(item.id);
           setSelected(item);
           setCopiesDraft(String(copiesOf(item)));
           setSheetOpen(true);
@@ -396,7 +430,7 @@ export default function DeckEditorScreen() {
             <CardSizePicker shape={deck.cardShape ?? { kind: 'standard' }} onChange={changeShape} />
 
             <Text style={[styles.label, { marginTop: 12 }]}>Corners</Text>
-            <RoundnessSlider deck={deck} onChange={(r) => decks.setRoundness(deck.id, r)} />
+            <RoundnessSlider deck={deck} onChange={(r) => decks.setRoundness(deck.id, r)} onSliding={setSliding} />
 
             <View style={[styles.backRow, { marginTop: 12 }]}>
               {/* Once it has a picture, tapping it goes back to cropping that; until then, to choosing one. */}
@@ -425,9 +459,22 @@ export default function DeckEditorScreen() {
               <Text style={styles.sectionTitle}>
                 Cards <Text style={styles.muted}>({deckSize(deck)})</Text>
               </Text>
-              <TourSpot id="deck.addCards">
-                <Button label="+ Add cards" variant="primary" onPress={() => openArtMenu('cards')} disabled={busy} />
-              </TourSpot>
+              {choosing ? (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Button
+                    label={chosen.length === deck.cards.length ? 'Deselect All' : 'Select All'}
+                    onPress={() => setChosen(chosen.length === deck.cards.length ? [] : deck.cards.map((c) => c.id))}
+                  />
+                  <Button label="Done" variant="primary" onPress={stopChoosing} />
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {deck.cards.length > 1 && !tour ? <Button label="Select" onPress={() => setChoosing(true)} disabled={busy} /> : null}
+                  <TourSpot id="deck.addCards">
+                    <Button label="+ Add cards" variant="primary" onPress={() => openArtMenu('cards')} disabled={busy} />
+                  </TourSpot>
+                </View>
+              )}
             </View>
             {deck.cards.length === 0 ? (
               <Text style={[styles.muted, { marginTop: 8 }]}>
@@ -439,6 +486,11 @@ export default function DeckEditorScreen() {
         renderItem={(item) => (
           <View>
             <CardView deck={deck} card={item} width={cardWidth} />
+            {choosing ? (
+              <View style={[styles.tick, chosen.includes(item.id) && styles.ticked]}>
+                {chosen.includes(item.id) ? <Text style={styles.tickMark}>✓</Text> : null}
+              </View>
+            ) : null}
             {copiesOf(item) > 1 ? (
               <View style={styles.copiesBadge}>
                 <Text style={styles.copiesBadgeText}>×{copiesOf(item)}</Text>
@@ -459,6 +511,14 @@ export default function DeckEditorScreen() {
       />
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+        {choosing ? (
+          <Button
+            label={chosen.length ? `Delete ${chosen.length} ${chosen.length === 1 ? 'card' : 'cards'}` : 'Tap cards to choose them'}
+            variant="danger"
+            disabled={!chosen.length}
+            onPress={deleteChosen}
+          />
+        ) : (
         <TourSpot id="deck.play">
           <Button
             label={deck.cards.length ? 'Play with this deck' : 'Add cards to play'}
@@ -470,6 +530,7 @@ export default function DeckEditorScreen() {
             }}
           />
         </TourSpot>
+        )}
       </View>
 
       {busy ? (
@@ -570,6 +631,22 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.text, fontSize: 20, fontWeight: '700' },
   muted: { color: colors.textMuted, fontSize: 14, fontWeight: '400' },
   cardName: { color: colors.textMuted, fontSize: 12, marginTop: 4, textAlign: 'center' },
+  // A card's tick, while choosing cards.
+  tick: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ticked: { backgroundColor: colors.danger, borderColor: colors.danger },
+  tickMark: { color: '#fff', fontSize: 14, fontWeight: '800' },
   copiesBadge: {
     position: 'absolute',
     top: 4,

@@ -46,6 +46,8 @@ interface DecksApi {
   setCopies: (deckId: string, cardId: string, copies: number) => void;
   renameCard: (deckId: string, cardId: string, name: string) => void;
   removeCard: (deckId: string, cardId: string) => void;
+  /** Removes several cards at once, art and all. */
+  removeCards: (deckId: string, cardIds: string[]) => void;
   /** Moves cards (indexes, in the order picked) together as a block to start at index `to` in the deck's order. */
   reorderCards: (deckId: string, picked: number[], to: number) => void;
   /** Swaps a card's art for a new image (e.g. the old art rotated), deleting the old file if nothing else uses it. */
@@ -307,6 +309,17 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         if (card.back) deleteImage(card.back);
         if (card.backOriginal) deleteImage(card.backOriginal);
         updateDeck(deckId, (d) => ({ ...d, cards: d.cards.filter((c) => c.id !== cardId) }));
+      },
+      removeCards(deckId, cardIds) {
+        const deck = getDeck(deckId);
+        if (!deck) return;
+        const gone = deck.cards.filter((c) => cardIds.includes(c.id));
+        const kept = deck.cards.filter((c) => !cardIds.includes(c.id));
+        // A picture still used by a card that's kept (or the deck's back) stays, as in `removeCard`.
+        const used = new Set([deck.backImage, deck.backOriginal, ...kept.flatMap((c) => [c.image, c.original, c.back, c.backOriginal])]);
+        const files = new Set(gone.flatMap((c) => [c.image, c.original, c.back, c.backOriginal]));
+        for (const f of files) if (f && !used.has(f)) deleteImage(f);
+        updateDeck(deckId, (d) => ({ ...d, cards: d.cards.filter((c) => !cardIds.includes(c.id)) }));
       },
       reorderCards(deckId, picked, to) {
         updateDeck(deckId, (d) => ({ ...d, cards: moveItems(d.cards, picked, to) }));

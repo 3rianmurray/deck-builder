@@ -738,6 +738,46 @@ export function settleOnto(t: SandboxTable, stackId: string, reach = SETTLE_REAC
   return t;
 }
 
+/** Whether two stacks' cards overlap on the table (near enough: the boxes round them, as turned, meet). */
+function overlapping(a: SandboxStack, b: SandboxStack, size: CardSize): boolean {
+  const box = (s: SandboxStack) => {
+    const c = stackCorners(s, size);
+    return { l: Math.min(...c.map((p) => p.x)), r: Math.max(...c.map((p) => p.x)), t: Math.min(...c.map((p) => p.y)), b: Math.max(...c.map((p) => p.y)) };
+  };
+  const p = box(a);
+  const q = box(b);
+  return p.l < q.r && q.l < p.r && p.t < q.b && q.t < p.b;
+}
+
+/**
+ * Moves a stack among the layers of cards it lies with: to the very back or front, or down or up past the next
+ * stack it overlaps (so each step shows). Unchanged if there's nothing that way to pass.
+ */
+export function moveLayer(t: SandboxTable, stackId: string, to: 'back' | 'down' | 'up' | 'front', size: CardSize): SandboxTable {
+  const at = t.stacks.findIndex((s) => s.id === stackId);
+  if (at < 0) return t;
+  const s = t.stacks[at];
+  const rest = t.stacks.filter((x) => x.id !== stackId);
+  let place: number;
+  if (to === 'back') place = 0;
+  else if (to === 'front') place = rest.length;
+  else if (to === 'down') {
+    // Just below the nearest stack under it that it overlaps.
+    let k = at - 1;
+    while (k >= 0 && !overlapping(t.stacks[k], s, size)) k--;
+    if (k < 0) return t;
+    place = k;
+  } else {
+    // Just above the nearest stack over it that it overlaps.
+    let k = at + 1;
+    while (k < t.stacks.length && !overlapping(t.stacks[k], s, size)) k++;
+    if (k >= t.stacks.length) return t;
+    place = k;
+  }
+  const stacks = [...rest.slice(0, place), s, ...rest.slice(place)];
+  return stacks.every((x, i) => x === t.stacks[i]) ? t : { ...t, stacks };
+}
+
 /** Changes one stack's settings (locked, say). */
 export const setStack = (t: SandboxTable, stackId: string, changes: Partial<Pick<SandboxStack, 'locked'>>) =>
   updateStack(t, stackId, (s) => ({ ...s, ...changes }));

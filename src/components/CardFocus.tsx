@@ -20,11 +20,11 @@ const TAP_SLOP = 8;
 
 /**
  * A row in the list under a card's buttons, for its less used options: one action (a chevron if it shows more,
- * red if it's destructive), a pair of actions side by side (e.g. Turn: Left | Right), or a switch.
+ * red if it's destructive), a few actions side by side (e.g. Turn: Left | Right), or a switch.
  */
 export type FocusRow =
   | { kind: 'action'; label: string; onPress: () => void; destructive?: boolean; more?: boolean; keepsOpen?: boolean }
-  | { kind: 'pair'; label: string; options: [{ label: string; onPress: () => void }, { label: string; onPress: () => void }] }
+  | { kind: 'pair'; label: string; options: { label: string; onPress: () => void }[] }
   | { kind: 'toggle'; label: string; value: boolean; onChange: (on: boolean) => void };
 
 interface Props {
@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
   rowText: { color: colors.text, fontSize: 15, fontWeight: '500' },
   chevron: { color: colors.textMuted, fontSize: 20 },
   pair: { flexDirection: 'row', gap: 8 },
-  pairButton: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.1)' },
+  pairButton: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.1)' },
   pairText: { color: colors.text, fontSize: 14, fontWeight: '600' },
   tileIcon: {
     width: ICON,

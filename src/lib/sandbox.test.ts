@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   GRID_STACK_REACH,
+  moveLayer,
   gatherDecks,
   takeFromTrash,
   tidyTable,
@@ -495,4 +496,21 @@ test('gathering up: each deck used anywhere comes back whole, shuffled and face 
   assert.deepEqual([g.stacks[0].x, g.stacks[0].y], [100, 100]);
   assert.ok(g.hands.every((h) => !h.length));
   assert.deepEqual(g.trash, []);
+});
+test('layers: to the back or front, or down and up past the next card it overlaps', () => {
+  const t = tableWith(
+    { id: 'a', x: 100, y: 100, angle: 0, cards: [card('1')] },
+    { id: 'far', x: 900, y: 900, angle: 0, cards: [card('2')] },
+    { id: 'b', x: 130, y: 100, angle: 0, cards: [card('3')] },
+    { id: 'c', x: 160, y: 100, angle: 0, cards: [card('4')] },
+  );
+  const order = (x: typeof t) => x.stacks.map((s) => s.id).join(' ');
+  assert.equal(order(moveLayer(t, 'c', 'back', size)), 'c a far b');
+  assert.equal(order(moveLayer(t, 'a', 'front', size)), 'far b c a');
+  // Down past b (it overlaps), not past 'far' (it doesn't).
+  assert.equal(order(moveLayer(t, 'c', 'down', size)), 'a far c b');
+  // Up past b, skipping 'far'.
+  assert.equal(order(moveLayer(t, 'a', 'up', size)), 'far b a c');
+  // Nothing under 'a' to pass.
+  assert.equal(moveLayer(t, 'a', 'down', size), t);
 });

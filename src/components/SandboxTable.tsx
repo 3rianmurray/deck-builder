@@ -61,6 +61,7 @@ import {
   toScreen,
   toTable,
   turnStack,
+  moveLayer,
   reorderStack,
   fanStack,
   removeStacks,
@@ -1672,12 +1673,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 kind: 'pair' as const,
                 label: 'Fan out',
                 options: [
-                  { label: 'Down', onPress: () => commit(fanStack(table, menuStack.id, 'down', newId)) },
-                  { label: 'Across', onPress: () => commit(fanStack(table, menuStack.id, 'across', newId)) },
-                ] as [{ label: string; onPress: () => void }, { label: string; onPress: () => void }],
+                  { label: 'Down', onPress: () => commit(fanStack(table, menuStack.id, 'down', newId, gridStep)) },
+                  { label: 'Across', onPress: () => commit(fanStack(table, menuStack.id, 'across', newId, gridStep)) },
+                ],
               },
             ]
           : []),
+        // Among the cards it overlaps: under or over them.
+        {
+          kind: 'pair',
+          label: 'Layer',
+          options: (['back', 'down', 'up', 'front'] as const).map((to) => ({
+            label: to === 'back' ? 'Back' : to === 'down' ? 'Down' : to === 'up' ? 'Up' : 'Front',
+            onPress: () => commit(moveLayer(table, menuStack.id, to, size)),
+          })),
+        },
         { kind: 'toggle', label: 'Lock in place', value: !!menuStack.locked, onChange: (on) => commit(setStack(table, menuStack.id, { locked: on })) },
         // A single card can be kept from stacking: nothing goes onto it, and it goes onto nothing.
         ...(n === 1 ? [{ kind: 'toggle' as const, label: 'Never stack', value: !!top.solo, onChange: (on: boolean) => commit(setSolo(table, menuStack.id, on)) }] : []),

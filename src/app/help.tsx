@@ -19,7 +19,7 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
       ['Swipe a row left', 'Delete it.'],
       ['Hold and drag a deck', 'Reorder it, or drop it into a group.'],
       ['Tap a group', 'Fold it open or closed. ••• for its options, like sharing all its decks.'],
-      ['Tap a Free Play table', 'Open, rename, duplicate or delete it.'],
+      ['Tap a table', 'Open, rename, duplicate or delete it.'],
     ],
   },
   {
@@ -34,25 +34,22 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
     ],
   },
   {
-    title: 'Playing (table and reveal mode)',
+    title: 'Playing a deck or session',
     tips: [
-      ['Tap the deck', 'Draw a card (in reveal mode, turn the next one over).'],
+      ['Tap the deck', 'Turn the next card over onto the discard pile.'],
+      ['Drag the top card', 'Drop it on the discard pile to turn it over, or on the trash can to take it out of the game.'],
       ['Hold the deck', 'Search it.'],
-      ['Drag a card', 'Move it between the deck, table, hand and discard pile.'],
-      ['Second-finger taps', 'While carrying a card, tap others to pick them up too.'],
-      ['Flip while dragging', 'Tap the flip button to turn what you carry over.'],
-      ['Tap the deck’s name', 'The table menu, e.g. to switch between table and reveal mode.'],
-      ['Tap the hand’s tab', 'Tuck the hand away, or bring it back.'],
+      ['Swipe sideways', 'In a session, move between its decks.'],
+      ['Tap the deck’s name', 'Shuffle the discard pile back in, look in the trash, or reset.'],
     ],
-  },
-  {
-    title: 'Free Play',
+  },  {
+    title: 'Tables',
     tips: [
       ['One finger on the table', 'Slide the view.'],
       ['Two fingers', 'Zoom and turn the table. It snaps square near each quarter turn.'],
       ['Drag a card or stack', 'Put it anywhere. Drag by the number to take the whole stack.'],
       ['Twist with a second finger', 'Turn what you carry. It snaps every 45°.'],
-      ['Tap a card', 'See it up close, with its options (flip, shuffle, deal…).'],
+      ['Tap a card', 'See it up close, with its options: flip, draw, search, shuffle, deal…'],
       ['Double-tap a card', 'Flip it.'],
       ['Double-tap, then hold the table', 'Draw a loop around cards to select them. Do it again to add more.'],
       ['Drag a selected card', 'Move the whole selection. The stack button gathers it into one pile.'],

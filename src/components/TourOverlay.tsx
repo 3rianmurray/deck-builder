@@ -4,17 +4,13 @@ import type { ReactNode } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useDecks } from '../lib/DecksContext';
 import * as haptics from '../lib/haptics';
-import { loadSettings } from '../lib/storage';
 import { endTour, nextTourStep, TOUR, useTourStep, useTourTargetRect } from '../lib/tour';
 import type { TourStep } from '../lib/tour';
 import { colors } from '../theme';
 import { Button } from './Button';
 import { Text } from './Text';
 
-/** How long after leaving the table the Sample Deck goes back to table mode (once the table's out of sight). */
-const MODE_RESET_MS = 700;
 /** How long a step takes to fade in, and out. */
 const FADE_IN_MS = 220;
 const FADE_OUT_MS = 140;
@@ -87,7 +83,6 @@ function Ring({ rect }: { rect: { x: number; y: number; w: number; h: number } }
  */
 export function TourOverlay() {
   const tour = useTourStep();
-  const decks = useDecks();
   const rect = useTourTargetRect(tour?.step.target);
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -117,14 +112,10 @@ export function TourOverlay() {
     return { keep: (frame: ReactNode) => Object.assign(box, { frame }), get: () => box.frame };
   }, []);
 
-  // The end: back to the home screen, the Sample Deck set back to table mode (the walkthrough leaves it in
-  // reveal mode), and a tap to feel it's done.
+  // The end: back to the home screen, and a tap to feel it's done.
   const finish = () => {
     endTour();
     if (router.canDismiss()) router.dismissAll();
-    const sample = loadSettings().sampleDeckId;
-    // Once the table has slid away, so it isn't seen changing on its way out.
-    if (sample && decks.getDeck(sample)) setTimeout(() => decks.setPlayMode(sample, 'table'), MODE_RESET_MS);
     haptics.success();
   };
 

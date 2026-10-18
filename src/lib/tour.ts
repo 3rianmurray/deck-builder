@@ -68,19 +68,19 @@ export interface TourStep {
 export const TOUR: TourStep[] = [
   {
     title: 'Welcome to Shufflevale',
-    text: "Let's make a deck and play a quick hand together. It takes about a minute, and you can skip any time.",
+    text: "Let's make a deck and play it together. It takes about a minute, and you can skip any time.",
     next: "Let's go",
   },
   {
     title: 'Make a deck',
-    text: 'Tap + New Deck to start one.',
+    text: 'Tap + Deck to start one.',
     target: 'home.newDeck',
     until: 'deck-created',
     dim: true,
   },
   {
     title: 'Start with the back',
-    text: "The back is what you see when a card is face down, and it's the same on every card. Tap Choose image.",
+    text: "The back is what you see when a card is face down, and it's the same on every card. Tap Choose Image.",
     target: 'deck.back',
     until: 'back-menu',
     dim: true,
@@ -106,73 +106,26 @@ export const TOUR: TourStep[] = [
   },
   {
     title: 'Ready to play',
-    text: 'Your deck is ready. Take it to the table.',
+    text: 'Your deck is ready. Tap Play with this deck.',
     target: 'deck.play',
     until: 'table-opened',
     dim: true,
   },
   {
-    title: 'This is your deck',
-    text: 'Drag the top card off the deck and drop it anywhere on the table.',
+    title: 'Turn over a card',
+    text: 'Tap the deck, or drag its top card to the discard pile, to reveal it.',
     target: 'table.deck',
-    until: 'to-table',
-    place: 'right',
-  },
-  {
-    title: 'Tap a card',
-    text: 'Tap the card you put down to see what you can do with it.',
-    target: 'table.card',
-    until: 'card-menu',
-    place: 'top',
-  },
-  {
-    title: 'Flip it over',
-    text: "Tap Flip over to reveal the card. Cards can also be flipped while they're being dragged.",
-    tile: 'Flip over',
-    until: 'flipped',
+    until: 'revealed',
     // Time to watch it turn over.
     after: 1300,
   },
   {
-    title: 'Your hand',
-    text: 'Drag a card from the table or the deck down into your hand. Tap the tab on top to tuck it away.',
-    target: 'table.hand',
-    until: 'to-hand',
-    place: 'top',
-  },
-  {
-    title: 'Shuffle',
-    text: 'Draw, Shuffle and Search sit between the piles. Tap Shuffle and watch the deck get shuffled.',
-    target: 'table.buttons',
-    until: 'shuffled',
-  },
-  {
-    title: 'Reveal mode',
-    text: "Some games just turn cards over one at a time. That's reveal mode. Tap the deck's name to open the table menu.",
-    target: 'table.title',
-    until: 'table-menu',
-    dim: true,
-  },
-  {
-    title: 'Switch to reveal mode',
-    text: 'Tap Switch to reveal mode. If you have cards out, you can keep them aside or discard them.',
-    tile: 'Switch to reveal mode',
-    until: 'reveal-mode',
-  },
-  {
-    title: 'Turn over a card',
-    text: 'Tap the deck, or drag a card to the discard pile, to reveal it.',
-    target: 'table.deck',
-    until: 'revealed',
-  },
-  {
     title: "You're all set",
-    text: 'Switch back to table mode from the same menu any time. Start a session to play several decks at once. To see this again, or for a list of gestures, tap ? on the home screen.',
+    text: 'Keep tapping to turn cards over. A session flips through several decks: tap + Session on the home screen. To lay cards out, with hands and many decks, open a table: there\'s a Solitaire one to try. For this again, or a list of gestures, tap ?.',
     next: 'Done',
     place: 'top',
   },
-];
-interface State {
+];interface State {
   /** The step showing, or null when the tour isn't running. */
   step: number | null;
   /** A step whose result is being shown before the next (see `after`): the tour is still on. */

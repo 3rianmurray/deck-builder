@@ -33,6 +33,7 @@ import { useDecks } from '../lib/DecksContext';
 import * as haptics from '../lib/haptics';
 import * as T from '../lib/table';
 import { fitTilt, project, tiltTransform, unproject } from '../lib/tilt';
+import { offerTipSoon } from '../lib/tips';
 import { setTourTarget, tourEvent, tourRunning, useTourStep } from '../lib/tour';
 import { cardRadius, cardRatio } from '../lib/types';
 import type { Card, CardInstance, Deck, Spot, TableState, Zone } from '../lib/types';
@@ -941,6 +942,8 @@ function Table({
     const top = table.deck[0];
     if (!top || flying || deckBusy) return;
     tourEvent('revealed');
+    // A tip, the first time: the deck can be searched.
+    offerTipSoon('deck-hold-search', 1500);
     // Felt as it comes off the deck, and again as it lands on the discard pile.
     haptics.deal();
     const move = () => apply((t) => T.moveCard(t, top.iid, 'discard'));

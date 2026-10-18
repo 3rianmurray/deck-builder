@@ -2,7 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -25,6 +25,7 @@ import { sampleBack, sampleCards } from '../../lib/sampleDeck';
 import { cropToShape, loadUpright, smallPixels } from '../../lib/images';
 import { guessSheet } from '../../lib/sheetGuess';
 import { imageUri } from '../../lib/storage';
+import { offerTipSoon } from '../../lib/tips';
 import { tourEvent, useTourStep } from '../../lib/tour';
 import { cardRatio, copiesOf, deckSize, detectShape } from '../../lib/types';
 import type { Card, CardShape } from '../../lib/types';
@@ -97,6 +98,9 @@ export default function DeckEditorScreen() {
   const [menu, setMenu] = useState<ArtTarget | `sheet-${ArtTarget}` | null>(null);
   /** The walkthrough, if it's running: only then are the sample pictures offered. */
   const tour = useTourStep();
+  // A tip, the first time a deck has a few cards: reordering them.
+  const reorderable = (decks.getDeck(id)?.cards.length ?? 0) > 1;
+  useEffect(() => (reorderable ? offerTipSoon('deck-hold-reorder') : undefined), [reorderable]);
   /** The deck's name as it's being typed (in title case), until it's done. */
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   /** The card being given its own back (a two-sided card), while its back's picture is chosen; else the deck's. */

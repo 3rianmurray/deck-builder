@@ -53,6 +53,10 @@ export interface Settings {
   solitaireMade?: boolean;
   /** The Playing Cards deck the app made last, reused for new Solitaire tables while it's still there. */
   playingCardsDeckId?: string;
+  /** Tips (see lib/tips) are turned off. */
+  tipsOff?: boolean;
+  /** The tips already shown (each shows once). */
+  seenTips?: string[];
 }
 export const loadSettings = () => readJson<Settings>(SETTINGS_FILE, {});
 export const saveSettings = (settings: Settings) => writeJson(SETTINGS_FILE, settings);

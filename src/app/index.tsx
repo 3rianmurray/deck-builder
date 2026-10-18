@@ -21,6 +21,7 @@ import type { Row } from '../lib/groups';
 import { useExamples } from '../lib/examples';
 import { createSandbox, deleteSandbox, duplicateSandbox, updateSandbox, useSandboxes } from '../lib/sandboxStore';
 import { loadSettings, saveSettings } from '../lib/storage';
+import { offerTipSoon, resetTips, setTipsOn, tipsOn } from '../lib/tips';
 import { startTour, tourEvent, useTourStep } from '../lib/tour';
 import { deckSize } from '../lib/types';
 import { versionLabel } from '../lib/version';
@@ -79,6 +80,10 @@ export default function HomeScreen() {
     // Once, on opening.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A tip, once there are a few rows to swipe (and the walkthrough's been): swiping them.
+  const swipeable = decks.length + sessions.length + sandboxes.length > 2;
+  useEffect(() => (swipeable ? offerTipSoon('home-swipe', 2500) : undefined), [swipeable]);
 
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
   /** The Table (Free Play, sandbox in the code) whose options are showing. */
@@ -463,6 +468,14 @@ export default function HomeScreen() {
         onClose={() => setAppMenuOpen(false)}
         actions={[
           { label: 'Help', onPress: () => router.push('/help') },
+          // Tips (now and then, the first times things are used): off, or on, and all of them again.
+          tipsOn()
+            ? { label: 'Turn Tips Off', onPress: () => setTipsOn(false) }
+            : { label: 'Turn Tips On', onPress: () => setTipsOn(true) },
+          { label: 'Show Tips Again', onPress: () => {
+            resetTips();
+            haptics.success();
+          } },
           // The file picker and share sheet are system screens, which iOS can only show once this menu has gone.
           { label: 'Import decks from a file…', opensModal: true, onPress: importFromFile },
           ...(decks.length ? [{ label: 'Back up all decks…', opensModal: true, onPress: backUpAll }] : []),

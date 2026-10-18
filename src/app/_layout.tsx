@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { NamePrompt } from '../components/NamePrompt';
+import { TipToast } from '../components/TipToast';
 import { TourOverlay } from '../components/TourOverlay';
 import { DecksProvider } from '../lib/DecksContext';
 import { colors } from '../theme';
@@ -47,6 +48,8 @@ export default function RootLayout() {
         <TourOverlay />
         {/* The prompt for naming things, over every screen. */}
         <NamePrompt />
+        {/* Now-and-then tips, over every screen. */}
+        <TipToast />
       </DecksProvider>
     </GestureHandlerRootView>
   );

@@ -1,0 +1,67 @@
+// Tips: one-line hints that slide in now and then, the first times things are used, about gestures that can't be
+// seen on screen. Not a tutorial: each shows once, one at a time, never during the walkthrough, and they can be turned
+// off (and back on, or shown again) from the home screen's menu. Kept outside React state, as a tiny store.
+import { useSyncExternalStore } from 'react';
+
+import { loadSettings, saveSettings } from './storage';
+import { tourRunning } from './tour';
+
+export const TIPS = {
+  'tables-lasso': 'Double-tap the table, then hold and draw round cards, to pick several out at once.',
+  'tables-hold-stack': 'Hold a stack a moment before dragging to pick up the whole thing.',
+  'tables-second-finger': 'While carrying cards, tap others with a second finger to pick them up too.',
+  'tables-fold-hand': 'Tap the hand’s tab to fold it away: its cards turn face down, so the phone can be passed round.',
+  'session-swipe': 'Swipe sideways to move between this session’s decks.',
+  'deck-hold-search': 'Hold the deck to search through it.',
+  'home-swipe': 'Swipe a row right to duplicate it, or left to delete it.',
+  'deck-hold-reorder': 'Hold a card and drag it to reorder the deck.',
+} as const;
+
+export type TipId = keyof typeof TIPS;
+
+let showing: TipId | null = null;
+const listeners = new Set<() => void>();
+const set = (next: TipId | null) => {
+  showing = next;
+  listeners.forEach((l) => l());
+};
+const subscribe = (l: () => void) => {
+  listeners.add(l);
+  return () => listeners.delete(l);
+};
+
+/** Tips are on (they are, unless turned off in the menu). */
+export const tipsOn = () => !loadSettings().tipsOff;
+
+/**
+ * Shows a tip, if it's never been shown, tips are on, no other is showing and the walkthrough isn't running. It
+ * counts as seen once shown (so it never comes back).
+ */
+export function offerTip(id: TipId) {
+  const settings = loadSettings();
+  if (settings.tipsOff || settings.seenTips?.includes(id) || showing || tourRunning()) return;
+  saveSettings({ ...settings, seenTips: [...(settings.seenTips ?? []), id] });
+  set(id);
+}
+
+/** Offers a tip after a moment (once the screen has settled); returns a way to call it off. */
+export function offerTipSoon(id: TipId, delayMs = 1800) {
+  const timer = setTimeout(() => offerTip(id), delayMs);
+  return () => clearTimeout(timer);
+}
+
+export const dismissTip = () => set(null);
+
+/** Turns tips on or off (off also puts away any showing). */
+export function setTipsOn(on: boolean) {
+  saveSettings({ ...loadSettings(), tipsOff: !on });
+  if (!on) set(null);
+}
+
+/** Every tip can show again. */
+export function resetTips() {
+  saveSettings({ ...loadSettings(), seenTips: [], tipsOff: false });
+}
+
+/** The tip showing now, if any. */
+export const useTip = () => useSyncExternalStore(subscribe, () => showing);

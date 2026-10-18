@@ -73,6 +73,7 @@ import {
 } from '../lib/sandbox';
 import type { Camera, CardSize, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
+import { offerTipSoon } from '../lib/tips';
 import { tourEvent } from '../lib/tour';
 import { cardRatio, cardSizeMm, PRESET_SIZES_MM } from '../lib/types';
 import type { Deck } from '../lib/types';
@@ -267,6 +268,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const box = { iids: [] as string[] };
     return { get: () => box.iids, set: (iids: string[]) => Object.assign(box, { iids }) };
   });
+  // A tip, the first time a table opens (after a moment): the lasso, which nothing on screen shows.
+  useEffect(() => offerTipSoon('tables-lasso', 2500), []);
   /** Closes the search (it slides away). */
   const endSearch = () => {
     setSearching(null);
@@ -713,6 +716,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       turnedOver: false,
       /** What's carried was taken out of the search: once it's put down (or the drag's lost), the search closes. */
       fromSearch: false,
+      /** Cards put down on the table this visit (for a tip, after a few). */
+      drops: 0,
       /** The carried card's middle relative to the carrying finger, and its turn, both on screen. */
       offset: { x: 0, y: 0 },
       screenAngle: 0,
@@ -890,6 +895,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       const at = Math.min(L.handInsertAt(p.x), without.hands[L.handIndex].length);
       L.commit(putInHand(without, cards, L.handIndex, at));
       tourEvent('tables-to-hand');
+      offerTipSoon('tables-fold-hand', 700);
       return;
     }
     const w = toTable(readCamera(), p.x, p.y);
@@ -905,6 +911,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const free = { x: w.x, y: w.y, angle: p.tableAngle };
     const at = L.gridOn && !onto ? snapToGrid(free, L.gridStep) : free;
     // A whole stack just moved (and turned), on its own, keeps being itself.
+    // Tips, the first times: holding a stack (after taking one card off one), and more fingers (after a few drags).
+    const from = sources[0]?.kind === 'card' ? L.table.stacks.find((st) => st.id === (sources[0] as { stackId: string }).stackId) : undefined;
+    if (sources.length === 1 && from && from.cards.length > 1) offerTipSoon('tables-hold-stack', 600);
+    touch.drops += 1;
+    if (touch.drops === 4) offerTipSoon('tables-second-finger', 600);
     // For the walkthrough (a whole stack first, so one drop never counts for two of its steps).
     if (whole?.kind === 'stack') tourEvent('tables-lifted');
     tourEvent('tables-moved');

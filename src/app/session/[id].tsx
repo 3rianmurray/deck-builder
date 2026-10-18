@@ -11,6 +11,7 @@ import type { TableControls } from '../../components/TableTopBar';
 import { TabletopSurface } from '../../components/Tabletop';
 import * as haptics from '../../lib/haptics';
 import { useDecks } from '../../lib/DecksContext';
+import { offerTipSoon } from '../../lib/tips';
 import { colors } from '../../theme';
 import { MAX_TEXT_SCALE, Text } from '../../components/Text';
 
@@ -89,6 +90,9 @@ export default function SessionScreen() {
   const session = getSession(id);
   const decks = (session?.deckIds ?? []).flatMap((deckId) => getDeck(deckId) ?? []);
   const current = Math.max(0, Math.min(index, decks.length - 1));
+  // A tip, the first time a session with several decks opens: swiping between them.
+  const several = decks.length > 1;
+  useEffect(() => (several ? offerTipSoon('session-swipe') : undefined), [several]);
 
   // Keep the current deck's tab centerd, so swiping to a deck far along the row doesn't leave its tab off screen.
   const currentTab = tabLayouts[current];

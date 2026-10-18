@@ -20,6 +20,8 @@ const distance = (a: NativeTouchEvent, b: NativeTouchEvent) => Math.hypot(a.page
 export interface ZoomItem {
   key: string;
   card: Card;
+  /** Shown face down (its back), e.g. the deck's top card: seen up close without giving it away. */
+  faceDown?: boolean;
 }
 
 interface Props {
@@ -39,7 +41,7 @@ interface Props {
 const NEIGHBOR_GAP = 32;
 
 /**
- * A face-up card blown up to nearly fill the screen, for reading small print. Swipe sideways to step to the
+ * A card blown up to nearly fill the screen, for reading small print (or seeing a back up close). Swipe sideways to step to the
  * card beside it (where there is one); otherwise pinch in, swipe it away in any direction, or tap the
  * background to put it back.
  */
@@ -200,7 +202,7 @@ export function CardZoom({ deck, current, area, prev, next, onStep, onClose }: P
               <View
                 key={item.key}
                 style={[styles.slot, { left: spot * spacing }, spot !== slot && !showNeighbors && styles.hidden]}>
-                <CardView deck={deck} card={item.card} width={width} sharp />
+                <CardView deck={deck} card={item.card} faceUp={!item.faceDown} width={width} sharp />
               </View>
             ) : null,
           )}

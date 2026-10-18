@@ -1906,8 +1906,9 @@ function Table({
           offX: n.locationX,
           offY: n.locationY,
           pressedAt: Date.now(),
-          // Holding a stack's count still does nothing: it's for dragging the stack.
-          zoomable: inst.faceUp && from !== 'deck' && !whole,
+          // Holding a stack's count still does nothing: it's for dragging the stack. In reveal mode, holding the deck
+          // shows its top card's back full size (as holding the discard pile shows its face).
+          zoomable: !whole && ((inst.faceUp && from !== 'deck') || (reveal && from === 'deck')),
           active: false,
           abandoned: false,
           orphaned: false,
@@ -2350,8 +2351,10 @@ function Table({
       const card = c && cardsById.get(c.cardId);
       return c && card ? { key: c.iid, card } : undefined;
     };
-    const current = item(inst);
-    if (!current) return null;
+    const shownItem = item(inst);
+    if (!shownItem) return null;
+    // The deck's top card, held: its back.
+    const current = found.zone === 'deck' ? { ...shownItem, faceDown: true } : shownItem;
     if (found.zone !== 'hand' && found.zone !== 'table') return { current };
     // On the table only each stack's top card can be seen, so only those are stepped through.
     const visible = found.zone === 'table' ? tableGroups.map(groupTop) : table.hand;

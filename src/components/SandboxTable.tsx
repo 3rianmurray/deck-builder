@@ -1730,8 +1730,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       redo: () => latestRedo.get()(),
       canRedo: future.length > 0,
       openMenu: () => setMenu({ kind: 'table' }),
+      hidden: !!searching,
     });
-  }, [history.length, future.length, carrying, onControls, table, latestUndo, latestRedo]);
+  }, [history.length, future.length, carrying, onControls, table, latestUndo, latestRedo, searching]);
 
   if (!table) {
     return (

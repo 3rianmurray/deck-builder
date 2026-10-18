@@ -130,7 +130,7 @@ export function StackSearchPanel({
         <Text style={styles.title} numberOfLines={1}>
           {title}
         </Text>
-        <Text style={styles.hint}>Tap a card for its options. Hold one to move it; while holding, tap Close to take it out.</Text>
+        <Text style={styles.hint}>Tap for options · Hold to move · Hold and tap Close to take out</Text>
       </View>
       {cards.length ? (
         <ReorderableGrid
@@ -142,12 +142,7 @@ export function StackSearchPanel({
           padding={16}
           renderItem={(item) => {
             const deck = deckOf(item);
-            return deck ? (
-              <View>
-                <CardView deck={deck} card={cardOf(item)} width={cardWidth} />
-                <Text style={styles.index}>{cards.indexOf(item) + 1}</Text>
-              </View>
-            ) : null;
+            return deck ? <CardView deck={deck} card={cardOf(item)} width={cardWidth} /> : null;
           }}
           renderLifted={(item) => {
             const deck = deckOf(item);
@@ -208,18 +203,4 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 20, fontWeight: '700' },
   hint: { color: colors.textMuted, fontSize: 13 },
   empty: { color: colors.textMuted, textAlign: 'center', marginTop: 40, flex: 1 },
-  index: {
-    position: 'absolute',
-    top: 4,
-    left: 4,
-    minWidth: 20,
-    textAlign: 'center',
-    color: colors.text,
-    fontSize: 11,
-    fontWeight: '700',
-    backgroundColor: 'rgba(8,18,26,0.75)',
-    borderRadius: 8,
-    overflow: 'hidden',
-    paddingHorizontal: 4,
-  },
 });

@@ -19,6 +19,8 @@ export interface TableControls {
   redo?: () => void;
   canRedo?: boolean;
   openMenu: () => void;
+  /** Something covers the table (e.g. a search, with its own title and Close): the bar steps out of the way. */
+  hidden?: boolean;
 }
 
 /** Back to the screen before, or home if there isn't one (e.g. the app was reloaded straight onto the table). */
@@ -33,6 +35,7 @@ function goBack() {
  */
 export function TableTopBar({ controls }: { controls: TableControls | null }) {
   const insets = useSafeAreaInsets();
+  if (controls?.hidden) return null;
   return (
     <View style={[styles.bar, { paddingTop: insets.top + 6 }]}>
       <RoundButton

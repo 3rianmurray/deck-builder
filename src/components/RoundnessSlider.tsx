@@ -11,6 +11,8 @@ import { Text } from './Text';
 const THUMB = 26;
 /** The card beside it (given a deck), big enough to see its corners. */
 const PREVIEW_W = 44;
+/** The dot marking the usual roundness on the track. */
+const MARK = 8;
 
 /**
  * How round a deck's card corners are: a slider from square to very round, with one of its cards beside it
@@ -107,6 +109,8 @@ export function RoundnessSlider({
               it would be measured from the thumb, and jump to the start). */}
           <View style={[styles.track, styles.noTouch]} />
           <View style={[styles.fill, styles.noTouch, { width: left + THUMB / 2 }]} />
+          {/* A mark where the usual roundness is: it snaps there. */}
+          <View style={[styles.mark, styles.noTouch, { left: THUMB / 2 + (DEFAULT_ROUNDNESS / MAX_ROUNDNESS) * Math.max(0, width - THUMB) - MARK / 2 }]} />
           <View style={[styles.thumb, styles.noTouch, { left }]} />
         </View>
         <View style={styles.ends}>
@@ -136,5 +140,6 @@ const styles = StyleSheet.create({
   },
   ends: { flexDirection: 'row', justifyContent: 'space-between' },
   noTouch: { pointerEvents: 'none' },
+  mark: { position: 'absolute', width: MARK, height: MARK, borderRadius: MARK / 2, backgroundColor: colors.text, opacity: 0.55 },
   end: { color: colors.textMuted, fontSize: 12 },
 });

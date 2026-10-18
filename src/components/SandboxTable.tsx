@@ -72,6 +72,7 @@ import { CardFocus } from './CardFocus';
 import { AddCardsModal } from './AddCardsModal';
 import { DealPanel } from './DealPanel';
 import { Riffle } from './Riffle';
+import { StackSearch } from './StackSearch';
 import { CardView } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
@@ -92,8 +93,6 @@ const TAP_MS = 300;
 /** How far round a stack's count badge (in screen points) a touch takes the whole stack. */
 /** How long a press on a stack must be held, still, for the whole stack to come up (a quick drag takes its top card). */
 const HOLD_STACK_MS = 350;
-/** The search tray's heading, above its row of cards. */
-const SEARCH_HEAD = 44;
 /** How long a stack brought onto the table takes to fly in (and the camera to glide over to it). */
 const ARRIVE_MS = 480;
 /** Hand cards sliding to new places (one gone, one coming in, the gap moving). */
@@ -237,13 +236,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [dealingFrom, setDealingFrom] = useState<string | null>(null);
   /** Looking through this stack: its menu shows its cards, to take one into the hand. */
   const [searching, setSearching] = useState<string | null>(null);
-  /** In the search tray: the cards ticked (to be dragged out together). */
-  const [searchPicked, setSearchPicked] = useState<string[]>([]);
-  /** How far the search tray's row is scrolled, as its scroll view reports it. */
-  const [searchScroll] = useState(() => {
-    const box = { x: 0 };
-    return { get: () => box.x, set: (x: number) => Object.assign(box, { x }) };
-  });
   /** Choosing cards from a deck to bring onto the table. */
   const [addingCards, setAddingCards] = useState(false);
   /** A stack just brought onto the table, flying in to where the camera's taking it on screen. */
@@ -546,24 +538,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   };
   /** How much a card's table size is scaled to show it at its size in the hand. */
   const handScaleOf = (c: SandboxCard) => handWidthOf(c) / size(c.deckId).w;
-  // ---- The search tray: a stack looked through, its cards face up in a row over the hand, to drag out. ----
-  const searchStack = searching ? table?.stacks.find((s) => s.id === searching) : undefined;
-  const searchOpen = !!searchStack;
-  /** Its cards, top first, but for any being carried out of it. */
-  const searchCards = searchStack ? [...searchStack.cards].reverse().filter((c) => !heldIds.has(c.iid)) : [];
-  const searchRowH = handCardH + HAND_ROW_PAD * 2;
-  const searchTop = area.h - insets.bottom - searchRowH - SEARCH_HEAD - 8;
-  const searchRowTop = searchTop + SEARCH_HEAD;
-  /** The card in the search tray's row at a point across the screen (its place in `searchCards`), or −1. */
-  const searchCardAt = (x: number) => {
-    let edge = HAND_PAD - searchScroll.get();
-    for (let k = 0; k < searchCards.length; k++) {
-      const w = handWidthOf(searchCards[k]);
-      if (x >= edge && x <= edge + w) return k;
-      edge += w + HAND_GAP;
-    }
-    return -1;
-  };
   /** Where in the row (of cards not carried) cards dropped with their middle at a point on screen would go. */
   const handInsertAt = (x: number) => {
     // Before the first card whose middle (as the row is without the gap) lies past the point.
@@ -616,16 +590,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       setHeld: (h: Held | null) => void;
       setTarget: (id: string | null) => void;
       setMenu: (m: Menu) => void;
-      searchFrom: string | null;
-      searchCards: SandboxCard[];
-      searchPicked: string[];
-      setSearchPicked: (iids: string[]) => void;
-      searchCardAt: (x: number) => number;
-      searchTop: number;
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searchOpen ? searching : null, searchCards, searchPicked, setSearchPicked, searchCardAt, searchTop });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -681,8 +649,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       /** Fingers pressing the flip button (they don't twist or pick up), and whether what's carried is turned over. */
       buttonFingers: new Set<number>(),
       turnedOver: false,
-      /** Carried out of a search: several cards are fanned out across where they're let go, rather than piled. */
-      fanOut: false,
       /** The carried card's middle relative to the carrying finger, and its turn, both on screen. */
       offset: { x: 0, y: 0 },
       screenAngle: 0,
@@ -750,7 +716,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const over = p.y < L.handTop && !solo ? stackTargetAt(takeAll(L.table, touch.sources), w.x, w.y, L.size, except, L.gridOn ? GRID_STACK_REACH : undefined, face) : null;
     L.setTarget(over?.id ?? null);
     // Over the hand: a gap opens where they'd go in, and near either end the row scrolls along.
-    if (p.y >= L.handTop && !L.searchFrom) {
+    if (p.y >= L.handTop) {
       const edge = p.x < HAND_EDGE ? -1 : p.x > area.w - HAND_EDGE ? 1 : 0;
       if (edge) {
         const x = Math.min(L.maxHandScroll, Math.max(0, handScroll.get() + edge * HAND_EDGE_STEP));
@@ -852,11 +818,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     L.setHeld(null);
     L.setTarget(null);
     L.setHandGap(null);
-    const fanOut = touch.fanOut;
-    touch.fanOut = false;
     if (!L.table || !sources.length || !p || !cards.length) return;
-    // Let go back on the search tray: nothing taken.
-    if (L.searchFrom && p.y >= L.searchTop) return;
     haptics.drop();
     if (p.y >= L.handTop) {
       // The gap's place in the row (which leaves out the carried cards) is their place in the hand once taken.
@@ -877,15 +839,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // With snapping on, its middle on the nearest grid crossing.
     const free = { x: w.x, y: w.y, angle: p.tableAngle };
     const at = L.gridOn && !onto ? snapToGrid(free) : free;
-    // Out of a search, several cards: face up, fanned out across from where they're let go, the one dragged first.
-    if (fanOut && cards.length > 1 && !onto) {
-      const across = [...cards].reverse();
-      const fanned = across.reduce(
-        (t, card, i) => putOnTable(t, [card], { x: at.x + i * GRID_STEP, y: at.y, angle: at.angle }, newId()),
-        takeAll(L.table, sources),
-      );
-      return L.commit(fanned);
-    }
     // A whole stack just moved (and turned), on its own, keeps being itself.
     if (whole?.kind === 'stack' && sources.length === 1 && !onto && !turnedOver) {
       return L.commit(raise(placeStack(L.table, whole.stackId, at), whole.stackId));
@@ -895,7 +848,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   // Where the hand tabs and the open tray are on screen: touches starting there are left to them (the tabs are
   // buttons; the tray has table mode's scroll view and card handling). Read by the gesture, on the UI thread.
-  const tabBand = useSharedValue({ top: 0, bottom: 0, tray: 0, toolsRight: 0, toolsTop: 0, toolsBottom: 0, searchHead: Number.MAX_VALUE, search: Number.MAX_VALUE });
+  const tabBand = useSharedValue({ top: 0, bottom: 0, tray: 0, toolsRight: 0, toolsTop: 0, toolsBottom: 0 });
   useEffect(() => {
     const tabTop = toolsTop + (TOOLS_H - TOOLS_TAB_H) / 2;
     tabBand.set({
@@ -906,13 +859,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       toolsRight: toolsOpen ? TOOLS_W + TOOLS_TAB_W : TOOLS_TAB_W,
       toolsTop: toolsOpen ? toolsTop : tabTop,
       toolsBottom: toolsOpen ? toolsTop + TOOLS_H : tabTop + TOOLS_TAB_H,
-      // The search tray, while it's open (over the hand): its heading (buttons), and its row of cards.
-      searchHead: searchOpen ? searchTop : Number.MAX_VALUE,
-      search: searchOpen ? searchRowTop : Number.MAX_VALUE,
     });
-  }, [handTop, folded, toolsOpen, toolsTop, tabBand, searchOpen, searchTop, searchRowTop]);
+  }, [handTop, folded, toolsOpen, toolsTop, tabBand]);
   /** A touch that landed in the open tray, watched (but not yet claimed) to see if it lifts a card out. */
-  const trayTouch = useSharedValue({ id: -1, x: 0, y: 0, t: 0, watching: false, search: false });
+  const trayTouch = useSharedValue({ id: -1, x: 0, y: 0, t: 0, watching: false });
 
   const [gesture] = useState(() => {
     const touch = gestureState.get();
@@ -1314,45 +1264,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.pressedAt = 0;
       move(all);
     };
-    /** A tap on the search tray's row: the card under it ticked, or unticked. */
-    const tapInSearch = (at: Touch) => {
-      const L = latest.get();
-      const i = L.searchCardAt(at.x);
-      if (i < 0) return;
-      const iid = L.searchCards[i].iid;
-      L.setSearchPicked(L.searchPicked.includes(iid) ? L.searchPicked.filter((x) => x !== iid) : [...L.searchPicked, iid]);
-      haptics.tick();
-    };
-    /**
-     * A card dragged up out of the search tray: it, and every other ticked card if it's ticked, carried face up
-     * under the finger. Let go on the table, one lies face up; several, fanned out across (see putDown).
-     */
-    const liftFromSearch = (start: Touch, all: Touch[]) => {
-      const L = latest.get();
-      const i = L.searchCardAt(start.x);
-      if (i < 0 || !L.searchFrom) return;
-      const c = L.searchCards[i];
-      const others = L.searchPicked.includes(c.iid) ? L.searchCards.filter((k) => L.searchPicked.includes(k.iid) && k.iid !== c.iid) : [];
-      // The pile's bottom first, so the one dragged is on top (and first, fanned out).
-      const carried = [...others].reverse().concat(c);
-      touch.fingers.set(start.id, { start: { x: start.x, y: start.y }, now: { x: start.x, y: start.y } });
-      touch.first = start.id;
-      touch.twist = null;
-      touch.offset = { x: 0, y: 0 };
-      touch.screenAngle = 0;
-      touch.scaleShown = 0;
-      touch.snapped = false;
-      touch.turnedOver = false;
-      touch.buttonFingers.clear();
-      touch.sources = carried.map((k) => ({ kind: 'card', stackId: L.searchFrom!, iid: k.iid }));
-      touch.cards = carried.map((k) => ({ ...k, faceUp: true }));
-      touch.fanOut = carried.length > 1;
-      touch.mode = 'carry';
-      L.setSearchPicked([]);
-      L.setHeld({ sources: touch.sources, cards: touch.cards });
-      haptics.lift();
-      move(all);
-    };
     /** A tap in the tray: on a card, its menu (or, a second tap, a flip). */
     const tapInHand = (at: Touch) => {
       down([at]);
@@ -1369,15 +1280,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         const band = tabBand.value;
         const firstFinger = e.allTouches.length === e.changedTouches.length;
         const onTools = !!t0 && t0.x < band.toolsRight && t0.y >= band.toolsTop && t0.y < band.toolsBottom;
-        // On the search tray's heading: its buttons'. On its row of cards: watched, like the hand's (below).
-        if (firstFinger && t0 && t0.y >= band.searchHead && t0.y < band.search) {
-          manager.fail();
-          return;
-        }
-        if (firstFinger && t0 && t0.y >= band.search) {
-          trayTouch.set({ id: t0.id, x: t0.x, y: t0.y, t: Date.now(), watching: true, search: true });
-          return;
-        }
         if (firstFinger && t0 && ((t0.y >= band.top && t0.y < band.bottom) || onTools)) {
           manager.fail();
           return;
@@ -1388,10 +1290,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // one is left to the scroll view; a tap opens the card's menu.
         if (firstFinger) {
           if (t0 && t0.y >= band.tray) {
-            trayTouch.set({ id: t0.id, x: t0.x, y: t0.y, t: Date.now(), watching: true, search: false });
+            trayTouch.set({ id: t0.id, x: t0.x, y: t0.y, t: Date.now(), watching: true });
             return;
           }
-          trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false, search: false });
+          trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false });
         }
         // Other fingers while a tray touch is only watched: ignored.
         if (trayTouch.get().watching) return;
@@ -1409,8 +1311,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           trayTouch.set({ ...tt, watching: false });
           if (Math.abs(dy) > Math.abs(dx)) {
             manager.activate();
-            if (tt.search) scheduleOnRN(liftFromSearch, { id: tt.id, x: tt.x, y: tt.y }, points(e.allTouches));
-            else scheduleOnRN(liftFromHand, { id: tt.id, x: tt.x, y: tt.y }, points(e.allTouches));
+            scheduleOnRN(liftFromHand, { id: tt.id, x: tt.x, y: tt.y }, points(e.allTouches));
           } else {
             manager.fail();
           }
@@ -1424,11 +1325,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         if (tt.watching) {
           const f = e.changedTouches.find((a) => a.id === tt.id);
           if (f) {
-            if (Math.hypot(f.x - tt.x, f.y - tt.y) < DRAG_SLOP) {
-              if (tt.search) scheduleOnRN(tapInSearch, { id: tt.id, x: tt.x, y: tt.y });
-              else scheduleOnRN(tapInHand, { id: tt.id, x: tt.x, y: tt.y });
-            }
-            trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false, search: false });
+            if (Math.hypot(f.x - tt.x, f.y - tt.y) < DRAG_SLOP) scheduleOnRN(tapInHand, { id: tt.id, x: tt.x, y: tt.y });
+            trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false });
             manager.end();
           }
           return;
@@ -1438,7 +1336,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       })
       .onTouchesCancelled((_, manager) => {
         if (!trayTouch.get().watching) scheduleOnRN(cancel);
-        trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false, search: false });
+        trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false });
         manager.end();
       });
   });
@@ -1523,17 +1421,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           },
         },
         ...(n > 1
-          ? [
-              {
-                label: 'Search',
-                icon: { ios: 'magnifyingglass', android: 'search', web: 'search' } as const,
-                onPress: () => {
-                  setSearching(menuStack.id);
-                  setSearchPicked([]);
-                  searchScroll.set(0);
-                },
-              },
-            ]
+          ? [{ label: 'Search', icon: { ios: 'magnifyingglass', android: 'search', web: 'search' } as const, keepsOpen: true, onPress: () => setSearching(menuStack.id) }]
           : []),
         // Dealing: how many off the top, and to whom (see DealPanel).
         {
@@ -1940,67 +1828,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
           </Animated.View>
 
-          {/*
-            The search tray, over the hand: the stack looked through, its cards face up in a row (top first) that
-            scrolls sideways. A tap ticks a card; dragging one up out of the row carries it (and every ticked card,
-            if it's ticked) onto the table.
-          */}
-          {searchOpen && searchStack ? (
-            <View style={[styles.searchTray, { top: searchTop }]}>
-              <WoodRail />
-              <View style={styles.searchHead}>
-                <Text style={styles.searchTitle} numberOfLines={1}>
-                  {searchPicked.length
-                    ? `${searchPicked.length} ticked · drag one up`
-                    : `Searching ${searchStack.cards.length} ${searchStack.cards.length === 1 ? 'card' : 'cards'} · drag up to take`}
-                </Text>
-                {searchCards.length > 1 ? (
-                  <Pressable
-                    onPress={() => {
-                      setSearchPicked(searchPicked.length === searchCards.length ? [] : searchCards.map((c) => c.iid));
-                      haptics.tick();
-                    }}
-                    hitSlop={8}
-                    accessibilityRole="button">
-                    <Text style={styles.searchLink}>{searchPicked.length === searchCards.length ? 'Deselect All' : 'Select All'}</Text>
-                  </Pressable>
-                ) : null}
-                <Pressable
-                  onPress={() => {
-                    setSearching(null);
-                    setSearchPicked([]);
-                  }}
-                  hitSlop={8}
-                  accessibilityRole="button">
-                  <Text style={[styles.searchLink, { fontWeight: '800' }]}>Done</Text>
-                </Pressable>
-              </View>
-              <ScrollView
-                horizontal
-                alwaysBounceHorizontal
-                showsHorizontalScrollIndicator={false}
-                scrollEnabled={!held}
-                scrollEventThrottle={16}
-                onScroll={(e) => searchScroll.set(e.nativeEvent.contentOffset.x)}
-                style={{ height: searchRowH }}
-                contentContainerStyle={styles.handCards}>
-                {searchCards.map((c) => {
-                  const deck = decksById.get(c.deckId);
-                  if (!deck) return null;
-                  const on = searchPicked.includes(c.iid);
-                  return (
-                    <View key={c.iid} style={{ width: handWidthOf(c), pointerEvents: 'box-only' }}>
-                      <View style={searchPicked.length && !on ? styles.searchDim : undefined}>
-                        <CardView deck={deck} card={cardOf(c)} faceUp width={handWidthOf(c)} />
-                      </View>
-                      <View style={[styles.searchTick, on && styles.searchTicked]}>{on ? <Text style={styles.searchTickMark}>✓</Text> : null}</View>
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          ) : null}
-
           {/* The tools drawer, on the left edge: its tab pulls it out, and tucks it away again. */}
           <Animated.View style={[styles.tools, { top: toolsTop }, toolsStyle]} pointerEvents="box-none">
             <View style={styles.toolsPanel}>
@@ -2183,11 +2010,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               }}
               onBack={() => setDealingFrom(null)}
             />
+          ) : menu?.kind === 'stack' && menuStack && searching === menuStack.id ? (
+            <StackSearch
+              cards={menuStack.cards}
+              deckOf={(c) => decksById.get(c.deckId)}
+              handName={table.handNames[handIndex]}
+              onTake={(card) => {
+                const rest = take(table, { kind: 'card', stackId: menuStack.id, iid: card.iid });
+                commit(putInHand(rest, [{ ...card, faceUp: true }], handIndex));
+                haptics.drop();
+                setMenu(null);
+                setSearching(null);
+              }}
+              onBack={() => setSearching(null)}
+            />
           ) : undefined
         }
         onClose={() => {
           setMenu(null);
           setDealingFrom(null);
+          setSearching(null);
         }}
         overlay={
           zoomed && zoomDeck && zoomCard ? (
@@ -2573,27 +2415,6 @@ const styles = StyleSheet.create({
   },
   held: { position: 'absolute' },
   hidden: { opacity: 0 },
-  // The search tray, over the hand, in its wood.
-  searchTray: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  searchHead: { height: SEARCH_HEAD, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 16 },
-  searchTitle: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '600' },
-  searchLink: { color: colors.accent, fontSize: 15, fontWeight: '600' },
-  searchDim: { opacity: 0.45 },
-  searchTick: {
-    position: 'absolute',
-    top: 4,
-    left: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#fff',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  searchTicked: { backgroundColor: colors.accent, borderColor: colors.accent },
-  searchTickMark: { color: colors.accentText, fontSize: 12, fontWeight: '800' },
   moreButtonLook: { backgroundColor: 'rgba(8,18,26,0.85)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.3)' },
   lockBadge: {
     position: 'absolute',

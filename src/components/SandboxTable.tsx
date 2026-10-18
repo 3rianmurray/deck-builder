@@ -70,6 +70,7 @@ import { colors } from '../theme';
 import { ActionSheet } from './ActionSheet';
 import type { SheetAction, SheetTile } from './ActionSheet';
 import { CardFocus } from './CardFocus';
+import type { FocusRow } from './CardFocus';
 import { AddCardsModal } from './AddCardsModal';
 import { DealPanel } from './DealPanel';
 import { Riffle } from './Riffle';
@@ -1515,10 +1516,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const rename = askName;
 
   /** A card brought up close, for its menu: about half the screen across (less, for a tall screen's sake). */
-  const bigCard = (c: SandboxCard) => {
+  const bigCard = (c: SandboxCard, withList = false) => {
     const deck = decksById.get(c.deckId);
     if (!deck) return null;
-    const w = Math.min(screenW * 0.55, area.h * 0.36 * cardRatio(deck));
+    // A little smaller with a list of options under it too, so it all fits.
+    const w = Math.min(screenW * (withList ? 0.42 : 0.55), area.h * (withList ? 0.26 : 0.36) * cardRatio(deck));
     return <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={w} sharp />;
   };
   // ---- The search: a stack looked through, over the table. ----
@@ -1556,11 +1558,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (menu.kind === 'stack' && menuStack) {
       const top = menuStack.cards[menuStack.cards.length - 1];
       const n = menuStack.cards.length;
+      // The four used most, as buttons; everything else in a quiet list under them.
       const tiles: SheetTile[] = [
         { label: 'Flip over', icon: FLIP_ICON, onPress: () => commit(settleOnto(flipStack(table, menuStack.id), menuStack.id)) },
-        { label: 'Turn left', icon: { ios: 'rotate.left', android: 'rotate_left', web: 'rotate_left' }, onPress: () => commit(turnStack(table, menuStack.id, -90)) },
-        { label: 'Turn right', icon: { ios: 'rotate.right', android: 'rotate_right', web: 'rotate_right' }, onPress: () => commit(turnStack(table, menuStack.id)) },
-        // Into the open hand: the top card, or any card, looked for.
+        // Into the open hand: the top card.
         {
           label: 'Draw',
           icon: { ios: 'arrow.down.to.line', android: 'download', web: 'download' },
@@ -1572,6 +1573,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         ...(n > 1
           ? [
               {
+                label: 'Shuffle',
+                icon: { ios: 'shuffle', android: 'shuffle', web: 'shuffle' } as const,
+                onPress: () => {
+                  commit(shuffleStack(table, menuStack.id));
+                  setRiffling((r) => ({ stackId: menuStack.id, key: (r?.key ?? 0) + 1, started: false }));
+                },
+              },
+              {
                 label: 'Search',
                 icon: { ios: 'magnifyingglass', android: 'search', web: 'search' } as const,
                 onPress: () => {
@@ -1581,70 +1590,42 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               },
             ]
           : []),
+      ];
+      const rows: FocusRow[] = [
         // Dealing: how many off the top, and to whom (see DealPanel).
+        { kind: 'action', label: 'Deal…', more: true, keepsOpen: true, onPress: () => setDealingFrom(menuStack.id) },
         {
-          label: 'Deal',
-          icon: { ios: 'hand.raised', android: 'back_hand', web: 'back_hand' },
-          keepsOpen: true,
-          onPress: () => setDealingFrom(menuStack.id),
+          kind: 'pair',
+          label: 'Turn',
+          options: [
+            { label: '⟲ Left', onPress: () => commit(turnStack(table, menuStack.id, -90)) },
+            { label: 'Right ⟳', onPress: () => commit(turnStack(table, menuStack.id)) },
+          ],
         },
-        ...(n > 1
-          ? [
-              {
-                label: 'Shuffle',
-                icon: { ios: 'shuffle', android: 'shuffle', web: 'shuffle' } as const,
-                onPress: () => {
-                  commit(shuffleStack(table, menuStack.id));
-                  setRiffling((r) => ({ stackId: menuStack.id, key: (r?.key ?? 0) + 1, started: false }));
-                },
-              },
-            ]
-          : []),
         // Spread out, every card showing, as close as the grid allows.
         ...(n > 1
           ? [
               {
-                label: 'Fan down',
-                icon: { ios: 'rectangle.split.1x2', android: 'view_agenda', web: 'view_agenda' } as const,
-                onPress: () => commit(fanStack(table, menuStack.id, 'down', newId)),
-              },
-              {
-                label: 'Fan across',
-                icon: { ios: 'rectangle.split.3x1', android: 'view_column', web: 'view_column' } as const,
-                onPress: () => commit(fanStack(table, menuStack.id, 'across', newId)),
+                kind: 'pair' as const,
+                label: 'Fan out',
+                options: [
+                  { label: 'Down', onPress: () => commit(fanStack(table, menuStack.id, 'down', newId)) },
+                  { label: 'Across', onPress: () => commit(fanStack(table, menuStack.id, 'across', newId)) },
+                ] as [{ label: string; onPress: () => void }, { label: string; onPress: () => void }],
               },
             ]
           : []),
-        {
-          label: menuStack.locked ? 'Unlock' : 'Lock in place',
-          icon: menuStack.locked ? ({ ios: 'lock.open', android: 'lock_open', web: 'lock_open' } as const) : ({ ios: 'lock', android: 'lock', web: 'lock' } as const),
-          onPress: () => commit(setStack(table, menuStack.id, { locked: !menuStack.locked })),
-        },
+        { kind: 'toggle', label: 'Lock in place', value: !!menuStack.locked, onChange: (on) => commit(setStack(table, menuStack.id, { locked: on })) },
         // A single card can be kept from stacking: nothing goes onto it, and it goes onto nothing.
-        ...(n === 1
-          ? [
-              {
-                label: top.solo ? 'Let it stack' : 'Never stack',
-                icon: top.solo ? ({ ios: 'square.stack', android: 'layers', web: 'layers' } as const) : ({ ios: 'nosign', android: 'block', web: 'block' } as const),
-                onPress: () => commit(setSolo(table, menuStack.id, !top.solo)),
-              },
-            ]
-          : []),
-        ...(top.faceUp
-          ? [{ label: 'Full size', icon: { ios: 'arrow.up.left.and.arrow.down.right', android: 'open_in_full', web: 'open_in_full' } as const, keepsOpen: true, onPress: () => setZoomed(top) }]
-          : []),
-        {
-          label: 'Off table',
-          icon: { ios: 'trash', android: 'delete', web: 'delete' },
-          destructive: true,
-          onPress: () => commit(take(table, { kind: 'stack', stackId: menuStack.id })),
-        },
+        ...(n === 1 ? [{ kind: 'toggle' as const, label: 'Never stack', value: !!top.solo, onChange: (on: boolean) => commit(setSolo(table, menuStack.id, on)) }] : []),
+        ...(top.faceUp ? [{ kind: 'action' as const, label: 'Full size', keepsOpen: true, onPress: () => setZoomed(top) }] : []),
+        { kind: 'action', label: 'Take off the table', destructive: true, onPress: () => commit(take(table, { kind: 'stack', stackId: menuStack.id })) },
       ];
       return {
         title: n > 1 ? `Stack of ${n}` : top.faceUp ? (cardOf(top)?.name ?? 'Card') : 'Face-down card',
-        header: bigCard(top),
+        header: bigCard(top, true),
         tiles,
-        actions: [],
+        rows,        actions: [],
       };
     }
     if (menu.kind === 'hand' && menuHandCard) {
@@ -2179,6 +2160,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         card={sheet && 'header' in sheet ? sheet.header : null}
         title={sheet?.title}
         tiles={sheet?.tiles ?? []}
+        rows={sheet && 'rows' in sheet ? sheet.rows : undefined}
         panel={
           menu?.kind === 'stack' && menuStack && dealingFrom === menuStack.id ? (
             <DealPanel

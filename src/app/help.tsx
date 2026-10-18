@@ -54,7 +54,7 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
       ['Double-tap, then hold the table', 'Draw a loop around cards to select them. Do it again to add more.'],
       ['With cards selected', 'Flip them, or gather them into one stack, with the buttons; ••• to turn, lock or take them off the table. Drag any of them to move them all.'],
       ['Drag into a hand', 'Cards gather into a pile and slip into the hand when you let go.'],
-      ['A card’s options', 'Draw, search, deal, fan out, turn, lock in place, or set it to never stack.'],
+      ['A card’s options', 'Flip, draw, shuffle and search up top; deal, turn, fan out, lock in place, never stack and more in the list below.'],
       ['Search a stack', 'Every card, face up. Tap one for its options; hold one to move it within the stack. While holding, tap Close to take it out onto the table.'],
       ['Table menu', 'Add a whole deck or chosen cards, reset the view, change the table color.'],
       ['Tools tab (left edge)', 'Snap to grid, and lock the camera.'],

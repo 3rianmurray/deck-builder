@@ -188,6 +188,12 @@ export function StackSearchPanel({
           }}
           onMove={onReorder}
           onHold={setHolding}
+          // Holding a ticked card picks up every ticked card (it first, the rest in the stack's order).
+          liftWith={(index) => {
+            const held = cards[index]?.iid;
+            if (!selecting || !held || !picked.includes(held)) return [index];
+            return [index, ...cards.flatMap((c, i) => (i !== index && picked.includes(c.iid) ? [i] : []))];
+          }}
         />
       ) : (
         <Text style={styles.empty}>No cards here.</Text>

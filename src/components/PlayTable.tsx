@@ -3537,8 +3537,14 @@ function SearchPanel({
             setSelected(item.iid);
             setSheetOpen(true);
           }}
-          onMove={(picked, to) => onReorder(pile, picked, to)}
+          onMove={(moved, to) => onReorder(pile, moved, to)}
           onHold={setHolding}
+          // Holding a ticked card picks up every ticked card (it first, the rest in the pile's order).
+          liftWith={(index) => {
+            const held = cards[index]?.iid;
+            if (!selecting || !held || !picked.includes(held)) return [index];
+            return [index, ...cards.flatMap((c, i) => (i !== index && picked.includes(c.iid) ? [i] : []))];
+          }}
         />
       ) : (
         <Text style={styles.hint}>No cards here.</Text>

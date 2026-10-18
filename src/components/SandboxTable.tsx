@@ -191,8 +191,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const groupTurn = useSharedValue(0);
   const groupPX = useSharedValue(0);
   const groupPY = useSharedValue(0);
-  // Turned about the grab point p, then moved by d: a point x goes to R(x − p) + p + d. The layer has no size, so it
-  // turns about its top-left corner (the table's origin): that's R·x then a single move of p + d − R·p. (One move
+  // Turned about the grab point p, then moved by d: a point x goes to R(x − p) + p + d. The layer turns about its
+  // top-left corner (the table's origin; see its style): that's R·x then a single move of p + d − R·p. (One move
   // and one turn: the same transform written as move, turn, move back has its two moves merged into one.)
   const groupStyle = useAnimatedStyle(() => {
     const r = (groupTurn.value * Math.PI) / 180;
@@ -2383,7 +2383,9 @@ const styles = StyleSheet.create({
     borderLeftWidth: 0,
     borderColor: 'rgba(255,255,255,0.22)',
   },
-  groupLayer: { position: 'absolute', left: 0, top: 0 },
+  // The whole table's size (a sizeless layer at the table's corner can be skipped as off screen, cards and all),
+  // turning about that corner, as its transform expects.
+  groupLayer: { position: 'absolute', left: 0, top: 0, width: TABLE_W, height: TABLE_H, transformOrigin: [0, 0, 0] },
   flipButton: {
     position: 'absolute',
     alignItems: 'center',

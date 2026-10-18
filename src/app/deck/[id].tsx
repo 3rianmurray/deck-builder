@@ -86,6 +86,8 @@ export default function DeckEditorScreen() {
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Card | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  /** The deck's own menu (•••, top right): share or delete it. */
+  const [deckMenuOpen, setDeckMenuOpen] = useState(false);
   const [copiesDraft, setCopiesDraft] = useState('1');
   /**
    * The open picture menu: where new card art (`cards`) or the card back (`back`) comes from, or, after
@@ -391,7 +393,17 @@ export default function DeckEditorScreen() {
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen options={{ title: deck.name }} />
+      <Stack.Screen
+        options={{
+          title: deck.name,
+          // The deck's own actions (share, delete), out of the way of its cards.
+          headerRight: () => (
+            <Pressable onPress={() => setDeckMenuOpen(true)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Deck options">
+              <Text style={styles.headerMenu}>•••</Text>
+            </Pressable>
+          ),
+        }}
+      />
       <ReorderableGrid
         items={deck.cards}
         keyOf={(c) => c.id}
@@ -525,14 +537,6 @@ export default function DeckEditorScreen() {
         )}
         footer={
           <View style={{ marginTop: 24, gap: 10, paddingBottom: insets.bottom + 90 }}>
-            {/* Not while choosing cards: then the only delete is the chosen cards'. */}
-            {choosing ? null : (
-              <>
-                {/* To keep a copy somewhere safe, move it to another phone, or give it to a friend. */}
-                <Button label="Share or back up this deck…" onPress={shareDeck} disabled={busy || deck.cards.length === 0} />
-                <Button label="Delete deck" variant="danger" onPress={confirmDelete} />
-              </>
-            )}
           </View>
         }
       />
@@ -565,6 +569,17 @@ export default function DeckEditorScreen() {
           <ActivityIndicator color={colors.accent} size="large" />
         </View>
       ) : null}
+
+      <ActionSheet
+        visible={deckMenuOpen}
+        title={deck.name}
+        onClose={() => setDeckMenuOpen(false)}
+        actions={[
+          // To keep a copy somewhere safe, move it to another phone, or give it to a friend.
+          ...(deck.cards.length ? [{ label: 'Share or back up this deck…', opensModal: true, onPress: shareDeck }] : []),
+          { label: 'Delete deck', destructive: true, opensModal: true, onPress: confirmDelete },
+        ]}
+      />
 
       <ActionSheet
         visible={sheetOpen}
@@ -661,6 +676,7 @@ const styles = StyleSheet.create({
   gapAbove: { marginTop: 10 },
   headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   addButton: { paddingVertical: 8, paddingHorizontal: 14 },
+  headerMenu: { color: colors.text, fontSize: 18, fontWeight: '700', paddingHorizontal: 4 },
   textButton: { color: colors.accent, fontSize: 16, fontWeight: '600', paddingVertical: 6 },
   cardsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: colors.text, fontSize: 20, fontWeight: '700' },

@@ -20,7 +20,8 @@ import { appleScannerAvailable, fitScan, scanCards } from '../../lib/appleScanne
 import { shareDecks } from '../../lib/deckExport';
 import { deleteDeckWarning } from '../../lib/deckInUse';
 import { sampleBack, sampleCards } from '../../lib/sampleDeck';
-import { cropToShape } from '../../lib/images';
+import { cropToShape, loadUpright, smallPixels } from '../../lib/images';
+import { guessSheet } from '../../lib/sheetGuess';
 import { imageUri } from '../../lib/storage';
 import { tourEvent, useTourStep } from '../../lib/tour';
 import { cardRatio, copiesOf, deckSize } from '../../lib/types';
@@ -62,6 +63,17 @@ async function takePhoto(): Promise<string | null> {
   }
   const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 });
   return result.canceled ? null : result.assets[0].uri;
+}
+
+/** Whether a picture looks like a grid of cards: one the sheet finder finds two or more cards in, clearly. */
+async function looksLikeSheet(uri: string, ratio: number): Promise<boolean> {
+  try {
+    const img = await loadUpright(uri);
+    const found = guessSheet(await smallPixels(img.uri, img.width), ratio);
+    return found.confidence === 'high' && found.rows * found.columns >= 2;
+  } catch {
+    return false;
+  }
 }
 
 export default function DeckEditorScreen() {
@@ -141,14 +153,26 @@ export default function DeckEditorScreen() {
   const fromPhotos = (target: ArtTarget) =>
     withBusy(async () => {
       const uris = await pickImages(target === 'cards');
-      if (uris.length) setCrop({ uris, target });
+      if (uris.length) await cropOrCut(uris, target);
     });
   const fromFiles = (target: ArtTarget) =>
     withBusy(async () => {
       const uris = await pickFiles(target === 'cards');
-      if (uris.length) setCrop({ uris, target });
+      if (uris.length) await cropOrCut(uris, target);
     });
-  // The app's own sample art: no cropping needed, as it's already card shaped.
+  // One picture that looks like a sprite sheet (a grid of cards): asked whether to cut it up as one, rather than
+  // crop it as a single card.
+  const cropOrCut = async (uris: string[], target: ArtTarget) => {
+    if (uris.length !== 1 || !(await looksLikeSheet(uris[0], cardRatio(deck)))) return setCrop({ uris, target });
+    Alert.alert(
+      'This looks like a sprite sheet',
+      target === 'cards' ? 'Import it as a sprite sheet, cut into cards?' : 'Choose the back from it as a sprite sheet?',
+      [
+        { text: 'No', style: 'cancel', onPress: () => setCrop({ uris, target }) },
+        { text: 'Yes', onPress: () => setSpriteSheet({ uri: uris[0], target }) },
+      ],
+    );
+  };  // The app's own sample art: no cropping needed, as it's already card shaped.
   const fromSamples = (target: ArtTarget) =>
     withBusy(async () => {
       if (target === 'back') {

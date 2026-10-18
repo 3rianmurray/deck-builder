@@ -54,6 +54,7 @@ import {
   toScreen,
   toTable,
   turnStack,
+  reorderStack,
   fanStack,
   removeStacks,
   rotateStacks,
@@ -67,12 +68,12 @@ import { cardRatio, cardSizeMm, PRESET_SIZES_MM } from '../lib/types';
 import type { Deck } from '../lib/types';
 import { colors } from '../theme';
 import { ActionSheet } from './ActionSheet';
-import type { SheetTile } from './ActionSheet';
+import type { SheetAction, SheetTile } from './ActionSheet';
 import { CardFocus } from './CardFocus';
 import { AddCardsModal } from './AddCardsModal';
 import { DealPanel } from './DealPanel';
 import { Riffle } from './Riffle';
-import { StackSearch } from './StackSearch';
+import { StackSearchPanel } from './StackSearchPanel';
 import { CardView } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
@@ -236,6 +237,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [dealingFrom, setDealingFrom] = useState<string | null>(null);
   /** Looking through this stack: its menu shows its cards, to take one into the hand. */
   const [searching, setSearching] = useState<string | null>(null);
+  /** The search is drawn while open, and while it slides away. */
+  const [searchMounted, setSearchMounted] = useState(false);
+  if (searching && !searchMounted) setSearchMounted(true);
+  /** Cards have been taken out of the search and are being carried over the table: it fades, but stays till they land. */
+  const [searchLeaving, setSearchLeaving] = useState(false);
+  /** The cards being taken out of the search (top first), till the carrying finger is picked up by the table. */
+  const [searchTake] = useState(() => {
+    const box = { iids: [] as string[] };
+    return { get: () => box.iids, set: (iids: string[]) => Object.assign(box, { iids }) };
+  });
+  /** Closes the search (it slides away). */
+  const endSearch = () => {
+    setSearching(null);
+    setSearchLeaving(false);
+  };
   /** Choosing cards from a deck to bring onto the table. */
   const [addingCards, setAddingCards] = useState(false);
   /** A stack just brought onto the table, flying in to where the camera's taking it on screen. */
@@ -590,10 +606,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       setHeld: (h: Held | null) => void;
       setTarget: (id: string | null) => void;
       setMenu: (m: Menu) => void;
+      searchFrom: string | null;
+      endSearch: () => void;
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -649,6 +667,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       /** Fingers pressing the flip button (they don't twist or pick up), and whether what's carried is turned over. */
       buttonFingers: new Set<number>(),
       turnedOver: false,
+      /** What's carried was taken out of the search: once it's put down (or the drag's lost), the search closes. */
+      fromSearch: false,
       /** The carried card's middle relative to the carrying finger, and its turn, both on screen. */
       offset: { x: 0, y: 0 },
       screenAngle: 0,
@@ -848,7 +868,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   // Where the hand tabs and the open tray are on screen: touches starting there are left to them (the tabs are
   // buttons; the tray has table mode's scroll view and card handling). Read by the gesture, on the UI thread.
-  const tabBand = useSharedValue({ top: 0, bottom: 0, tray: 0, toolsRight: 0, toolsTop: 0, toolsBottom: 0 });
+  const tabBand = useSharedValue({ top: 0, bottom: 0, tray: 0, toolsRight: 0, toolsTop: 0, toolsBottom: 0, panel: false });
   useEffect(() => {
     const tabTop = toolsTop + (TOOLS_H - TOOLS_TAB_H) / 2;
     tabBand.set({
@@ -859,10 +879,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       toolsRight: toolsOpen ? TOOLS_W + TOOLS_TAB_W : TOOLS_TAB_W,
       toolsTop: toolsOpen ? toolsTop : tabTop,
       toolsBottom: toolsOpen ? toolsTop + TOOLS_H : tabTop + TOOLS_TAB_H,
+      // The search, over everything while it's open (and not on its way out): its touches are its own.
+      panel: !!searching && !searchLeaving,
     });
-  }, [handTop, folded, toolsOpen, toolsTop, tabBand]);
+  }, [handTop, folded, toolsOpen, toolsTop, tabBand, searching, searchLeaving]);
   /** A touch that landed in the open tray, watched (but not yet claimed) to see if it lifts a card out. */
-  const trayTouch = useSharedValue({ id: -1, x: 0, y: 0, t: 0, watching: false });
+  const trayTouch = useSharedValue({ id: -1, x: 0, y: 0, t: 0, watching: false, panel: false });
+  /** Cards taken out of the search: the next move, the finger nearest this point (on screen) carries them on the table. */
+  const takeOut = useSharedValue({ active: false, x: 0, y: 0 });
 
   const [gesture] = useState(() => {
     const touch = gestureState.get();
@@ -1184,6 +1208,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         if (lifted.includes(touch.first)) {
           putDown();
           touch.mode = 'none';
+          if (touch.fromSearch) {
+            touch.fromSearch = false;
+            L.endSearch();
+          }
         } else {
           for (const id of lifted) {
             const f = touch.fingers.get(id);
@@ -1237,6 +1265,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const cancel = () => {
       const L = latest.get();
       clearHold();
+      if (touch.fromSearch) {
+        touch.fromSearch = false;
+        L.endSearch();
+      }
       if (touch.mode === 'carry') {
         L.setHeld(null);
         L.setTarget(null);
@@ -1264,6 +1296,35 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.pressedAt = 0;
       move(all);
     };
+    /**
+     * Cards taken out of the search (see StackSearchPanel), the finger still on them: from here they're carried
+     * over the table, face up, as a pile (the one first held on top), just like cards picked up off it.
+     */
+    const beginTakeOut = (finger: Touch, all: Touch[]) => {
+      const L = latest.get();
+      const stack = L.table?.stacks.find((s) => s.id === L.searchFrom);
+      const iids = searchTake.get();
+      const held = iids.flatMap((iid) => stack?.cards.filter((c) => c.iid === iid) ?? []);
+      if (!stack || !held.length) return L.endSearch();
+      touch.fingers.clear();
+      for (const a of all) touch.fingers.set(a.id, { start: { x: a.x, y: a.y }, now: { x: a.x, y: a.y } });
+      touch.first = finger.id;
+      touch.twist = null;
+      touch.offset = { x: 0, y: 0 };
+      touch.screenAngle = 0;
+      touch.scaleShown = 0;
+      touch.snapped = false;
+      touch.turnedOver = false;
+      touch.buttonFingers.clear();
+      touch.fromSearch = true;
+      const carried = [...held].reverse().map((c) => ({ ...c, faceUp: true }));
+      touch.sources = carried.map((c) => ({ kind: 'card', stackId: stack.id, iid: c.iid }));
+      touch.cards = carried;
+      touch.mode = 'carry';
+      L.setHeld({ sources: touch.sources, cards: touch.cards });
+      haptics.lift();
+      move(all);
+    };
     /** A tap in the tray: on a card, its menu (or, a second tap, a flip). */
     const tapInHand = (at: Touch) => {
       down([at]);
@@ -1279,6 +1340,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         const t0 = e.changedTouches[0];
         const band = tabBand.value;
         const firstFinger = e.allTouches.length === e.changedTouches.length;
+        // The search open: its touches are its own, but watched (not claimed), in case cards are taken out of it.
+        if (band.panel && firstFinger && t0) {
+          trayTouch.set({ id: t0.id, x: t0.x, y: t0.y, t: Date.now(), watching: true, panel: true });
+          return;
+        }
         const onTools = !!t0 && t0.x < band.toolsRight && t0.y >= band.toolsTop && t0.y < band.toolsBottom;
         if (firstFinger && t0 && ((t0.y >= band.top && t0.y < band.bottom) || onTools)) {
           manager.fail();
@@ -1290,10 +1356,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // one is left to the scroll view; a tap opens the card's menu.
         if (firstFinger) {
           if (t0 && t0.y >= band.tray) {
-            trayTouch.set({ id: t0.id, x: t0.x, y: t0.y, t: Date.now(), watching: true });
+            trayTouch.set({ id: t0.id, x: t0.x, y: t0.y, t: Date.now(), watching: true, panel: false });
             return;
           }
-          trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false });
+          trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false, panel: false });
         }
         // Other fingers while a tray touch is only watched: ignored.
         if (trayTouch.get().watching) return;
@@ -1302,6 +1368,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       })
       .onTouchesMove((e, manager) => {
         const tt = trayTouch.get();
+        if (tt.watching && tt.panel) {
+          // Cards taken out of the search: the finger holding them (the one nearest where it was) carries them on.
+          const to = takeOut.get();
+          if (!to.active || !e.allTouches.length) return;
+          let near = e.allTouches[0];
+          for (const a of e.allTouches) if (Math.hypot(a.x - to.x, a.y - to.y) < Math.hypot(near.x - to.x, near.y - to.y)) near = a;
+          takeOut.set({ active: false, x: 0, y: 0 });
+          trayTouch.set({ ...tt, watching: false, panel: false });
+          manager.activate();
+          scheduleOnRN(beginTakeOut, { id: near.id, x: near.x, y: near.y }, points(e.allTouches));
+          return;
+        }
         if (tt.watching) {
           const f = e.allTouches.find((a) => a.id === tt.id);
           if (!f) return;
@@ -1322,11 +1400,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       .onTouchesUp((e, manager) => {
         const tt = trayTouch.get();
         const allUp = e.allTouches.length <= e.changedTouches.length;
+        if (tt.watching && tt.panel) {
+          if (allUp) {
+            trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false, panel: false });
+            manager.end();
+          }
+          return;
+        }
         if (tt.watching) {
           const f = e.changedTouches.find((a) => a.id === tt.id);
           if (f) {
             if (Math.hypot(f.x - tt.x, f.y - tt.y) < DRAG_SLOP) scheduleOnRN(tapInHand, { id: tt.id, x: tt.x, y: tt.y });
-            trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false });
+            trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false, panel: false });
             manager.end();
           }
           return;
@@ -1336,7 +1421,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       })
       .onTouchesCancelled((_, manager) => {
         if (!trayTouch.get().watching) scheduleOnRN(cancel);
-        trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false });
+        trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false, panel: false });
         manager.end();
       });
   });
@@ -1400,6 +1485,34 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const w = Math.min(screenW * 0.55, area.h * 0.36 * cardRatio(deck));
     return <CardView deck={deck} card={cardOf(c)} faceUp={c.faceUp} width={w} sharp />;
   };
+  // ---- The search: a stack looked through, over the table. ----
+  const searchStack = searching ? table?.stacks.find((s) => s.id === searching) : undefined;
+  /** A card's options in the search: elsewhere in the stack, into the hand, onto the table (face up), or off it. */
+  const searchActions = (iid: string): SheetAction[] => {
+    if (!table || !searchStack) return [];
+    const topFirst = [...searchStack.cards].reverse();
+    const i = topFirst.findIndex((c) => c.iid === iid);
+    const card = topFirst[i];
+    if (!card) return [];
+    const src: Source = { kind: 'card', stackId: searchStack.id, iid };
+    const { w } = size(card.deckId);
+    const beside = { x: searchStack.x + w + GRID_STEP, y: searchStack.y, angle: searchStack.angle };
+    return [
+      ...(i > 0 ? [{ label: 'Move to the top', onPress: () => commit(reorderStack(table, searchStack.id, [i], 0)) }] : []),
+      ...(i < topFirst.length - 1
+        ? [{ label: 'Move to the bottom', onPress: () => commit(reorderStack(table, searchStack.id, [i], topFirst.length - 1)) }]
+        : []),
+      {
+        label: `Into ${table.handNames[handIndex]}`,
+        onPress: () => commit(putInHand(take(table, src), [{ ...card, faceUp: true }], handIndex)),
+      },
+      {
+        label: 'Onto the table, face up',
+        onPress: () => commit(putOnTable(take(table, src), [{ ...card, faceUp: true }], gridOn ? snapToGrid(beside) : beside, newId())),
+      },
+      { label: 'Take off the table', destructive: true, onPress: () => commit(take(table, src)) },
+    ];
+  };
   const menuStack = menu?.kind === 'stack' ? table?.stacks.find((s) => s.id === menu.id) : undefined;
   const menuHandCard = menu?.kind === 'hand' ? table?.hands[menu.hand].find((c) => c.iid === menu.iid) : undefined;
   const sheet = (() => {
@@ -1421,7 +1534,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           },
         },
         ...(n > 1
-          ? [{ label: 'Search', icon: { ios: 'magnifyingglass', android: 'search', web: 'search' } as const, keepsOpen: true, onPress: () => setSearching(menuStack.id) }]
+          ? [
+              {
+                label: 'Search',
+                icon: { ios: 'magnifyingglass', android: 'search', web: 'search' } as const,
+                onPress: () => {
+                  setSearchLeaving(false);
+                  setSearching(menuStack.id);
+                },
+              },
+            ]
           : []),
         // Dealing: how many off the top, and to whom (see DealPanel).
         {
@@ -1989,6 +2111,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               ) : null}
             </Animated.View>
           ) : null}
+
+          {/* The search: over everything, a layer of the table (not a window), so cards can be taken out of it. */}
+          {searchMounted ? (
+            <StackSearchPanel
+              title={searchStack ? `Searching ${searchStack.cards.length} ${searchStack.cards.length === 1 ? 'card' : 'cards'}` : 'Search'}
+              cards={searchStack ? [...searchStack.cards].reverse() : []}
+              decks={decksById}
+              visible={!!searching && !!searchStack}
+              leaving={searchLeaving}
+              onReorder={(picked, to) => searchStack && commit(reorderStack(table, searchStack.id, picked, to))}
+              onTakeOut={(iids, finger) => {
+                searchTake.set(iids);
+                setSearchLeaving(true);
+                takeOut.set({ active: true, x: finger.x, y: finger.y });
+              }}
+              cardActions={searchActions}
+              onClose={endSearch}
+              onClosed={() => setSearchMounted(false)}
+            />
+          ) : null}
         </View>
       </GestureDetector>
 
@@ -2010,26 +2152,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               }}
               onBack={() => setDealingFrom(null)}
             />
-          ) : menu?.kind === 'stack' && menuStack && searching === menuStack.id ? (
-            <StackSearch
-              cards={menuStack.cards}
-              deckOf={(c) => decksById.get(c.deckId)}
-              handName={table.handNames[handIndex]}
-              onTake={(card) => {
-                const rest = take(table, { kind: 'card', stackId: menuStack.id, iid: card.iid });
-                commit(putInHand(rest, [{ ...card, faceUp: true }], handIndex));
-                haptics.drop();
-                setMenu(null);
-                setSearching(null);
-              }}
-              onBack={() => setSearching(null)}
-            />
           ) : undefined
         }
         onClose={() => {
           setMenu(null);
           setDealingFrom(null);
-          setSearching(null);
         }}
         overlay={
           zoomed && zoomDeck && zoomCard ? (

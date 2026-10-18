@@ -727,5 +727,19 @@ export const setStack = (t: SandboxTable, stackId: string, changes: Partial<Pick
 export const setSolo = (t: SandboxTable, stackId: string, solo: boolean) =>
   updateStack(t, stackId, (s) => ({ ...s, cards: s.cards.map(({ solo: _old, ...c }) => (solo ? { ...c, solo: true } : c)) }));
 
+/**
+ * Moves cards within a stack, as a search shows them (top first): those at places `picked` (in the order picked)
+ * go together, as a block starting at place `to`.
+ */
+export function reorderStack(t: SandboxTable, stackId: string, picked: number[], to: number): SandboxTable {
+  return updateStack(t, stackId, (s) => {
+    const topFirst = [...s.cards].reverse();
+    const moving = picked.map((i) => topFirst[i]).filter((c): c is SandboxCard => !!c);
+    const rest = topFirst.filter((c) => !moving.includes(c));
+    const at = Math.max(0, Math.min(rest.length, to));
+    return { ...s, cards: [...rest.slice(0, at), ...moving, ...rest.slice(at)].reverse() };
+  });
+}
+
 /** Takes stacks off the table altogether. */
 export const removeStacks = (t: SandboxTable, ids: string[]) => ({ ...t, stacks: t.stacks.filter((s) => !ids.includes(s.id)) });

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   GRID_STACK_REACH,
+  reorderStack,
   addCards,
   addDeck,
   cameraAngle,
@@ -443,4 +444,11 @@ test('a card lifted off where it lay alone has nothing there to go back onto; th
   const pile = tableWith({ id: 'p', x: 100, y: 100, angle: 0, cards: [card('1'), card('2')] });
   const topOff = take(pile, { kind: 'card', stackId: 'p', iid: '2' });
   assert.equal(stackTargetAt(topOff, 105, 102, size, undefined, GRID_STACK_REACH)?.id, 'p');
+});
+test('searching a stack: cards moved within it, as the search shows them (top first)', () => {
+  const t = tableWith({ id: 's', x: 0, y: 0, angle: 0, cards: [card('a'), card('b'), card('c'), card('d')] });
+  // Top first: d, c, b, a. Moving b (place 2) to the top.
+  assert.deepEqual(reorderStack(t, 's', [2], 0).stacks[0].cards.map((c) => c.iid), ['a', 'c', 'd', 'b']);
+  // d (the top) to the bottom.
+  assert.deepEqual(reorderStack(t, 's', [0], 3).stacks[0].cards.map((c) => c.iid), ['d', 'a', 'b', 'c']);
 });

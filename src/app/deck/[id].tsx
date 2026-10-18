@@ -2,7 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Platform, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '../../components/ActionSheet';
@@ -100,6 +100,8 @@ export default function DeckEditorScreen() {
   const [backFor, setBackFor] = useState<string | null>(null);
   /** The corners slider is being moved (the screen holds still meanwhile). */
   const [sliding, setSliding] = useState(false);
+  /** The deck settings panel is open: at first only for a deck with no cards yet. */
+  const [settingsOpen, setSettingsOpen] = useState(() => !decks.getDeck(id)?.cards.length);
   /** Choosing cards, e.g. to delete several at once: tapping a card ticks it rather than opening it. */
   const [choosing, setChoosing] = useState(false);
   const [chosen, setChosen] = useState<string[]>([]);
@@ -420,49 +422,64 @@ export default function DeckEditorScreen() {
         renderLifted={(item) => <CardView deck={deck} card={item} width={cardWidth} />}
         header={
           <View style={styles.header}>
-            <Text style={styles.label}>Deck name</Text>
-            <TextInput
-              maxFontSizeMultiplier={MAX_TEXT_SCALE}
-              value={nameDraft ?? deck.name}
-              onChangeText={(t) => setNameDraft(titleCase(t))}
-              onEndEditing={(e) => {
-                const name = e.nativeEvent.text.trim();
-                if (name && name !== deck.name) decks.renameDeck(deck.id, name);
-                setNameDraft(null);
-              }}
-              style={styles.input}
-              placeholder="Deck name"
-              placeholderTextColor={colors.textMuted}
-              returnKeyType="done"
-            />
-
-            <Text style={styles.label}>Card size</Text>
-            <CardSizePicker shape={deck.cardShape ?? { kind: 'standard' }} onChange={changeShape} />
-
-            <Text style={[styles.label, { marginTop: 12 }]}>Corners</Text>
-            <RoundnessSlider deck={deck} onChange={(r) => decks.setRoundness(deck.id, r)} onSliding={setSliding} />
-
-            <View style={[styles.backRow, { marginTop: 12 }]}>
-              {/* Once it has a picture, tapping it goes back to cropping that; until then, to choosing one. */}
-              <CardView
-                deck={deck}
-                faceUp={false}
-                width={64}
+            {/* The deck's settings, together in one panel, folded away once it has cards (the cards come first). */}
+            <View style={styles.panel}>
+              <Pressable
                 onPress={() => {
-                  setBackFor(null);
-                  if (backSource) setCrop({ uris: [backSource], target: 'back' });
-                  else openArtMenu('back');
+                  setSettingsOpen((o) => !o);
+                  haptics.tick();
                 }}
-              />
-              <View style={{ flex: 1, gap: 8 }}>
-                <Text style={styles.label}>Card back</Text>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <TourSpot id="deck.back">
-                    <Button label="Choose image" onPress={() => openDeckBackMenu()} disabled={busy} />
-                  </TourSpot>
-                  {deck.backImage ? <Button label="Reset" onPress={() => decks.setCardBack(deck.id, null)} /> : null}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: settingsOpen }}
+                style={styles.panelHeader}>
+                <Text style={styles.panelTitle}>Deck settings</Text>
+                {settingsOpen ? null : <CardView deck={deck} faceUp={false} width={22} />}
+                <Text style={styles.chevron}>{settingsOpen ? '▴' : '▾'}</Text>
+              </Pressable>
+              {settingsOpen ? (
+                <View style={{ gap: 8 }}>
+                  <Text style={styles.label}>Name</Text>
+                  <TextInput
+                    maxFontSizeMultiplier={MAX_TEXT_SCALE}
+                    value={nameDraft ?? deck.name}
+                    onChangeText={(t) => setNameDraft(titleCase(t))}
+                    onEndEditing={(e) => {
+                      const name = e.nativeEvent.text.trim();
+                      if (name && name !== deck.name) decks.renameDeck(deck.id, name);
+                      setNameDraft(null);
+                    }}
+                    style={styles.input}
+                    placeholder="Deck name"
+                    placeholderTextColor={colors.textMuted}
+                    returnKeyType="done"
+                  />
+
+                  <Text style={[styles.label, styles.gapAbove]}>Card size</Text>
+                  <CardSizePicker shape={deck.cardShape ?? { kind: 'standard' }} onChange={changeShape} />
+
+                  <Text style={[styles.label, styles.gapAbove]}>Corners</Text>
+                  <RoundnessSlider deck={deck} onChange={(r) => decks.setRoundness(deck.id, r)} onSliding={setSliding} />
+
+                  <Text style={[styles.label, styles.gapAbove]}>Card back</Text>
+                  <View style={styles.backRow}>
+                    {/* Once it has a picture, tapping it goes back to cropping that; until then, to choosing one. */}
+                    <CardView
+                      deck={deck}
+                      faceUp={false}
+                      width={56}
+                      onPress={() => {
+                        setBackFor(null);
+                        if (backSource) setCrop({ uris: [backSource], target: 'back' });
+                        else openArtMenu('back');
+                      }}
+                    />
+                    <TourSpot id="deck.back">
+                      <Button label="Choose Image" onPress={() => openDeckBackMenu()} disabled={busy} />
+                    </TourSpot>
+                    {deck.backImage ? <TextButton label="Reset" onPress={() => decks.setCardBack(deck.id, null)} /> : null}
+                  </View>
                 </View>
-              </View>
+              ) : null}
             </View>
 
             <View style={styles.cardsHeader}>
@@ -470,30 +487,25 @@ export default function DeckEditorScreen() {
                 Cards <Text style={styles.muted}>({deckSize(deck)})</Text>
               </Text>
               {choosing ? (
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Button
+                <View style={styles.headerButtons}>
+                  <TextButton
                     label={chosen.length === deck.cards.length ? 'Deselect All' : 'Select All'}
                     onPress={() => setChosen(chosen.length === deck.cards.length ? [] : deck.cards.map((c) => c.id))}
                   />
-                  <Button label="Done" variant="primary" onPress={stopChoosing} />
+                  <TextButton label="Done" strong onPress={stopChoosing} />
                 </View>
               ) : (
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {deck.cards.length > 1 && !tour ? <Button label="Select" onPress={() => setChoosing(true)} disabled={busy} /> : null}
+                <View style={styles.headerButtons}>
+                  {deck.cards.length > 1 && !tour ? <TextButton label="Select" onPress={() => setChoosing(true)} disabled={busy} /> : null}
                   <TourSpot id="deck.addCards">
-                    <Button label="+ Add cards" variant="primary" onPress={() => openArtMenu('cards')} disabled={busy} />
+                    <Button label="+ Add" variant="primary" onPress={() => openArtMenu('cards')} disabled={busy} style={styles.addButton} />
                   </TourSpot>
                 </View>
               )}
             </View>
-            {deck.cards.length === 0 ? (
-              <Text style={[styles.muted, { marginTop: 8 }]}>
-                Take a photo, pick images from Photos or Files, or cut up a sprite sheet to make cards. Tap a card to rename it, set how many copies are in the deck, or remove it.
-              </Text>
-            ) : null}
+            {deck.cards.length === 0 ? <Text style={styles.muted}>No cards yet. Tap + Add to make some.</Text> : null}
           </View>
-        }
-        renderItem={(item) => (
+        }        renderItem={(item) => (
           <View>
             <CardView deck={deck} card={item} width={cardWidth} />
             {choosing ? (
@@ -513,9 +525,14 @@ export default function DeckEditorScreen() {
         )}
         footer={
           <View style={{ marginTop: 24, gap: 10, paddingBottom: insets.bottom + 90 }}>
-            {/* To keep a copy somewhere safe, move it to another phone, or give it to a friend. */}
-            <Button label="Share or back up this deck…" onPress={shareDeck} disabled={busy || deck.cards.length === 0} />
-            <Button label="Delete deck" variant="danger" onPress={confirmDelete} />
+            {/* Not while choosing cards: then the only delete is the chosen cards'. */}
+            {choosing ? null : (
+              <>
+                {/* To keep a copy somewhere safe, move it to another phone, or give it to a friend. */}
+                <Button label="Share or back up this deck…" onPress={shareDeck} disabled={busy || deck.cards.length === 0} />
+                <Button label="Delete deck" variant="danger" onPress={confirmDelete} />
+              </>
+            )}
           </View>
         }
       />
@@ -636,7 +653,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginBottom: 12,
   },
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 },
+  backRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  panel: { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, borderRadius: 14, padding: 14, gap: 12, marginBottom: 12 },
+  panelHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  panelTitle: { flex: 1, color: colors.text, fontSize: 17, fontWeight: '700' },
+  chevron: { color: colors.textMuted, fontSize: 16 },
+  gapAbove: { marginTop: 10 },
+  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  addButton: { paddingVertical: 8, paddingHorizontal: 14 },
+  textButton: { color: colors.accent, fontSize: 16, fontWeight: '600', paddingVertical: 6 },
   cardsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: colors.text, fontSize: 20, fontWeight: '700' },
   muted: { color: colors.textMuted, fontSize: 14, fontWeight: '400' },
@@ -693,3 +718,17 @@ const styles = StyleSheet.create({
   },
   busy: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
 });
+
+/** A plain text button, lighter than `Button`, for small actions beside a heading. */
+function TextButton({ label, onPress, disabled, strong }: { label: string; onPress: () => void; disabled?: boolean; strong?: boolean }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      hitSlop={8}
+      accessibilityRole="button"
+      style={({ pressed }) => (pressed || disabled) && { opacity: disabled ? 0.4 : 0.6 }}>
+      <Text style={[styles.textButton, strong && { fontWeight: '800' }]}>{label}</Text>
+    </Pressable>
+  );
+}

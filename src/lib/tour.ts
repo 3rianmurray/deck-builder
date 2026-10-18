@@ -93,7 +93,7 @@ export const TOUR: TourStep[] = [
   },
   {
     title: 'Now the fronts',
-    text: 'Each card gets its own picture: a photo, a scan, artwork. Tap + Add cards.',
+    text: 'Each card gets its own picture: a photo, a scan, artwork. Tap + Add.',
     target: 'deck.addCards',
     until: 'add-cards-menu',
     dim: true,

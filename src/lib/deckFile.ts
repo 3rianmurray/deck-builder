@@ -23,6 +23,7 @@ interface FileCard {
 interface FileDeck {
   name: string;
   cardShape?: CardShape;
+  roundness?: number;
   playMode?: PlayMode;
   /** Key into the file's `images`, or null for the built-in back. */
   back: string | null;
@@ -41,6 +42,7 @@ export interface DeckFile {
 export interface UnpackedDeck {
   name: string;
   cardShape?: CardShape;
+  roundness?: number;
   playMode?: PlayMode;
   back: FileImage | null;
   cards: { name: string; copies?: number; image: FileImage }[];
@@ -69,6 +71,7 @@ export function packDecks(decks: Deck[], read: (path: string) => string): DeckFi
     decks: decks.map((d) => ({
       name: d.name,
       ...(d.cardShape ? { cardShape: d.cardShape } : {}),
+      ...(d.roundness !== undefined ? { roundness: d.roundness } : {}),
       ...(d.playMode ? { playMode: d.playMode } : {}),
       back: d.backImage ? keyOf(d.backImage) : null,
       cards: d.cards.map((c) => ({ name: c.name, ...(c.copies ? { copies: c.copies } : {}), image: keyOf(c.image) })),
@@ -108,6 +111,7 @@ export function unpackDecks(text: string): UnpackedDeck[] {
     return {
       name: typeof d.name === 'string' && d.name.trim() ? d.name.trim() : 'Imported deck',
       ...(isObject(d.cardShape) ? { cardShape: d.cardShape as unknown as CardShape } : {}),
+      ...(typeof d.roundness === 'number' && Number.isFinite(d.roundness) ? { roundness: d.roundness } : {}),
       ...(d.playMode === 'table' || d.playMode === 'reveal' ? { playMode: d.playMode } : {}),
       back: d.back ? image(d.back) : null,
       cards: d.cards.map((c: unknown, i: number) => {

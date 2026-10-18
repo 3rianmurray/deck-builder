@@ -5,7 +5,7 @@ import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, View } from
 import type { StyleProp, ViewStyle } from 'react-native';
 
 import { imageUri } from '../lib/storage';
-import { cardRatio } from '../lib/types';
+import { cardRadius, cardRatio } from '../lib/types';
 import type { Card, Deck } from '../lib/types';
 import { colors } from '../theme';
 import { tabletopShadow, useOnTabletop } from './Tabletop';
@@ -123,7 +123,7 @@ export const CardView = memo(function CardView({
   style,
 }: Props) {
   const height = width / cardRatio(deck);
-  const radius = Math.max(4, width * 0.06);
+  const radius = cardRadius(deck, width);
   const { shown, shownCard: card, transform, turning } = useFlip(faceUp, flipIn, cardProp);
   const showFace = shown && card;
   // While it turns, the face it's turning to is already there underneath, hidden, so its picture has loaded by
@@ -273,7 +273,7 @@ export function PileDepth({
   // Enough edges to look solid however far the pile leans.
   const edges = Math.round((rise * MAX_LEAN) / EDGE_STEP);
   const height = width / cardRatio(deck);
-  const radius = Math.max(4, width * 0.06);
+  const radius = cardRadius(deck, width);
   const tabletop = useOnTabletop();
   // The lean glides to a new value rather than jumping, e.g. while the screen is still measuring where the pile
   // is (as it opens), or as a stack's spot scrolls. JS-driven, like the tilt it's added to.
@@ -329,7 +329,7 @@ export function PileDepth({
 /** A dashed placeholder the size of one of the deck's cards, with an optional hint inside. */
 export function EmptySlot({ deck, width, label }: { deck: Deck; width: number; label?: string }) {
   return (
-    <View style={[styles.empty, { width, height: width / cardRatio(deck), borderRadius: Math.max(4, width * 0.06) }]}>
+    <View style={[styles.empty, { width, height: width / cardRatio(deck), borderRadius: cardRadius(deck, width) }]}>
       {label ? <Text style={styles.emptyText}>{label}</Text> : null}
     </View>
   );

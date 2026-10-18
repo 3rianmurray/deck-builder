@@ -58,6 +58,8 @@ interface DecksApi {
   setPlayMode: (deckId: string, mode: PlayMode) => void;
   setHandFolded: (deckId: string, folded: boolean) => void;
   setCardShape: (deckId: string, shape: CardShape) => void;
+  /** How round the deck's card corners are (see cardRadius). */
+  setRoundness: (deckId: string, roundness: number) => void;
   /**
    * Returns the saved table for a deck, creating a freshly shuffled one if needed. Each session keeps its own
    * table for each of its decks, separate from playing the deck on its own (no `sessionId`).
@@ -196,6 +198,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
             id,
             name: u.name,
             ...(u.cardShape ? { cardShape: u.cardShape } : {}),
+            ...(u.roundness !== undefined ? { roundness: u.roundness } : {}),
             ...(u.playMode ? { playMode: u.playMode } : {}),
             backImage: u.back ? save(u.back) : null,
             cards: u.cards.map((c) => ({
@@ -334,6 +337,9 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       },
       setCardShape(deckId, cardShape) {
         updateDeck(deckId, (d) => ({ ...d, cardShape }));
+      },
+      setRoundness(deckId, roundness) {
+        updateDeck(deckId, (d) => ({ ...d, roundness }));
       },
       getTable(deckId, sessionId) {
         const deck = getDeck(deckId);

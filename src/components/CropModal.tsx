@@ -5,6 +5,7 @@ import type { NativeTouchEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { keepOriginal, loadUpright, rotateImage, saveCrop } from '../lib/images';
+import { cardRadius } from '../lib/types';
 import { colors } from '../theme';
 import { Button } from './Button';
 import { Text } from './Text';
@@ -64,6 +65,8 @@ interface Props {
   uris: string[];
   /** The card's width divided by its height; the crop frame has this shape. */
   ratio: number;
+  /** How round the cards' corners are (the deck's roundness), for the frame. */
+  roundness?: number;
   /**
    * Called with one cropped image uri per input, in the same order, and for each the picture it was cut from as
    * cropped (turned, if it was turned here; shrunk to keep), to cut it again from if the card size changes.
@@ -73,7 +76,7 @@ interface Props {
 }
 
 /** Full-screen cropper that cuts every image to the card's aspect ratio. Drag to move, pinch to zoom. */
-export function CropModal({ uris, ratio, onDone, onCancel }: Props) {
+export function CropModal({ uris, ratio, roundness, onDone, onCancel }: Props) {
   const insets = useSafeAreaInsets();
   const [index, setIndex] = useState(0);
   const [cropped, setCropped] = useState<string[]>([]);
@@ -221,7 +224,7 @@ export function CropModal({ uris, ratio, onDone, onCancel }: Props) {
                   top: area.h / 2 - (source.h * scale) / 2 + t.y,
                 }}
               />
-              <FrameOverlay area={area} frame={frame} />
+              <FrameOverlay area={area} frame={frame} roundness={roundness} />
             </>
           ) : (
             <ActivityIndicator color={colors.accent} size="large" style={StyleSheet.absoluteFill} />
@@ -249,10 +252,10 @@ export function CropModal({ uris, ratio, onDone, onCancel }: Props) {
 }
 
 /** Dims everything outside the card-shaped frame. */
-function FrameOverlay({ area, frame }: { area: Size; frame: Size }) {
+function FrameOverlay({ area, frame, roundness }: { area: Size; frame: Size; roundness?: number }) {
   const left = (area.w - frame.w) / 2;
   const top = (area.h - frame.h) / 2;
-  const radius = Math.max(4, frame.w * 0.06);
+  const radius = cardRadius({ roundness }, frame.w);
   return (
     <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
       <View style={[styles.dim, { left: 0, right: 0, top: 0, height: top }]} />

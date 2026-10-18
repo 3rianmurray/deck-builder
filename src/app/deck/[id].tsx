@@ -12,6 +12,7 @@ import { CardView } from '../../components/CardView';
 import { CardScanModal } from '../../components/CardScanModal';
 import { CropModal } from '../../components/CropModal';
 import { ReorderableGrid } from '../../components/ReorderableGrid';
+import { RoundnessSlider } from '../../components/RoundnessSlider';
 import { SpriteSheetModal } from '../../components/SpriteSheetModal';
 import { useDecks } from '../../lib/DecksContext';
 import { askName, titleCase } from '../../lib/names';
@@ -315,6 +316,9 @@ export default function DeckEditorScreen() {
             <Text style={styles.label}>Card size</Text>
             <CardSizePicker shape={deck.cardShape ?? { kind: 'standard' }} onChange={changeShape} />
 
+            <Text style={[styles.label, { marginTop: 12 }]}>Corners</Text>
+            <RoundnessSlider deck={deck} onChange={(r) => decks.setRoundness(deck.id, r)} />
+
             <View style={[styles.backRow, { marginTop: 12 }]}>
               {/* Once it has a picture, tapping it goes back to cropping that; until then, to choosing one. */}
               <CardView
@@ -442,7 +446,7 @@ export default function DeckEditorScreen() {
         }}
       />
 
-      <CropModal uris={crop?.uris ?? []} ratio={cardRatio(deck)} onDone={saveCropped} onCancel={() => setCrop(null)} />
+      <CropModal uris={crop?.uris ?? []} ratio={cardRatio(deck)} roundness={deck.roundness} onDone={saveCropped} onCancel={() => setCrop(null)} />
 
       <SpriteSheetModal
         uri={spriteSheet?.uri ?? null}

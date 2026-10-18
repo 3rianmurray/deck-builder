@@ -83,6 +83,18 @@ export function cardSizeMm(deck: Pick<Deck, 'cardShape'>): { w: number; h: numbe
   return ratio >= 1 ? { w: long, h: long / ratio } : { w: long * ratio, h: long };
 }
 
+/** How round a card's corners are when a deck doesn't say: its corner radius, as a share of its width. */
+export const DEFAULT_ROUNDNESS = 0.06;
+/** The roundest corners can be (a quarter of the width: very round). */
+export const MAX_ROUNDNESS = 0.25;
+
+/** A card's corner radius, in points, drawn this wide: the deck's roundness (square cards have none). */
+export function cardRadius(deck: Pick<Deck, 'roundness'>, width: number): number {
+  const r = Math.min(MAX_ROUNDNESS, Math.max(0, deck.roundness ?? DEFAULT_ROUNDNESS));
+  // Small cards keep a little rounding, so they don't look square, unless they're meant to be.
+  return r === 0 ? 0 : Math.max(Math.min(4, width * MAX_ROUNDNESS), width * r);
+}
+
 /** `table`: deck, discard, play area and hand. `reveal`: just the deck and discard pile, for turning cards over one at a time. */
 export type PlayMode = 'table' | 'reveal';
 
@@ -95,6 +107,8 @@ export interface Deck {
   handFolded?: boolean;
   /** Missing means standard (decks saved before sizes existed). */
   cardShape?: CardShape;
+  /** How round the cards' corners are: the corner radius as a share of the width. Missing means the default. */
+  roundness?: number;
   /** The home-screen group it's filed under, if any (see lib/groups.ts). */
   groupId?: string;
   /** Relative image path for the card back, or null to use the built-in back. */

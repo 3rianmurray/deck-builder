@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 
 import * as haptics from '../lib/haptics';
-import { cardRatio } from '../lib/types';
+import { cardRadius, cardRatio } from '../lib/types';
 import type { Deck } from '../lib/types';
 import { colors } from '../theme';
 import { CardView } from './CardView';
@@ -118,7 +118,7 @@ export function Riffle({
             <Animated.View
               style={[
                 styles.shadow,
-                { width, height: width / ratio, borderRadius: Math.max(4, width * 0.06) },
+                { width, height: width / ratio, borderRadius: cardRadius(deck, width) },
                 { opacity: t.interpolate({ inputRange, outputRange: [0, 1, 1, 0, 0] }) },
               ]}
             />

@@ -34,7 +34,7 @@ import * as haptics from '../lib/haptics';
 import * as T from '../lib/table';
 import { fitTilt, project, tiltTransform, unproject } from '../lib/tilt';
 import { setTourTarget, tourEvent, tourRunning, useTourStep } from '../lib/tour';
-import { cardRatio } from '../lib/types';
+import { cardRadius, cardRatio } from '../lib/types';
 import type { Card, CardInstance, Deck, PlayMode, Spot, TableState, Zone } from '../lib/types';
 import { colors } from '../theme';
 import { Text } from './Text';
@@ -2034,7 +2034,7 @@ function Table({
   const landingOn = (iid: string) => !!landing && !landing.revealed && landing.iids.includes(iid);
   /** A gold outline on the table card or stack that carried cards would be stacked onto. */
   const targetOutline = (iid: string | undefined) =>
-    iid && iid === stackTarget ? <View style={[styles.stackTargetOutline, { borderRadius: Math.max(4, tableCardWidth * 0.06) + 3 }]} /> : null;
+    iid && iid === stackTarget ? <View style={[styles.stackTargetOutline, { borderRadius: cardRadius(deck, tableCardWidth) + 3 }]} /> : null;
 
   const renderCard = (inst: CardInstance, w: number, from: Zone, place?: ViewStyle) =>
     draggable(
@@ -2123,7 +2123,7 @@ function Table({
       const towardSpot = 1 - i / LANDING_EDGES;
       const held = Math.min(2, LANDING_EDGES - i) * 6;
       const move = (end: number) => landingAnim.lift.interpolate({ inputRange: [0, 1], outputRange: [end / endScale, held] });
-      const radius = { borderRadius: Math.max(4, l.width * 0.06) };
+      const radius = { borderRadius: cardRadius(deck, l.width) };
       return (
         <Animated.View
           key={i}
@@ -2773,7 +2773,7 @@ function Table({
                 style={[
                   styles.dropSpot,
                   spotPlace(outlineSpot),
-                  { width: tableCardWidth, height: cellH, borderRadius: Math.max(4, tableCardWidth * 0.06) },
+                  { width: tableCardWidth, height: cellH, borderRadius: cardRadius(deck, tableCardWidth) },
                 ]}
               />
             ) : null}
@@ -2868,7 +2868,7 @@ function Table({
               {
                 width: landing.width,
                 height: landing.width / ratio,
-                borderRadius: Math.max(4, landing.width * 0.06),
+                borderRadius: cardRadius(deck, landing.width),
                 // Not for a card turning over as it lands: this slab would show round it as it narrows.
                 opacity: landing.turns ? 0 : landingAnim.lift,
               },
@@ -2924,7 +2924,7 @@ function Table({
                   {
                     width: liftedWidth,
                     height: liftedWidth / ratio,
-                    borderRadius: Math.max(4, liftedWidth * 0.06),
+                    borderRadius: cardRadius(deck, liftedWidth),
                     left: (i + 1) * 6,
                     top: (i + 1) * 6,
                   },
@@ -2998,7 +2998,7 @@ function Table({
             style={[
               styles.flyingShadow,
               tabletopShadow.resting,
-              { width: pileWidth, height: pileWidth / ratio, borderRadius: Math.max(4, pileWidth * 0.06), opacity: flight.shadow },
+              { width: pileWidth, height: pileWidth / ratio, borderRadius: cardRadius(deck, pileWidth), opacity: flight.shadow },
             ]}
           />
           <CardView deck={deck} card={cardsById.get(flying.cardId)} faceUp={flying.faceUp} width={pileWidth} flat />

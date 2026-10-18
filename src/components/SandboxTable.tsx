@@ -61,6 +61,7 @@ import { ActionSheet } from './ActionSheet';
 import type { SheetTile } from './ActionSheet';
 import { CardFocus } from './CardFocus';
 import { DealPanel } from './DealPanel';
+import { StackSearch } from './StackSearch';
 import { CardView } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
@@ -184,6 +185,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [menu, setMenu] = useState<Menu | null>(null);
   /** Dealing from this stack: its menu shows how many to deal and to whom, instead of its options. */
   const [dealingFrom, setDealingFrom] = useState<string | null>(null);
+  /** Looking through this stack: its menu shows its cards, to take one into the hand. */
+  const [searching, setSearching] = useState<string | null>(null);
   const [zoomed, setZoomed] = useState<SandboxCard | null>(null);
   const [view, setView] = useState<{ w: number; h: number } | null>(null);
 
@@ -1205,6 +1208,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       const tiles: SheetTile[] = [
         { label: 'Flip over', icon: FLIP_ICON, onPress: () => commit(flipStack(table, menuStack.id)) },
         { label: 'Turn 90°', icon: { ios: 'rotate.right', android: 'rotate_right', web: 'rotate_right' }, onPress: () => commit(turnStack(table, menuStack.id)) },
+        // Into the open hand: the top card, or any card, looked for.
+        {
+          label: 'Draw',
+          icon: { ios: 'arrow.down.to.line', android: 'download', web: 'download' },
+          onPress: () => {
+            commit(dealToHand(table, menuStack.id, 1, handIndex));
+            haptics.drop();
+          },
+        },
+        ...(n > 1
+          ? [{ label: 'Search', icon: { ios: 'magnifyingglass', android: 'search', web: 'search' } as const, keepsOpen: true, onPress: () => setSearching(menuStack.id) }]
+          : []),
         // Dealing: how many off the top, and to whom (see DealPanel).
         {
           label: 'Deal',
@@ -1625,11 +1640,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               }}
               onBack={() => setDealingFrom(null)}
             />
+          ) : menu?.kind === 'stack' && menuStack && searching === menuStack.id ? (
+            <StackSearch
+              cards={menuStack.cards}
+              deckOf={(c) => decksById.get(c.deckId)}
+              handName={table.handNames[handIndex]}
+              onTake={(card) => {
+                const rest = take(table, { kind: 'card', stackId: menuStack.id, iid: card.iid });
+                commit(putInHand(rest, [{ ...card, faceUp: true }], handIndex));
+                haptics.drop();
+                setMenu(null);
+                setSearching(null);
+              }}
+              onBack={() => setSearching(null)}
+            />
           ) : undefined
         }
         onClose={() => {
           setMenu(null);
           setDealingFrom(null);
+          setSearching(null);
         }}
         overlay={
           zoomed && zoomDeck && zoomCard ? (

@@ -154,9 +154,11 @@ type Finger = { id: number; x: number; y: number };
 const TOOLS_W = 230;
 const TOOLS_TAB_W = 26;
 const TOOLS_TAB_H = 72;
-const TOOLS_H = 432;
+const TOOLS_H = 452;
 /** How far down the drawer its pull tab sits: near the top, where it's always been (the drawer's grown taller). */
 const TOOLS_TAB_TOP = 42;
+/** How long the grid shows when its size is chosen (with its lines off). */
+const GRID_PEEK_MS = 1500;
 /** How far below the top of the screen's safe area the tools drawer sits (clear of the top bar). */
 const TOOLS_FROM_TOP = 64;
 
@@ -270,6 +272,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   };
   /** Choosing cards from a deck to bring onto the table. */
   const [addingCards, setAddingCards] = useState(false);
+  /** The grid shown for a moment (its size just chosen), even with its lines off. */
+  const [gridPeek, setGridPeek] = useState(0);
   /** The table's trash is open, to put cards back. */
   const [trashOpen, setTrashOpen] = useState(false);
   /** A stack just brought onto the table, flying in to where the camera's taking it on screen. */
@@ -953,8 +957,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     const down = (changed: Touch[]) => {
       const L = latest.get();
-      // A touch on the table tucks the tools away.
-      if (L.toolsOpen && touch.mode === 'none') L.showTools(false);
+      // A touch on the table tucks the tools away, and does nothing else (a selection stays picked out).
+      if (L.toolsOpen && touch.mode === 'none') {
+        L.showTools(false);
+        for (const t of changed) touch.fingers.set(t.id, { start: { x: t.x, y: t.y }, now: { x: t.x, y: t.y } });
+        touch.mode = 'button';
+        return;
+      }
       for (const t of changed) touch.fingers.set(t.id, { start: { x: t.x, y: t.y }, now: { x: t.x, y: t.y } });
       const pts = [...touch.fingers.values()].map((f) => f.now);
       if (touch.mode === 'none') {
@@ -1856,7 +1865,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             {/* The cloth's color, if one's been chosen: under a lighter weave. */}
             {cloth ? <View style={[styles.cloth, { backgroundColor: cloth.color }]} /> : null}
             <Image source={require('../../assets/textures/felt.png')} resizeMode="repeat" style={[styles.felt, cloth && styles.feltOverCloth]} />
-            {table.showGrid ? <GridLines step={gridStep} /> : null}
+            {table.showGrid || gridPeek ? <GridLines step={gridStep} /> : null}
             {table.stacks.map((s) =>
               groupMoving && chosenIds.has(s.id) && !s.locked ? null : (
                 <StackView
@@ -2070,7 +2079,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   />
                 </View>
               ))}
-              {/* The grid's size: its spacing, for snapping and its lines. */}
+              {/* The grid's size: its spacing, for snapping and its lines (shown for a moment as it's chosen). */}
+              <Text style={styles.toolLabel}>Grid size</Text>
               <View style={styles.toolSegment}>
                 {(Object.entries(GRID_SIZES) as [keyof typeof GRID_SIZES, number][]).map(([name, step]) => (
                   <Pressable
@@ -2078,6 +2088,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                     onPress={() => {
                       updateSandbox({ ...table, gridStep: step });
                       haptics.tick();
+                      // The lines for a moment, to see the spacing chosen.
+                      const peek = Date.now();
+                      setGridPeek(peek);
+                      setTimeout(() => setGridPeek((p) => (p === peek ? 0 : p)), GRID_PEEK_MS);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel={`${name} grid`}
@@ -2657,6 +2671,7 @@ const styles = StyleSheet.create({
   toolsTitle: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   toolText: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '600' },
+  toolLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', marginBottom: -4 },
   toolSegment: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 9, padding: 2 },
   toolSegmentItem: { flex: 1, paddingVertical: 6, borderRadius: 7, alignItems: 'center' },
   toolSegmentOn: { backgroundColor: colors.accent },

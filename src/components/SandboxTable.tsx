@@ -17,7 +17,6 @@ import { newId } from '../lib/id';
 import {
   addCards,
   addDeck,
-  CARD_W,
   cameraAngle,
   cameraSquare,
   cameraZoom,
@@ -93,6 +92,8 @@ const TAP_MS = 300;
 /** How far round a stack's count badge (in screen points) a touch takes the whole stack. */
 /** How long a press on a stack must be held, still, for the whole stack to come up (a quick drag takes its top card). */
 const HOLD_STACK_MS = 350;
+/** How long a stack brought onto the table takes to fly in (and the camera to glide over to it). */
+const ARRIVE_MS = 480;
 /** Shaking carried cards to flip them: this many turns of way, each a swing this long (points), within this long. */
 const SHAKE_TURNS = 3;
 const SHAKE_SWING = 22;
@@ -236,6 +237,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [searching, setSearching] = useState<string | null>(null);
   /** Choosing cards from a deck to bring onto the table. */
   const [addingCards, setAddingCards] = useState(false);
+  /** A stack just brought onto the table, flying in to where the camera's taking it on screen. */
+  const [arriving, setArriving] = useState<{ stackId: string; key: string; to: { x: number; y: number }; scale: number; angle: number } | null>(null);
   /** A stack being riffle shuffled (as in a deck's play screen): which, a fresh key each time, and whether it's started. */
   const [riffling, setRiffling] = useState<{ stackId: string; key: number; started: boolean } | null>(null);
   const [zoomed, setZoomed] = useState<SandboxCard | null>(null);
@@ -1377,25 +1380,43 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return putOnTable(t, cards, gridOn ? snapToGrid(at) : at, newId());
   };
 
-  /** Where something new goes on the table: the middle of the view, or beside anything already there. */
-  const freeSpot = () => {
-    const m = viewMiddle();
-    // With snapping on, on grid crossings (a card and a half apart is three of them).
-    const start = gridOn ? snapToGrid({ ...m, angle: 0 }) : m;
-    let x = start.x;
-    while (table?.stacks.some((s) => Math.hypot(s.x - x, s.y - start.y) < CARD_W)) x += CARD_W * 1.5;
-    return { x, y: start.y };
+  /**
+   * A new stack (the last in `next`) comes onto the table where it can't get lost: above everything already on it,
+   * centered across it (below it, if there's no room above). It flies in from the top of the screen as the camera
+   * glides over to center on it (unlocked, if it was locked), and it arrives picked out.
+   */
+  const arrive = (next: SandboxTable) => {
+    if (!table || next === table) return;
+    const added = next.stacks[next.stacks.length - 1];
+    if (!added) return;
+    const { h } = size(added.cards[added.cards.length - 1].deckId);
+    const all = tableBounds(table, size);
+    let at = all ? { x: all.x + all.w / 2, y: all.y - GRID_STEP - h / 2 } : viewMiddle();
+    if (all && at.y < h / 2) at = { x: at.x, y: all.y + all.h + GRID_STEP + h / 2 };
+    if (gridOn) at = snapToGrid({ ...at, angle: 0 });
+    at = { x: Math.min(TABLE_W, Math.max(0, at.x)), y: Math.min(TABLE_H, Math.max(0, at.y)) };
+    const placed = { ...next, stacks: next.stacks.map((s) => (s.id === added.id ? { ...s, x: at.x, y: at.y } : s)) };
+    commit(next.lockCamera ? { ...placed, lockCamera: false } : placed);
+    setSelected([added.id]);
+    // The camera glides to put it in the middle of what's in view (between the top bar and the hand), as it is
+    // (zoom and turn kept); so on screen, it lands there.
+    const cam = readCamera();
+    const to = { x: area.w / 2, y: (insets.top + TOP_BAR_H + handTop) / 2 };
+    const glide = { duration: ARRIVE_MS, easing: ReEasing.inOut(ReEasing.cubic) };
+    camX.set(withTiming(to.x - (cam.a * at.x - cam.b * at.y), glide));
+    camY.set(withTiming(to.y - (cam.b * at.x + cam.a * at.y), glide));
+    setTimeout(() => latest.get().saveCamera(), ARRIVE_MS + 50);
+    setArriving({ stackId: added.id, key: newId(), to, scale: cameraZoom(cam), angle: cameraAngle(cam) });
+    haptics.lift();
   };
   const addDeckToTable = (deck: Deck) => {
     if (!table) return;
-    commit(addDeck(table, deck, freeSpot(), newId));
-    haptics.drop();
+    arrive(addDeck(table, deck, viewMiddle(), newId));
   };
   /** Some of a deck's cards, chosen one by one: in one face-down stack. */
   const addCardsToTable = (deck: Deck, cardIds: string[]) => {
     if (!table) return;
-    commit(addCards(table, deck, cardIds, freeSpot(), newId));
-    haptics.drop();
+    arrive(addCards(table, deck, cardIds, viewMiddle(), newId));
   };
 
   const rename = askName;
@@ -1614,6 +1635,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   const chosenIds = new Set(chosen);
   const cloth = table.background ? CLOTHS[table.background] : undefined;
+  const arrivingStack = arriving ? table.stacks.find((s) => s.id === arriving.stackId) : undefined;
+  const arrivingTop = arrivingStack?.cards[arrivingStack.cards.length - 1];
   const riffleStack = riffling ? table.stacks.find((s) => s.id === riffling.stackId) : undefined;
   const riffleDeck = riffleStack ? decksById.get(riffleStack.cards[riffleStack.cards.length - 1].deckId) : undefined;
   const heldTop = held ? held.cards[held.cards.length - 1] : null;
@@ -1643,7 +1666,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   size={size(s.cards[s.cards.length - 1].deckId)}
                   // While carried, its carried cards are out of sight (the rest still show); while riffled, all of it.
                   hidden={
-                    riffling?.started && riffling.stackId === s.id
+                    (riffling?.started && riffling.stackId === s.id) || arriving?.stackId === s.id
                       ? s.cards.map((c) => c.iid).join(',')
                       : held
                         ? s.cards.filter((c) => heldIds.has(c.iid)).map((c) => c.iid).join(',')
@@ -1894,6 +1917,24 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
           ) : null}
 
+          {/* A stack just brought onto the table, flying in from the top of the screen. */}
+          {arriving && arrivingTop && decksById.get(arrivingTop.deckId) ? (
+            <ArrivalFlyer
+              key={arriving.key}
+              deck={decksById.get(arrivingTop.deckId)!}
+              card={arrivingTop}
+              size={size(arrivingTop.deckId)}
+              from={{ x: area.w / 2, y: insets.top + TOP_BAR_H / 2 }}
+              to={arriving.to}
+              scale={arriving.scale}
+              angle={arriving.angle}
+              onLanded={() => {
+                setArriving(null);
+                haptics.drop();
+              }}
+            />
+          ) : null}
+
           {/* The lasso, as it's drawn. */}
           {lassoPath && lassoPath.length > 1 ? <LassoLine points={lassoPath} /> : null}
 
@@ -2085,6 +2126,59 @@ function GatherFlyer({ flyer, deck, size, onLanded }: { flyer: Flyer; deck: Deck
       }}>
       <CardView deck={deck} card={deck.cards.find((c) => c.id === flyer.card.cardId)} faceUp={faceUp} width={size.w} sharp />
     </RNAnimated.View>
+  );
+}
+
+/**
+ * A stack just brought onto the table: its top card flying in from the top of the screen to where it lands (on
+ * screen; the camera brings the table under it as it flies), growing to its size there as it comes.
+ */
+function ArrivalFlyer({
+  deck,
+  card,
+  size,
+  from,
+  to,
+  scale,
+  angle,
+  onLanded,
+}: {
+  deck: Deck;
+  card: SandboxCard;
+  size: { w: number; h: number };
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  /** Screen points per table unit (the camera's zoom), and its turn: the card's size and turn on landing. */
+  scale: number;
+  angle: number;
+  onLanded: () => void;
+}) {
+  const t = useSharedValue(0);
+  useEffect(() => {
+    t.set(
+      withTiming(1, { duration: ARRIVE_MS, easing: ReEasing.inOut(ReEasing.cubic) }, (finished) => {
+        if (finished) scheduleOnRN(onLanded);
+      }),
+    );
+    // Once, as it sets off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const style = useAnimatedStyle(() => {
+    const p = t.value;
+    return {
+      opacity: Math.min(1, p * 4),
+      transform: [
+        { translateX: from.x + (to.x - from.x) * p },
+        { translateY: from.y + (to.y - from.y) * p },
+        { rotate: `${angle * p}deg` },
+        { scale: scale * (0.5 + 0.5 * p) },
+      ],
+    };
+  });
+  return (
+    <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: -size.w / 2, top: -size.h / 2, width: size.w, height: size.h }, style]}>
+      <CardView deck={deck} card={deck.cards.find((c) => c.id === card.cardId)} faceUp={card.faceUp} width={size.w} sharp />
+    </Animated.View>
   );
 }
 

@@ -12,28 +12,35 @@ const THUMB = 26;
 
 /**
  * How round a deck's card corners are: a slider from square to very round, with one of its cards beside it
- * showing the corners as they'll be while the finger moves. Saved when the finger lifts.
+ * (given the deck) showing the corners as they'll be while the finger moves. Saved when the finger lifts.
  */
 export function RoundnessSlider({
   deck,
+  value: given,
   onChange,
   onSliding,
+  onDraft,
 }: {
-  deck: Deck;
+  /** The deck: its roundness, and one of its cards to show it on. */
+  deck?: Deck;
+  /** The roundness, without a deck. */
+  value?: number;
   onChange: (roundness: number) => void;
   /** Told when a finger starts and stops moving it (e.g. to keep the screen from scrolling meanwhile). */
   onSliding?: (sliding: boolean) => void;
+  /** Told the roundness under the finger as it moves (null once it lifts), to show it elsewhere as it changes. */
+  onDraft?: (roundness: number | null) => void;
 }) {
-  const saved = deck.roundness ?? DEFAULT_ROUNDNESS;
+  const saved = given ?? deck?.roundness ?? DEFAULT_ROUNDNESS;
   /** The roundness under the finger, while it's on the slider. */
   const [draft, setDraft] = useState<number | null>(null);
   const value = draft ?? saved;
   const [width, setWidth] = useState(1);
   const [track] = useState(() => {
-    const box = { w: 1, x: 0, value: saved, onChange, onSliding };
+    const box = { w: 1, x: 0, value: saved, onChange, onSliding, onDraft };
     return { set: (next: Partial<typeof box>) => Object.assign(box, next), get: () => box };
   });
-  track.set({ onChange, onSliding });
+  track.set({ onChange, onSliding, onDraft });
   const at = (x: number) => {
     const { w } = track.get();
     const r = Math.min(1, Math.max(0, (x - THUMB / 2) / Math.max(1, w - THUMB))) * MAX_ROUNDNESS;
@@ -47,6 +54,7 @@ export function RoundnessSlider({
     if (next !== track.get().value && (next === 0 || next === DEFAULT_ROUNDNESS)) haptics.tick();
     track.set({ value: next });
     setDraft(next);
+    track.get().onDraft?.(next);
   };
   const [touches] = useState(() =>
     PanResponder.create({
@@ -60,20 +68,22 @@ export function RoundnessSlider({
       onPanResponderRelease: () => {
         track.get().onChange(track.get().value);
         track.get().onSliding?.(false);
+        track.get().onDraft?.(null);
         setDraft(null);
       },
       onPanResponderTerminate: () => {
         track.get().onSliding?.(false);
+        track.get().onDraft?.(null);
         setDraft(null);
       },
     }),
   );
   const left = (value / MAX_ROUNDNESS) * Math.max(0, width - THUMB);
-  const card = deck.cards[0];
+  const card = deck?.cards[0];
 
   return (
     <View style={styles.row}>
-      <CardView deck={{ ...deck, roundness: value }} card={card} faceUp={!!card} width={44} />
+      {deck ? <CardView deck={{ ...deck, roundness: value }} card={card} faceUp={!!card} width={44} /> : null}
       <View style={{ flex: 1, gap: 4 }}>
         <View
           {...touches.panHandlers}

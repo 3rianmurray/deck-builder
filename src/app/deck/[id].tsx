@@ -633,7 +633,9 @@ export default function DeckEditorScreen() {
         }}
       />
 
-      <CropModal uris={crop?.uris ?? []} ratio={cardRatio(deck)} roundness={deck.roundness} onDone={saveCropped} onCancel={() => setCrop(null)} />
+      <CropModal uris={crop?.uris ?? []} ratio={cardRatio(deck)} roundness={deck.roundness}
+        onRoundness={(r) => decks.setRoundness(deck.id, r)}
+        onDone={saveCropped} onCancel={() => setCrop(null)} />
 
       <SpriteSheetModal
         uri={spriteSheet?.uri ?? null}

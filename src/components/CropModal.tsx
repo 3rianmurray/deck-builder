@@ -8,6 +8,7 @@ import { keepOriginal, loadUpright, rotateImage, saveCrop } from '../lib/images'
 import { cardRadius } from '../lib/types';
 import { colors } from '../theme';
 import { Button } from './Button';
+import { RoundnessSlider } from './RoundnessSlider';
 import { Text } from './Text';
 
 /** Furthest the user can zoom in, relative to the image just covering the frame. */
@@ -67,6 +68,8 @@ interface Props {
   ratio: number;
   /** How round the cards' corners are (the deck's roundness), for the frame. */
   roundness?: number;
+  /** The corners changed here (with the slider under the picture): the deck's roundness, saved. */
+  onRoundness?: (roundness: number) => void;
   /**
    * Called with one cropped image uri per input, in the same order, and for each the picture it was cut from as
    * cropped (turned, if it was turned here; shrunk to keep), to cut it again from if the card size changes.
@@ -76,7 +79,9 @@ interface Props {
 }
 
 /** Full-screen cropper that cuts every image to the card's aspect ratio. Drag to move, pinch to zoom. */
-export function CropModal({ uris, ratio, roundness, onDone, onCancel }: Props) {
+export function CropModal({ uris, ratio, roundness, onRoundness, onDone, onCancel }: Props) {
+  /** The corners as the slider's being moved, shown on the frame before they're saved. */
+  const [cornerDraft, setCornerDraft] = useState<number | null>(null);
   const insets = useSafeAreaInsets();
   const [index, setIndex] = useState(0);
   const [cropped, setCropped] = useState<string[]>([]);
@@ -224,12 +229,22 @@ export function CropModal({ uris, ratio, roundness, onDone, onCancel }: Props) {
                   top: area.h / 2 - (source.h * scale) / 2 + t.y,
                 }}
               />
-              <FrameOverlay area={area} frame={frame} roundness={roundness} />
+              <FrameOverlay area={area} frame={frame} roundness={cornerDraft ?? roundness} />
             </>
           ) : (
             <ActivityIndicator color={colors.accent} size="large" style={StyleSheet.absoluteFill} />
           )}
         </View>
+
+        {/* The corners, seen on the frame as they change. */}
+        {onRoundness ? (
+          <View style={styles.corners}>
+            <Text style={styles.cornersLabel}>Corners</Text>
+            <View style={{ flex: 1 }}>
+              <RoundnessSlider value={roundness} onChange={onRoundness} onDraft={setCornerDraft} />
+            </View>
+          </View>
+        ) : null}
 
         <View style={[styles.actions, { marginBottom: 10 }]}>
           <Button label="⟲  Rotate left" onPress={() => rotate(-90)} disabled={saving || !source} style={{ flex: 1 }} />
@@ -256,12 +271,23 @@ function FrameOverlay({ area, frame, roundness }: { area: Size; frame: Size; rou
   const left = (area.w - frame.w) / 2;
   const top = (area.h - frame.h) / 2;
   const radius = cardRadius({ roundness }, frame.w);
+  // Everything outside the card darkened, its rounded corners too: one view round the frame with a border as wide
+  // as the screen, rounded on the inside to the card's corners.
+  const reach = Math.max(area.w, area.h);
   return (
-    <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
-      <View style={[styles.dim, { left: 0, right: 0, top: 0, height: top }]} />
-      <View style={[styles.dim, { left: 0, right: 0, top: top + frame.h, bottom: 0 }]} />
-      <View style={[styles.dim, { left: 0, width: left, top, height: frame.h }]} />
-      <View style={[styles.dim, { right: 0, width: left, top, height: frame.h }]} />
+    <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none', overflow: 'hidden' }]}>
+      <View
+        style={{
+          position: 'absolute',
+          left: left - reach,
+          top: top - reach,
+          width: frame.w + reach * 2,
+          height: frame.h + reach * 2,
+          borderWidth: reach,
+          borderRadius: radius + reach,
+          borderColor: 'rgba(0,0,0,0.6)',
+        }}
+      />
       <View style={[styles.frame, { left, top, width: frame.w, height: frame.h, borderRadius: radius }]} />
     </View>
   );
@@ -272,7 +298,8 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 17, fontWeight: '700', textAlign: 'center' },
   hint: { color: colors.textMuted, fontSize: 13, textAlign: 'center', marginTop: 2 },
   area: { flex: 1, overflow: 'hidden', marginVertical: 8 },
-  dim: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.6)' },
   frame: { position: 'absolute', borderWidth: 2, borderColor: colors.accent },
   actions: { flexDirection: 'row', gap: 10, paddingHorizontal: 16 },
+  corners: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, marginBottom: 10 },
+  cornersLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 18 },
 });

@@ -1,6 +1,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -468,17 +469,27 @@ export default function DeckEditorScreen() {
 
                   <Text style={[styles.label, styles.gapAbove]}>Card back</Text>
                   <View style={styles.backRow}>
-                    {/* Once it has a picture, tapping it goes back to cropping that; until then, to choosing one. */}
-                    <CardView
-                      deck={deck}
-                      faceUp={false}
-                      width={56}
-                      onPress={() => {
-                        setBackFor(null);
-                        if (backSource) setCrop({ uris: [backSource], target: 'back' });
-                        else openArtMenu('back');
-                      }}
-                    />
+                    {/*
+                      Once it has a picture, tapping it goes back to cropping that (a small crop badge on its corner
+                      says so); until then, to choosing one.
+                    */}
+                    <View>
+                      <CardView
+                        deck={deck}
+                        faceUp={false}
+                        width={56}
+                        onPress={() => {
+                          setBackFor(null);
+                          if (backSource) setCrop({ uris: [backSource], target: 'back' });
+                          else openArtMenu('back');
+                        }}
+                      />
+                      {backSource ? (
+                        <View style={styles.cropBadge}>
+                          <SymbolView name={{ ios: 'crop', android: 'crop', web: 'crop' }} size={12} weight="semibold" tintColor={colors.text} />
+                        </View>
+                      ) : null}
+                    </View>
                     <TourSpot id="deck.back">
                       <Button label="Choose Image" onPress={() => openDeckBackMenu()} disabled={busy} />
                     </TourSpot>
@@ -678,6 +689,21 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.text, fontSize: 20, fontWeight: '700' },
   muted: { color: colors.textMuted, fontSize: 14, fontWeight: '400' },
   cardName: { color: colors.textMuted, fontSize: 12, marginTop: 4, textAlign: 'center' },
+  // On the back's picture: tap it to crop it again.
+  cropBadge: {
+    position: 'absolute',
+    right: -6,
+    bottom: -6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceRaised,
+    borderWidth: 1.5,
+    borderColor: colors.bg,
+    pointerEvents: 'none',
+  },
   // A card's tick, while choosing cards.
   tick: {
     position: 'absolute',

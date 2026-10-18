@@ -919,6 +919,23 @@ function Table({
   };
 
 
+  /**
+   * What can be done with several cards picked in the search (listed top first, all from one pile): to the top or
+   * bottom of the deck, onto the discard pile, or into the trash. Not where they already are (but for the deck,
+   * which has a top and a bottom).
+   */
+  const pileActions = (from: SearchPile, iids: string[]): SheetAction[] => {
+    const n = iids.length;
+    const cards = `${n} ${n === 1 ? 'card' : 'cards'}`;
+    const go = (fn: (t: TableState) => TableState, msg?: string) => () => moveCards(fn, msg, true);
+    return [
+      { label: 'Top of the deck', onPress: go((t) => T.moveCards(t, iids, 'deck')) },
+      { label: 'Bottom of the deck', onPress: go((t) => iids.reduce((s, iid) => T.moveCard(s, iid, 'deck', 'bottom'), t)) },
+      ...(from === 'discard' ? [] : [{ label: 'Discard pile', onPress: go((t) => T.moveCards(t, iids, 'discard')) }]),
+      ...(from === 'trash' ? [] : [{ label: `Trash ${cards}`, destructive: true, onPress: go((t) => T.moveCards(t, iids, 'trash'), 'Moved to the trash') }]),
+    ];
+  };
+
   /** Turns the top card of the deck face up onto the discard pile. */
   const revealNext = () => {
     const top = table.deck[0];
@@ -2532,8 +2549,9 @@ function Table({
     openMenu: () => latestControls.current.openMenu(),
   }));
   useEffect(() => {
-    if (active) onControls?.({ title: deck.name, canUndo, busy: dragging, ...controlStandIns });
-  }, [active, deck.name, canUndo, dragging, onControls, controlStandIns]);
+    // While searching, the search is all there is: the top bar (and a session's deck tabs) step away.
+    if (active) onControls?.({ title: deck.name, canUndo, busy: dragging, hidden: searchZone !== null, ...controlStandIns });
+  }, [active, deck.name, canUndo, dragging, onControls, controlStandIns, searchZone]);
 
   // ---- The walkthrough ----
   // What the table was last time (to see what changed), and the card the player put down for the walkthrough,
@@ -2996,6 +3014,7 @@ function Table({
           onReorder={(zone, picked, to) => apply((t) => T.reorderPile(t, zone, picked, to))}
           onTakeOut={takeOutOfSearch}
           cardMenu={cardMenu}
+          pileActions={pileActions}
           onSwitch={setSearchZone}
           onClose={() => setSearchZone(null)}
           onClosed={() => setSearchMounted(false)}
@@ -3357,6 +3376,7 @@ function SearchPanel({
   onReorder,
   onTakeOut,
   cardMenu,
+  pileActions,
   onSwitch,
   onClose,
   onClosed,
@@ -3374,6 +3394,8 @@ function SearchPanel({
    */
   onTakeOut: (zone: SearchPile, iids: string[], finger: Finger, grip: Grip) => void;
   cardMenu: (iid: string, from: Zone, wholeStack?: boolean, onFullSize?: () => void) => { tiles: SheetTile[]; actions: SheetAction[] };
+  /** What can be done with several cards picked out (Select), listed top first. */
+  pileActions: (zone: SearchPile, iids: string[]) => SheetAction[];
   onSwitch: (zone: SearchPile) => void;
   onClose: () => void;
   /** It has finished sliding away. */
@@ -3397,6 +3419,14 @@ function SearchPanel({
   /** Cards held in the grid, if any: tapping Close then takes them out rather than leaving them. */
   const [holding, setHolding] = useState<GridHold | null>(null);
   const closeRef = useRef<View>(null);
+  /** Picking cards out (Select): a tap ticks a card, and the ticked ones can be moved together. */
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [pickSheetOpen, setPickSheetOpen] = useState(false);
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked([]);
+  };
 
   // A second finger lifting off Close while the first holds cards: take them out, with the first finger still
   // on them. (Watched here, above both, since the two fingers are on different parts of the search.)
@@ -3451,12 +3481,16 @@ function SearchPanel({
         { pointerEvents: leaving || !visible ? 'none' : 'auto', opacity: fade },
         { transform: [{ translateY: open.interpolate({ inputRange: [0, 1], outputRange: [height, 0] }) }] },
       ]}>
-      <View style={[styles.searchHeader, { paddingTop: 10 }]}>
+      {/* Full screen: the top bar has stepped away, so clear of the status bar. */}
+      <View style={[styles.searchHeader, { paddingTop: insets.top + 10 }]}>
         <View style={styles.searchTabs}>
           {SEARCHABLE.map((s) => (
             <Pressable
               key={s.zone}
-              onPress={() => onSwitch(s.zone)}
+              onPress={() => {
+                stopSelecting();
+                onSwitch(s.zone);
+              }}
               accessibilityRole="tab"
               accessibilityState={{ selected: pile === s.zone }}
               style={[styles.searchTab, pile === s.zone && styles.searchTabActive]}>
@@ -3466,6 +3500,11 @@ function SearchPanel({
             </Pressable>
           ))}
         </View>
+        {cards.length ? (
+          <Pressable onPress={() => (selecting ? stopSelecting() : setSelecting(true))} hitSlop={10} accessibilityRole="button">
+            <Text style={styles.searchSelect}>{selecting ? 'Done' : 'Select'}</Text>
+          </Pressable>
+        ) : null}
       </View>
       {pile && cards.length ? (
         <ReorderableGrid
@@ -3480,11 +3519,21 @@ function SearchPanel({
           renderItem={(item) => (
             <View>
               <CardView deck={deck} card={cardsById.get(item.cardId)} width={cardWidth} />
-              <Text style={styles.searchIndex}>{cards.indexOf(item) + 1}</Text>
+              {selecting ? (
+                <View style={[styles.searchTick, picked.includes(item.iid) && styles.searchTicked]}>
+                  {picked.includes(item.iid) ? <Text style={styles.searchTickMark}>✓</Text> : null}
+                </View>
+              ) : null}
             </View>
           )}
           renderLifted={(item) => <CardView deck={deck} card={cardsById.get(item.cardId)} width={cardWidth} sharp />}
           onPress={(item) => {
+            // Selecting: a tap ticks it (or unticks it). Otherwise, its own options.
+            if (selecting) {
+              setPicked((p) => (p.includes(item.iid) ? p.filter((x) => x !== item.iid) : [...p, item.iid]));
+              haptics.tick();
+              return;
+            }
             setSelected(item.iid);
             setSheetOpen(true);
           }}
@@ -3495,10 +3544,48 @@ function SearchPanel({
         <Text style={styles.hint}>No cards here.</Text>
       )}
       <View ref={closeRef} style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 12 }}>
-        {/* A tap while holding cards is handled above (it takes them out), so here it just closes. */}
-        <Button label="Close" onPress={() => !holding && onClose()} />
+        {selecting ? (
+          // Picked cards: all of them, or none; and where they go.
+          <View style={styles.searchPickRow}>
+            <Button
+              label={picked.length === cards.length ? 'Deselect All' : 'Select All'}
+              onPress={() => setPicked(picked.length === cards.length ? [] : cards.map((c) => c.iid))}
+              style={{ flex: 1 }}
+            />
+            <Button
+              label={picked.length ? `Move ${picked.length} ${picked.length === 1 ? 'card' : 'cards'}…` : 'Tap cards to pick them'}
+              variant="primary"
+              disabled={!picked.length}
+              onPress={() => setPickSheetOpen(true)}
+              style={{ flex: 1.4 }}
+            />
+          </View>
+        ) : (
+          // A tap while holding cards is handled above (it takes them out), so here it just closes.
+          <Button label="Close" onPress={() => !holding && onClose()} />
+        )}
       </View>
 
+      {/* Where the picked cards go (top first, as the pile has them). */}
+      <ActionSheet
+        visible={pickSheetOpen}
+        title={`${picked.length} ${picked.length === 1 ? 'card' : 'cards'}`}
+        onClose={() => setPickSheetOpen(false)}
+        actions={
+          pile
+            ? pileActions(
+                pile,
+                cards.filter((c) => picked.includes(c.iid)).map((c) => c.iid),
+              ).map((a) => ({
+                ...a,
+                onPress: () => {
+                  a.onPress();
+                  stopSelecting();
+                },
+              }))
+            : []
+        }
+      />
       <ActionSheet
         visible={sheetOpen}
         onClose={() => {
@@ -3719,6 +3806,23 @@ const styles = StyleSheet.create({
   },
   toastText: { color: colors.text, fontSize: 15, fontWeight: '600' },
   searchScreen: { flex: 1, backgroundColor: colors.bg },
+  searchSelect: { color: colors.accent, fontSize: 16, fontWeight: '600' },
+  searchPickRow: { flexDirection: 'row', gap: 10 },
+  searchTick: {
+    position: 'absolute',
+    top: 5,
+    left: 5,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchTicked: { backgroundColor: colors.accent, borderColor: colors.accent },
+  searchTickMark: { color: colors.accentText, fontSize: 13, fontWeight: '800' },
   searchHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16 },
   searchTabs: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 10, padding: 3, flex: 1, marginRight: 16 },
   searchTab: { flex: 1, paddingVertical: 9, borderRadius: 8, alignItems: 'center' },

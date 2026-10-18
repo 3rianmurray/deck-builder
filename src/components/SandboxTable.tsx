@@ -1638,6 +1638,36 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       { label: 'Take off the table', destructive: true, onPress: () => commit(trashCards(take(table, src), [card])) },
     ];
   };
+  /**
+   * What can be done with several cards picked in the search (listed top first): onto the table face up (fanned out
+   * beside the stack), into the open hand, to the stack's top or bottom, or off the table.
+   */
+  const searchPickActions = (iids: string[]): SheetAction[] => {
+    if (!table || !searchStack || !iids.length) return [];
+    const topFirst = [...searchStack.cards].reverse();
+    const cards = iids.flatMap((iid) => topFirst.filter((c) => c.iid === iid));
+    const places = iids.map((iid) => topFirst.findIndex((c) => c.iid === iid));
+    const rest = takeAll(table, iids.map((iid) => ({ kind: 'card' as const, stackId: searchStack.id, iid })));
+    const n = cards.length;
+    const { w } = size(cards[0].deckId);
+    const beside = { x: searchStack.x + w + gridStep, y: searchStack.y };
+    return [
+      {
+        label: 'Onto the table, face up',
+        onPress: () =>
+          commit(
+            cards.reduce((t, card, i) => {
+              const at = { x: beside.x + i * gridStep, y: beside.y, angle: searchStack.angle };
+              return putOnTable(t, [{ ...card, faceUp: true }], gridOn ? snapToGrid(at, gridStep) : at, newId());
+            }, rest),
+          ),
+      },
+      { label: `Into ${table.handNames[handIndex]}`, onPress: () => commit(putInHand(rest, cards.map((c) => ({ ...c, faceUp: true })), handIndex)) },
+      { label: 'Top of this stack', onPress: () => commit(reorderStack(table, searchStack.id, places, 0)) },
+      { label: 'Bottom of this stack', onPress: () => commit(reorderStack(table, searchStack.id, places, topFirst.length - n)) },
+      { label: n === 1 ? 'Take it off the table' : `Take all ${n} off the table`, destructive: true, onPress: () => commit(trashCards(rest, cards)) },
+    ];
+  };
   const menuStack = menu?.kind === 'stack' ? table?.stacks.find((s) => s.id === menu.id) : undefined;
   const menuHandCard = menu?.kind === 'hand' ? table?.hands[menu.hand].find((c) => c.iid === menu.iid) : undefined;
   const sheet = (() => {
@@ -2067,7 +2097,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           </Animated.View>
 
           {/* The tools drawer, on the left edge: its tab pulls it out, and tucks it away again. */}
-          <Animated.View style={[styles.tools, { top: toolsTop, zIndex: 10 }, toolsStyle]} pointerEvents="box-none">
+          {/* Not while searching: the search is all there is. */}
+          <Animated.View style={[styles.tools, { top: toolsTop, zIndex: 10 }, toolsStyle, !!searching && styles.hidden]} pointerEvents={searching ? 'none' : 'box-none'}>
             <ScrollView style={styles.toolsPanel} contentContainerStyle={{ gap: 10 }} showsVerticalScrollIndicator={false}>
               <Text style={styles.toolsTitle}>Tools</Text>
               {(
@@ -2293,6 +2324,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 gestureState.get().api?.startTakeOut(finger);
               }}
               cardActions={searchActions}
+              pickActions={searchPickActions}
               onClose={endSearch}
               onClosed={() => setSearchMounted(false)}
             />

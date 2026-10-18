@@ -125,7 +125,8 @@ export default function SessionScreen() {
       {/* The cloth runs under the top bar and the tabs too, as one surface. */}
       <TabletopSurface />
       <TableTopBar controls={controls} />
-      <View>
+      {/* The deck tabs step away while the deck on screen is being searched (the search is full screen). */}
+      <View style={controls?.hidden && styles.gone}>
         {/* Sized from the text size setting, so changing it (even while the app is open) re-fits the row: the pills
             stay centerd in it and it can't be nudged up and down. */}
         <ScrollView
@@ -217,5 +218,6 @@ const styles = StyleSheet.create({
     maxWidth: 180,
   },
   tabActive: { backgroundColor: colors.accent },
+  gone: { display: 'none' },
   tabText: { color: colors.text, fontSize: TAB_TEXT, fontWeight: '600' },
 });

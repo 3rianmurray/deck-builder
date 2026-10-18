@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import * as haptics from '../lib/haptics';
 import type { SandboxCard } from '../lib/sandbox';
 import type { Deck } from '../lib/types';
 import { colors } from '../theme';
@@ -39,6 +40,7 @@ export function StackSearchPanel({
   onReorder,
   onTakeOut,
   cardActions,
+  pickActions,
   onClose,
   onClosed,
 }: {
@@ -55,6 +57,8 @@ export function StackSearchPanel({
   onTakeOut: (iids: string[], finger: { x: number; y: number }) => void;
   /** A card's options. */
   cardActions: (iid: string) => SheetAction[];
+  /** What can be done with several cards picked out (Select), listed top first. */
+  pickActions: (iids: string[]) => SheetAction[];
   onClose: () => void;
   /** It has finished sliding away. */
   onClosed: () => void;
@@ -71,6 +75,14 @@ export function StackSearchPanel({
   /** Cards held in the grid, if any: tapping Close then takes them out rather than closing. */
   const [holding, setHolding] = useState<GridHold | null>(null);
   const closeRef = useRef<View>(null);
+  /** Picking cards out (Select): a tap ticks a card, and the ticked ones can be moved together. */
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [pickSheetOpen, setPickSheetOpen] = useState(false);
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked([]);
+  };
 
   // A second finger lifting off Close while the first holds cards: take them out, the first finger still on them.
   const touchEnd = (e: GestureResponderEvent) => {
@@ -127,9 +139,16 @@ export function StackSearchPanel({
         { transform: [{ translateY: open.interpolate({ inputRange: [0, 1], outputRange: [height, 0] }) }] },
       ]}>
       <View style={styles.header}>
-        <Text style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+          {cards.length ? (
+            <Pressable onPress={() => (selecting ? stopSelecting() : setSelecting(true))} hitSlop={10} accessibilityRole="button">
+              <Text style={styles.select}>{selecting ? 'Done' : 'Select'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
         <Text style={styles.hint}>Tap for options · Hold to move · Hold and tap Close to take out</Text>
       </View>
       {cards.length ? (
@@ -142,13 +161,28 @@ export function StackSearchPanel({
           padding={16}
           renderItem={(item) => {
             const deck = deckOf(item);
-            return deck ? <CardView deck={deck} card={cardOf(item)} width={cardWidth} /> : null;
+            return deck ? (
+              <View>
+                <CardView deck={deck} card={cardOf(item)} width={cardWidth} />
+                {selecting ? (
+                  <View style={[styles.tick, picked.includes(item.iid) && styles.ticked]}>
+                    {picked.includes(item.iid) ? <Text style={styles.tickMark}>✓</Text> : null}
+                  </View>
+                ) : null}
+              </View>
+            ) : null;
           }}
           renderLifted={(item) => {
             const deck = deckOf(item);
             return deck ? <CardView deck={deck} card={cardOf(item)} width={cardWidth} sharp /> : null;
           }}
           onPress={(item) => {
+            // Selecting: a tap ticks it (or unticks it). Otherwise, its own options.
+            if (selecting) {
+              setPicked((p) => (p.includes(item.iid) ? p.filter((x) => x !== item.iid) : [...p, item.iid]));
+              haptics.tick();
+              return;
+            }
             setSelected(item.iid);
             setSheetOpen(true);
           }}
@@ -159,9 +193,40 @@ export function StackSearchPanel({
         <Text style={styles.empty}>No cards here.</Text>
       )}
       <View ref={closeRef} style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 12 }}>
-        {/* A tap while holding cards is handled above (it takes them out), so here it just closes. */}
-        <Button label="Close" onPress={() => !holding && onClose()} />
+        {selecting ? (
+          <View style={styles.pickRow}>
+            <Button
+              label={picked.length === cards.length ? 'Deselect All' : 'Select All'}
+              onPress={() => setPicked(picked.length === cards.length ? [] : cards.map((c) => c.iid))}
+              style={{ flex: 1 }}
+            />
+            <Button
+              label={picked.length ? `Move ${picked.length} ${picked.length === 1 ? 'card' : 'cards'}…` : 'Tap cards to pick them'}
+              variant="primary"
+              disabled={!picked.length}
+              onPress={() => setPickSheetOpen(true)}
+              style={{ flex: 1.4 }}
+            />
+          </View>
+        ) : (
+          // A tap while holding cards is handled above (it takes them out), so here it just closes.
+          <Button label="Close" onPress={() => !holding && onClose()} />
+        )}
       </View>
+
+      {/* Where the picked cards go (top first, as the stack has them). */}
+      <ActionSheet
+        visible={pickSheetOpen}
+        title={`${picked.length} ${picked.length === 1 ? 'card' : 'cards'}`}
+        onClose={() => setPickSheetOpen(false)}
+        actions={pickActions(cards.filter((c) => picked.includes(c.iid)).map((c) => c.iid)).map((a) => ({
+          ...a,
+          onPress: () => {
+            a.onPress();
+            stopSelecting();
+          },
+        }))}
+      />
 
       <ActionSheet
         visible={sheetOpen}
@@ -200,7 +265,25 @@ export function StackSearchPanel({
 const styles = StyleSheet.create({
   screen: { backgroundColor: colors.bg },
   header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 4 },
-  title: { color: colors.text, fontSize: 20, fontWeight: '700' },
+  title: { flex: 1, color: colors.text, fontSize: 20, fontWeight: '700' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  select: { color: colors.accent, fontSize: 16, fontWeight: '600' },
+  pickRow: { flexDirection: 'row', gap: 10 },
+  tick: {
+    position: 'absolute',
+    top: 5,
+    left: 5,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ticked: { backgroundColor: colors.accent, borderColor: colors.accent },
+  tickMark: { color: colors.accentText, fontSize: 13, fontWeight: '800' },
   hint: { color: colors.textMuted, fontSize: 13 },
   empty: { color: colors.textMuted, textAlign: 'center', marginTop: 40, flex: 1 },
 });

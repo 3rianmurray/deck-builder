@@ -405,9 +405,9 @@ export default function HomeScreen() {
                 onPress={() => setAppMenuOpen(true)}
                 hitSlop={10}
                 accessibilityRole="button"
-                accessibilityLabel="More"
+                accessibilityLabel="Settings"
                 style={({ pressed }) => pressed && { opacity: 0.6 }}>
-                <SymbolView name={{ ios: 'ellipsis.circle', android: 'more_horiz', web: 'more_horiz' }} size={22} tintColor={colors.accent} />
+                <SymbolView name={{ ios: 'gearshape', android: 'settings', web: 'settings' }} size={22} tintColor={colors.accent} />
               </Pressable>
               <Pressable
                 onPress={() => router.push('/help')}

@@ -247,6 +247,9 @@ export function setTourTarget(target: TourTarget, rect: Rect | null) {
   set({ targets });
 }
 
+/** What the current step waits for, if anything (a cheap check, outside React). */
+export const tourWaitingFor = (): TourEvent | undefined => (state.step === null ? undefined : TOUR[state.step].until);
+
 /** Whether the tour is running (a cheap check, outside React). */
 export const tourRunning = () => state.step !== null || state.pausedAt !== null;
 

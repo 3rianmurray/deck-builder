@@ -4,7 +4,7 @@ import type { SymbolViewProps } from 'expo-symbols';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { tourEvent } from '../lib/tour';
+import { tourEvent, tourWaitingFor } from '../lib/tour';
 import { colors } from '../theme';
 import { Text } from './Text';
 import { TourSpot } from './TourSpot';
@@ -26,6 +26,12 @@ export interface TableControls {
 
 /** Back to the screen before, or home if there isn't one (e.g. the app was reloaded straight onto the table). */
 function goBack() {
+  // The walkthrough, heading for a table: straight home (not to the deck it came through), where it carries on.
+  if (tourWaitingFor() === 'left-table' && router.canDismiss()) {
+    router.dismissAll();
+    tourEvent('left-table');
+    return;
+  }
   tourEvent('left-table');
   if (router.canGoBack()) router.back();
   else router.replace('/');

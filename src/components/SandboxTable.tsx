@@ -94,16 +94,6 @@ const TAP_MS = 300;
 const HOLD_STACK_MS = 350;
 /** How long a stack brought onto the table takes to fly in (and the camera to glide over to it). */
 const ARRIVE_MS = 480;
-/**
- * Shaking carried cards to flip them, vigorously: this many turns of way, each a swing this long (points) and each
- * coming this soon after the last (a slow back-and-forth never counts), all within this long.
- */
-const SHAKE_TURNS = 4;
-const SHAKE_SWING = 40;
-const SHAKE_GAP_MS = 220;
-const SHAKE_MS = 650;
-/** After a shake has flipped them, how long before another can. */
-const SHAKE_QUIET_MS = 600;
 /** Hand cards sliding to new places (one gone, one coming in, the gap moving). */
 const HAND_SLIDE = LinearTransition.duration(200);
 /** A finger moving less than this before lifting is a tap. */
@@ -613,8 +603,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       /** The group's twist so far (degrees), and the second finger twisting it now, if one is. */
       groupTwist: null as null | { id: number; from: number; base: number },
       groupAngle: 0,
-      /** Shaking what's carried, to flip it: each axis' way and furthest point, and the turns of way so far. */
-      shake: { x: { dir: 0, at: 0 }, y: { dir: 0, at: 0 }, turns: [] as number[], quietUntil: 0 },
       /** The first finger landed on empty table, and when: a quick tap there clears the selection, and a second
        *  tap held down soon after starts a lasso. */
       onEmpty: false,
@@ -754,7 +742,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.screenAngle = stack.angle + cameraAngle(cam);
     }
     touch.scaleShown = 0;
-    touch.shake = { x: { dir: 0, at: f.now.x }, y: { dir: 0, at: f.now.y }, turns: [], quietUntil: 0 };
     touch.mode = 'carry';
     touch.snapped = false;
     touch.turnedOver = false;
@@ -888,35 +875,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       groupPY.set(touch.groupFrom.y);
       L.setGroupMoving(true);
       haptics.lift();
-    };
-    /**
-     * Whether the carrying finger has just shaken what it carries: turned back on itself a few times, quickly,
-     * each swing a good way (either way across or up and down). Then a moment's quiet, so one shake flips once.
-     */
-    const shaken = (p: { x: number; y: number }) => {
-      const sh = touch.shake;
-      const now = Date.now();
-      if (now < sh.quietUntil) return false;
-      for (const axis of ['x', 'y'] as const) {
-        const a = sh[axis];
-        const v = p[axis];
-        if (a.dir === 0) {
-          if (Math.abs(v - a.at) > SHAKE_SWING) Object.assign(a, { dir: Math.sign(v - a.at), at: v });
-        } else if ((v - a.at) * a.dir >= 0) {
-          a.at = v;
-        } else if ((a.at - v) * a.dir > SHAKE_SWING) {
-          // Too slow since the last swing: a fresh start, not part of a shake.
-          const last = sh.turns[sh.turns.length - 1];
-          if (last !== undefined && now - last > SHAKE_GAP_MS) sh.turns = [];
-          sh.turns.push(now);
-          Object.assign(a, { dir: -a.dir, at: v });
-        }
-      }
-      sh.turns = sh.turns.filter((t) => now - t < SHAKE_MS);
-      if (sh.turns.length < SHAKE_TURNS) return false;
-      sh.turns = [];
-      sh.quietUntil = now + SHAKE_QUIET_MS;
-      return true;
     };
     const clearHold = () => {
       if (touch.holdTimer) clearTimeout(touch.holdTimer);
@@ -1127,12 +1085,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         }
         return;
       }
-      if (touch.mode === 'carry') {
-        // Shaken back and forth, what's carried turns over.
-        const f = touch.fingers.get(touch.first);
-        if (f && shaken(f.now)) turnOver();
-        return showCarried();
-      }
+      if (touch.mode === 'carry') return showCarried();
       if (touch.mode === 'handPress') {
         // As in table mode: past a little slop and a moment's hold, a mostly upward drag lifts the card out;
         // anything else is the hand's scroll view's.

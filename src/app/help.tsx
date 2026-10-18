@@ -51,7 +51,6 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
       ['Tap a card', 'Picks it out: the flip and trash buttons show. Tap it again for its options.'],
       ['Double-tap a card', 'Flip it. Flipped onto a stack facing the same way, it joins it.'],
       ['Twist with a second finger', 'Turn what you carry, or a whole selection. It snaps every 45°.'],
-      ['Shake while dragging', 'Flip what you carry.'],
       ['Double-tap, then hold the table', 'Draw a loop around cards to select them. Do it again to add more.'],
       ['With cards selected', 'Flip, gather into one stack, or trash them with the buttons. Drag any of them to move them all.'],
       ['Drag into a hand', 'Cards gather into a pile and slip into the hand when you let go.'],

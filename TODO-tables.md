@@ -13,7 +13,7 @@
 - [x] 12. Fan a stack: vertical or horizontal, as close as the grid allows
 - [x] 14. Lock position (card/stack option)
 - [x] 15. Selected: one card or stack shows the flip button; several show flip and group, without dragging
-- [x] 16. Shake a dragged card back and forth to flip it
+- [ ] 16. (removed: too easy to trigger by accident) Shake a dragged card to flip it
 - [x] 17. Tap once: selected (flip button shows). Tap it again (not a double tap): its options
 - [x] 18. Deleting a deck warns if its cards are on any table (as well as sessions)
 - [x] 19. Selected cards are deselected when anything else happens

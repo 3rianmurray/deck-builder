@@ -854,9 +854,20 @@ export function tidyTable(t: SandboxTable, step = GRID_STEP): SandboxTable {
 }
 
 /**
+ * How many whole sets of a deck some cards make: the most any one card asks for (two of a card the deck has once
+ * means two decks' worth were brought on). At least one.
+ */
+export function setsOfDeck(deck: Deck, cards: SandboxCard[]): number {
+  const counts = new Map<string, number>();
+  for (const c of cards) if (c.deckId === deck.id) counts.set(c.cardId, (counts.get(c.cardId) ?? 0) + 1);
+  return Math.max(1, ...deck.cards.map((c) => Math.ceil((counts.get(c.id) ?? 0) / (c.copies ?? 1))));
+}
+
+/**
  * Gathers the table up by deck, for a new game: every deck with a card anywhere on it (the table, a hand or the
- * trash) back as one complete deck (every card and copy, as the deck is now), shuffled and face down, in a row from
- * `at` a card and a half apart (`place` settles each spot, e.g. onto the grid). Hands and trash are emptied.
+ * trash) back as complete decks (every card and copy, as the deck is now; as many of them as were brought on, see
+ * setsOfDeck), each shuffled and face down, in a row from `at` a card and a half apart (`place` settles each spot,
+ * e.g. onto the grid). Hands and trash are emptied.
  */
 export function gatherDecks(
   t: SandboxTable,
@@ -866,16 +877,16 @@ export function gatherDecks(
   random: () => number = Math.random,
   place = (p: { x: number; y: number; angle: number }) => p,
 ): SandboxTable {
+  const all = [...t.stacks.flatMap((s) => s.cards), ...t.hands.flat(), ...(t.trash ?? [])];
   const used: string[] = [];
-  for (const c of [...t.stacks.flatMap((s) => s.cards), ...t.hands.flat(), ...(t.trash ?? [])]) {
-    if (!used.includes(c.deckId)) used.push(c.deckId);
-  }
-  const empty: SandboxTable = { ...t, stacks: [], hands: t.hands.map(() => []), trash: [] };
-  return used
+  for (const c of all) if (!used.includes(c.deckId)) used.push(c.deckId);
+  const sets = used
     .map((id) => decks.find((d) => d.id === id))
     .filter((d): d is Deck => !!d && d.cards.length > 0)
-    .reduce((table, deck, i) => {
-      const spot = place({ x: at.x + i * CARD_W * 1.5, y: at.y, angle: 0 });
-      return addDeck(table, deck, { x: spot.x, y: spot.y }, ids, random);
-    }, empty);
+    .flatMap((deck) => Array.from({ length: setsOfDeck(deck, all) }, () => deck));
+  const empty: SandboxTable = { ...t, stacks: [], hands: t.hands.map(() => []), trash: [] };
+  return sets.reduce((table, deck, i) => {
+    const spot = place({ x: at.x + i * CARD_W * 1.5, y: at.y, angle: 0 });
+    return addDeck(table, deck, { x: spot.x, y: spot.y }, ids, random);
+  }, empty);
 }

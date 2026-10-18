@@ -48,6 +48,7 @@ import {
   GRID_STEP,
   CARD_W,
   gatherDecks,
+  setsOfDeck,
   gridStackReach,
   gridStepOf,
   GRID_SIZES,
@@ -1567,8 +1568,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         text: 'Gather',
         onPress: () => {
           const m = viewMiddle();
-          const used = new Set([...table.stacks.flatMap((s) => s.cards), ...table.hands.flat(), ...(table.trash ?? [])].map((c) => c.deckId));
-          const start = { x: m.x - ((used.size - 1) * CARD_W * 1.5) / 2, y: m.y };
+          // As many decks as were brought on (two copies of a deck come back as two), in a row across the middle.
+          const all = [...table.stacks.flatMap((s) => s.cards), ...table.hands.flat(), ...(table.trash ?? [])];
+          const count = decks.filter((d) => d.cards.length && all.some((c) => c.deckId === d.id)).reduce((n, d) => n + setsOfDeck(d, all), 0);
+          const start = { x: m.x - ((count - 1) * CARD_W * 1.5) / 2, y: m.y };
           const place = gridOn ? (p: { x: number; y: number; angle: number }) => snapToGrid(p, gridStep) : undefined;
           const next = gatherDecks(table, decks, start, newId, Math.random, place);
           commit(next);

@@ -521,3 +521,14 @@ test('a fan near the edge of the table starts back far enough to fit, still a st
   // 3560 + 120 would run off the 3600-wide table: back two steps, to 3480.
   assert.deepEqual(xs, [3480, 3520, 3560, 3600]);
 });
+test('gathering up: two of the same deck brought on come back as two decks', () => {
+  const deck = { id: 'd', name: 'D', backImage: null, cards: [{ id: 'x', name: 'X', image: '' }, { id: 'y', name: 'Y', image: '', copies: 2 }], createdAt: 0, updatedAt: 0 } as Deck;
+  let n = 0;
+  const twice = addDeck(addDeck(newSandbox('t', 'T', 0), deck, { x: 0, y: 0 }, () => `a${n++}`), deck, { x: 300, y: 0 }, () => `b${n++}`);
+  const g = gatherDecks(twice, [deck], { x: 100, y: 100 }, () => `g${n++}`, () => 0.5);
+  assert.equal(g.stacks.length, 2);
+  assert.ok(g.stacks.every((s) => s.cards.length === 3));
+  // One deck brought on: one deck back.
+  const one = addDeck(newSandbox('t', 'T', 0), deck, { x: 0, y: 0 }, () => `c${n++}`);
+  assert.equal(gatherDecks(one, [deck], { x: 0, y: 0 }, () => `h${n++}`).stacks.length, 1);
+});

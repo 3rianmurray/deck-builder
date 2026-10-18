@@ -19,6 +19,7 @@ import { askName, titleCase } from '../../lib/names';
 import { appleScannerAvailable, fitScan, scanCards } from '../../lib/appleScanner';
 import { shareDecks } from '../../lib/deckExport';
 import { deleteDeckWarning } from '../../lib/deckInUse';
+import { sandboxes } from '../../lib/sandboxStore';
 import * as haptics from '../../lib/haptics';
 import { sampleBack, sampleCards } from '../../lib/sampleDeck';
 import { cropToShape, loadUpright, smallPixels } from '../../lib/images';
@@ -312,7 +313,7 @@ export default function DeckEditorScreen() {
   const shareDeck = () => withBusy(() => shareDecks([deck]));
 
   const confirmDelete = () =>
-    Alert.alert(`Delete "${deck.name}"?`, deleteDeckWarning(deck.id, decks.sessions), [
+    Alert.alert(`Delete "${deck.name}"?`, deleteDeckWarning(deck.id, decks.sessions, sandboxes()), [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',

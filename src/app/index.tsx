@@ -106,7 +106,7 @@ export default function HomeScreen() {
   // Decks and sessions take things with them, so ask first. A group's decks are kept, so it just goes.
   const confirmDeleteDeck = (id: string, name: string) => {
     haptics.warn();
-    Alert.alert(`Delete "${name}"?`, deleteDeckWarning(id, sessions), [
+    Alert.alert(`Delete "${name}"?`, deleteDeckWarning(id, sessions, sandboxes), [
       { text: 'Cancel', style: 'cancel', onPress: closeRows },
       { text: 'Delete', style: 'destructive', onPress: () => deleteDeck(id) },
     ]);

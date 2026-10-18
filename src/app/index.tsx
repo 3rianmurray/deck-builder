@@ -19,10 +19,8 @@ import { deleteDeckWarning } from '../lib/deckInUse';
 import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
-import { newId } from '../lib/id';
-import { playingCards } from '../lib/playingCards';
-import { solitaire } from '../lib/sandbox';
-import { createSandbox, createSandboxWith, deleteSandbox, duplicateSandbox, updateSandbox, useSandboxes } from '../lib/sandboxStore';
+import { useExamples } from '../lib/examples';
+import { createSandbox, deleteSandbox, duplicateSandbox, updateSandbox, useSandboxes } from '../lib/sandboxStore';
 import { loadSettings, saveSettings } from '../lib/storage';
 import { startTour, tourEvent, useTourStep } from '../lib/tour';
 import { deckSize } from '../lib/types';
@@ -40,7 +38,6 @@ export default function HomeScreen() {
   const {
     decks,
     createDeck,
-    createReadyDeck,
     deleteDeck,
     resetDeck,
     importDecks,
@@ -67,16 +64,15 @@ export default function HomeScreen() {
     startTour();
   }, []);
 
-  // Once: a deck of playing cards and a Solitaire table dealt from it, to show what Free Play can do.
+  // Once: the app's examples (a deck of playing cards and a Solitaire table dealt from it), to show what Free
+  // Play can do. Help can bring them back later.
+  const examples = useExamples();
   useEffect(() => {
     const settings = loadSettings();
     if (settings.solitaireMade) return;
     saveSettings({ ...settings, solitaireMade: true });
-    playingCards()
-      .then(({ cards, back }) => {
-        const deck = createReadyDeck('Playing Cards', cards, back);
-        createSandboxWith('Solitaire', (empty) => solitaire(empty, deck, newId));
-      })
+    examples
+      .restore()
       // Tried again next time.
       .catch(() => saveSettings({ ...loadSettings(), solitaireMade: false }));
     // Once, on opening.
@@ -373,10 +369,10 @@ export default function HomeScreen() {
         options={{
           headerRight: () => (
             <Pressable
-              onPress={startTour}
+              onPress={() => router.push('/help')}
               hitSlop={10}
               accessibilityRole="button"
-              accessibilityLabel="How to use Shufflevale"
+              accessibilityLabel="Help"
               style={({ pressed }) => pressed && { opacity: 0.6 }}>
               <SymbolView
                 name={{ ios: 'questionmark.circle', android: 'help', web: 'help' }}

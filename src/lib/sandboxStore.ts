@@ -34,6 +34,9 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 
+/** Every sandbox table, newest first, as they are now (outside React). */
+export const sandboxes = () => all();
+
 /** Every sandbox table, newest first. Redraws when any changes. */
 export const useSandboxes = () => useSyncExternalStore(subscribe, all);
 

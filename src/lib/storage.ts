@@ -51,6 +51,8 @@ export interface Settings {
   sampleDeckId?: string;
   /** The Playing Cards deck and its Solitaire table (a Free Play example) have been made, once. */
   solitaireMade?: boolean;
+  /** The Playing Cards deck the app made last, reused for new Solitaire tables while it's still there. */
+  playingCardsDeckId?: string;
 }
 export const loadSettings = () => readJson<Settings>(SETTINGS_FILE, {});
 export const saveSettings = (settings: Settings) => writeJson(SETTINGS_FILE, settings);

@@ -167,7 +167,7 @@ export const TOUR: TourStep[] = [
   },
   {
     title: "You're all set",
-    text: 'Switch back to table mode from the same menu any time. Start a session to play several decks at once. To see this again, tap ? on the home screen.',
+    text: 'Switch back to table mode from the same menu any time. Start a session to play several decks at once. To see this again, or for a list of gestures, tap ? on the home screen.',
     next: 'Done',
     place: 'top',
   },

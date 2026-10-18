@@ -94,10 +94,14 @@ const TAP_MS = 300;
 const HOLD_STACK_MS = 350;
 /** How long a stack brought onto the table takes to fly in (and the camera to glide over to it). */
 const ARRIVE_MS = 480;
-/** Shaking carried cards to flip them: this many turns of way, each a swing this long (points), within this long. */
-const SHAKE_TURNS = 3;
-const SHAKE_SWING = 22;
-const SHAKE_MS = 700;
+/**
+ * Shaking carried cards to flip them, vigorously: this many turns of way, each a swing this long (points) and each
+ * coming this soon after the last (a slow back-and-forth never counts), all within this long.
+ */
+const SHAKE_TURNS = 4;
+const SHAKE_SWING = 40;
+const SHAKE_GAP_MS = 220;
+const SHAKE_MS = 650;
 /** After a shake has flipped them, how long before another can. */
 const SHAKE_QUIET_MS = 600;
 /** Hand cards sliding to new places (one gone, one coming in, the gap moving). */
@@ -901,6 +905,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         } else if ((v - a.at) * a.dir >= 0) {
           a.at = v;
         } else if ((a.at - v) * a.dir > SHAKE_SWING) {
+          // Too slow since the last swing: a fresh start, not part of a shake.
+          const last = sh.turns[sh.turns.length - 1];
+          if (last !== undefined && now - last > SHAKE_GAP_MS) sh.turns = [];
           sh.turns.push(now);
           Object.assign(a, { dir: -a.dir, at: v });
         }

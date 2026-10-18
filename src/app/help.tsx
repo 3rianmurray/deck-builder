@@ -10,61 +10,51 @@ import * as haptics from '../lib/haptics';
 import { startTour } from '../lib/tour';
 import { colors } from '../theme';
 
-/** Gestures and tips, a section per part of the app: what to do, and what it does. */
+/**
+ * Gestures and tips, a section per part of the app: only what can't be seen on screen (swipes, holds, double taps,
+ * second fingers, and things that happen by themselves). What a button or menu does, it shows when it's tapped.
+ */
 const TIPS: { title: string; tips: [string, string][] }[] = [
   {
     title: 'Home',
     tips: [
-      ['Tap a row', 'Its settings: Edit Deck, a session’s decks, or a table’s options. Play goes straight in.'],
-      ['Swipe a row right', 'Duplicate it.'],
-      ['Swipe a row left', 'Delete it.'],
-      ['Hold and drag a deck', 'Reorder it, or drop it into a group.'],
-      ['Tap a group', 'Fold it open or closed. ••• for its options, like sharing all its decks.'],
-      ['Menu (☰, top right)', 'Help, importing or backing up decks, and restoring the examples.'],
+      ['Swipe a row', 'Right to duplicate it, left to delete it.'],
+      ['Hold and drag a deck', 'Reorder it, or drop it under a group to file it there.'],
     ],
   },
   {
     title: 'Edit Deck',
     tips: [
-      ['Tap a card', 'Rename it, set its copies, re-crop its art, or give it its own back.'],
       ['Hold and drag a card', 'Reorder the deck. Tap other cards with a second finger to carry them too.'],
-      ['Select', 'Tick cards to delete several at once. Hold a ticked card to move them all together.'],
-      ['Deck settings', 'Name, card size and back. Auto works the size out from your first art.'],
-      ['Cropping a card', 'Drag and pinch the picture to fit. The Corners slider rounds every card in the deck, shown on the frame as you slide.'],
+      ['Hold a ticked card', 'While selecting, moves every ticked card together.'],
       ['Sprite sheets', 'Slide a finger across a number to change it. Tap or drag across cards to leave them out.'],
-      ['••• (top right)', 'Share, back up or delete the deck.'],
     ],
   },
   {
     title: 'Playing a deck or session',
     tips: [
-      ['Tap the deck', 'Turn the next card over onto the discard pile.'],
-      ['Drag the top card', 'Drop it on the discard pile to turn it over, or on the trash can to take it out of the game.'],
+      ['Drag the top card', 'Onto the discard pile to turn it over, or onto the trash can to take it out of the game.'],
       ['Hold the deck', 'Search it.'],
       ['Swipe sideways', 'In a session, move between its decks.'],
-      ['Tap the deck’s name', 'Shuffle the discard pile back in, look in the trash, or reset.'],
     ],
-  },  {
+  },
+  {
     title: 'Tables',
     tips: [
-      ['One finger on the table', 'Slide the view.'],
-      ['Two fingers', 'Zoom and turn the table. It snaps square near each quarter turn.'],
+      ['Move around', 'Slide with one finger. Pinch and twist with two to zoom and turn.'],
       ['Drag a stack', 'Takes its top card. Hold it a moment first to move the whole stack.'],
-      ['Tap a card', 'Picks it out: its buttons show. Tap it again for its options.'],
-      ['Double-tap a card', 'Flip it. Flipped onto a stack facing the same way, it joins it.'],
-      ['Twist with a second finger', 'Turn what you carry, or a whole selection. It snaps every 45°.'],
-      ['Double-tap, then hold the table', 'Draw a loop around cards to select them. Do it again to add more.'],
-      ['With cards selected', 'Flip them, or gather them into one stack, with the buttons; ••• to turn, lock or take them off the table. Drag any of them to move them all.'],
+      ['Tap a card', 'Picks it out. Tap it again for its options.'],
+      ['Double-tap a card', 'Flips it. Flipped onto a stack facing the same way, it joins it.'],
+      ['Double-tap, then hold the table', 'Draw a loop round cards to pick them all out. Do it again to add more.'],
+      ['Drag a picked-out card', 'Moves all of them together.'],
+      ['Second finger, while carrying', 'Tap other cards to pick them up too, tap the flip button to turn them over, or twist to turn them.'],
       ['Drag into a hand', 'Cards gather into a pile and slip into the hand when you let go.'],
-      ['A card’s options', 'Flip, draw, shuffle and search up top; deal, turn, fan out, lock in place, never stack and more in the list below.'],
-      ['Search a stack', 'Every card, face up. Tap one for its options; hold one to move it within the stack. While holding, tap Close to take it out onto the table.'],
-      ['Table menu', 'Add a whole deck or chosen cards, reset the view, change the table color.'],
-      ['Tools tab (left edge)', 'Snap to grid, show the grid and its size, stack counts, lock the camera; fit all cards in view, clean up, gather by deck, and the trash.'],
+      ['Searching a stack', 'Hold a card, then tap Close with another finger to take it out onto the table.'],
       ['Fold the hand away', 'Its cards turn face down while it’s folded, so the phone can be passed round.'],
-      ['Hold a hand’s tab', 'Rename that hand.'],    ],
+      ['Hold a hand’s tab', 'Rename that hand.'],
+    ],
   },
 ];
-
 /** Help: the walkthrough again, the app's examples back, and every gesture and tip. */
 export default function HelpScreen() {
   const insets = useSafeAreaInsets();

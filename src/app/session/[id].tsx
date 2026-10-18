@@ -1,6 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useSharedValue } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import { DeckTable } from '../../components/PlayTable';
 import { TableTopBar } from '../../components/TableTopBar';
@@ -12,8 +15,8 @@ import { colors } from '../../theme';
 import { MAX_TEXT_SCALE, Text } from '../../components/Text';
 
 /**
- * Plays several decks at once: tap a deck's tab to move to it. (Not by swiping: sideways swipes on the table are
- * for its cards and its hand, and iOS couldn't be stopped in time from turning them into page swipes.)
+ * Plays several decks at once: tap a deck's tab, or swipe sideways, to move to another. A swipe that starts on a card
+ * is the card's (dragging it to the discard pile, say), never the deck's; and swiping never leaves for the home screen.
  */
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -21,7 +24,16 @@ export default function SessionScreen() {
   const { width, fontScale } = useWindowDimensions();
   // The tabs' height: their text's line at the phone's text size (up to the most it grows), with space round it.
   const tabHeight = Math.ceil(TAB_LINE * Math.min(fontScale, MAX_TEXT_SCALE)) + TAB_PAD;
-  const pager = useRef<ScrollView>(null);
+  // The decks' pager: kept in a box (not a ref) so the swipe, made once, can move it too.
+  const [pager] = useState(() => {
+    const box: { view: ScrollView | null } = { view: null };
+    return {
+      attach: (view: ScrollView | null) => {
+        Object.assign(box, { view });
+      },
+      scrollTo: (x: number) => box.view?.scrollTo({ x, animated: true }),
+    };
+  });
   const [index, setIndex] = useState(0);
   /** The deck on screen's name, menu and undo, for the top bar. */
   const [controls, setControls] = useState<TableControls | null>(null);
@@ -29,7 +41,51 @@ export default function SessionScreen() {
   const tabsRef = useRef<ScrollView>(null);
   // Where each tab sits in the tab row, so the row can scroll the current one into view.
   const [tabLayouts, setTabLayouts] = useState<Record<number, { x: number; w: number }>>({});
-
+  /** A finger is on a card (the deck on screen says so as it lands): a swipe then is the card's, not the deck's. */
+  const touchingCard = useSharedValue(false);
+  const onTouchingCard = useCallback((on: boolean) => touchingCard.set(on), [touchingCard]);
+  // Where the swipe is (the deck on screen, how many, how wide a page is), for the swipe (made once).
+  const [swipeTo] = useState(() => {
+    const box = { at: 0, count: 0, width: 0 };
+    return { set: (next: Partial<typeof box>) => Object.assign(box, next), get: () => box };
+  });
+  /** Where the finger landed, for the swipe (on the UI thread). */
+  const swipeStart = useSharedValue({ x: 0, y: 0 });
+  /**
+   * Swiping sideways between decks. Watched, not claimed, till the finger has gone clearly sideways; never if it
+   * started on a card (whose drag it is) or if it's mostly up and down. Let go, it moves to the deck that side (a
+   * fair way, or a flick). Nothing past the first or last deck.
+   */
+  const [swipe] = useState(() => {
+    const decide = (dx: number, vx: number) => {
+      const { at, count, width: w } = swipeTo.get();
+      if (Math.abs(dx) < SWIPE_DISTANCE && Math.abs(vx) < SWIPE_SPEED) return;
+      const next = dx < 0 ? at + 1 : at - 1;
+      if (next < 0 || next >= count) return;
+      haptics.tick();
+      setIndex(next);
+      pager.scrollTo(next * w);
+    };
+    return Gesture.Pan()
+      .manualActivation(true)
+      .onTouchesDown((e, manager) => {
+        const t = e.changedTouches[0];
+        if (e.allTouches.length > 1 || !t) return manager.fail();
+        swipeStart.set({ x: t.absoluteX, y: t.absoluteY });
+      })
+      .onTouchesMove((e, manager) => {
+        const t = e.allTouches[0];
+        // By now the deck has said whether the finger landed on a card.
+        if (!t || touchingCard.value || e.allTouches.length > 1) return manager.fail();
+        const dx = t.absoluteX - swipeStart.value.x;
+        const dy = t.absoluteY - swipeStart.value.y;
+        if (Math.abs(dy) > SWIPE_SLOP && Math.abs(dy) > Math.abs(dx)) return manager.fail();
+        if (Math.abs(dx) > SWIPE_SLOP && Math.abs(dx) > Math.abs(dy) * 1.5) manager.activate();
+      })
+      .onEnd((e) => {
+        scheduleOnRN(decide, e.translationX, e.velocityX);
+      });
+  });
   const session = getSession(id);
   const decks = (session?.deckIds ?? []).flatMap((deckId) => getDeck(deckId) ?? []);
   const current = Math.max(0, Math.min(index, decks.length - 1));
@@ -60,8 +116,9 @@ export default function SessionScreen() {
   const goTo = (i: number) => {
     if (i !== index) haptics.tick();
     setIndex(i);
-    pager.current?.scrollTo({ x: i * width, animated: true });
+    pager.scrollTo(i * width);
   };
+  swipeTo.set({ at: current, count: decks.length, width });
 
   return (
     <View style={styles.felt}>
@@ -107,11 +164,12 @@ export default function SessionScreen() {
         </ScrollView>
       </View>
 
+      <GestureDetector gesture={swipe}>
       <ScrollView
-        ref={pager}
+        ref={(view) => pager.attach(view)}
         horizontal
         pagingEnabled
-        // Moved only by the tabs (see above).
+        // Moved by the tabs, and by swipes that don't start on a card (see swipe).
         scrollEnabled={false}
         showsHorizontalScrollIndicator={false}>
         {decks.map((d, i) => (
@@ -121,10 +179,12 @@ export default function SessionScreen() {
               sessionId={session.id}
               active={i === current}
               onControls={setControls}
+              onTouchingCard={onTouchingCard}
             />
           </View>
         ))}
       </ScrollView>
+      </GestureDetector>
     </View>
   );
 }
@@ -135,6 +195,10 @@ const TAB_LINE = 18;
 /** Space round a tab's text, and under the row. */
 const TAB_PAD = 14;
 const TABS_BOTTOM = 8;
+/** A swipe between decks: how far a finger goes before it counts as sideways, and how far (or fast) to change deck. */
+const SWIPE_SLOP = 24;
+const SWIPE_DISTANCE = 70;
+const SWIPE_SPEED = 500;
 
 const styles = StyleSheet.create({
   felt: { flex: 1, backgroundColor: colors.felt },

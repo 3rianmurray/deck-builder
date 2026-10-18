@@ -398,30 +398,16 @@ export default function HomeScreen() {
     <View style={styles.screen}>
       <Stack.Screen
         options={{
-          // The app's own housekeeping (files, the examples), and help.
+          // The app's menu: help, its files, the examples.
           headerRight: () => (
-            <View style={styles.headerButtons}>
-              <Pressable
-                onPress={() => setAppMenuOpen(true)}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel="Settings"
-                style={({ pressed }) => pressed && { opacity: 0.6 }}>
-                <SymbolView name={{ ios: 'gearshape', android: 'settings', web: 'settings' }} size={22} tintColor={colors.accent} />
-              </Pressable>
-              <Pressable
-                onPress={() => router.push('/help')}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel="Help"
-                style={({ pressed }) => pressed && { opacity: 0.6 }}>
-                <SymbolView
-                  name={{ ios: 'questionmark.circle', android: 'help', web: 'help' }}
-                  size={22}
-                  tintColor={colors.accent}
-                />
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={() => setAppMenuOpen(true)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Menu"
+              style={({ pressed }) => pressed && { opacity: 0.6 }}>
+              <SymbolView name={{ ios: 'line.3.horizontal', android: 'menu', web: 'menu' }} size={22} weight="semibold" tintColor={colors.accent} />
+            </Pressable>
           ),
         }}
       />
@@ -482,6 +468,7 @@ export default function HomeScreen() {
         title="Shufflevale"
         onClose={() => setAppMenuOpen(false)}
         actions={[
+          { label: 'Help', onPress: () => router.push('/help') },
           // The file picker and share sheet are system screens, which iOS can only show once this menu has gone.
           { label: 'Import decks from a file…', opensModal: true, onPress: importFromFile },
           ...(decks.length ? [{ label: 'Back up all decks…', opensModal: true, onPress: backUpAll }] : []),
@@ -578,7 +565,6 @@ const styles = StyleSheet.create({
   list: { padding: 16 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   sectionLink: { color: colors.accent, fontSize: 15, fontWeight: '600' },
-  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 18 },
   rowWrap: { paddingBottom: 10 },
   liftedWrap: { paddingHorizontal: 16 },
   row: {

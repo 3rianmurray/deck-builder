@@ -20,7 +20,7 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
       ['Swipe a row left', 'Delete it.'],
       ['Hold and drag a deck', 'Reorder it, or drop it into a group.'],
       ['Tap a group', 'Fold it open or closed. ••• for its options, like sharing all its decks.'],
-      ['Gear (top right)', 'Import or back up decks, and restore the examples.'],
+      ['Menu (☰, top right)', 'Help, importing or backing up decks, and restoring the examples.'],
     ],
   },
   {

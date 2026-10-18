@@ -187,7 +187,7 @@ export const TOUR: TourStep[] = [
   },
   {
     title: "You're all set",
-    text: 'Tap the table’s name at the top to add decks or cards, or change its color. The wrench on the left snaps cards to a grid. For every gesture, or this tour again, tap ? on the home screen.',
+    text: 'Tap the table’s name at the top to add decks or cards, or change its color. The wrench on the left snaps cards to a grid. For every gesture, or this tour again, open the menu (☰) on the home screen and choose Help.',
     next: 'Done',
     place: 'top',
   },];interface State {

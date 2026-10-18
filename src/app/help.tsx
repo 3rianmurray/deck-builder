@@ -15,11 +15,12 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
   {
     title: 'Home',
     tips: [
-      ['Swipe a deck right', 'Duplicate it.'],
+      ['Tap a row', 'Its settings: Edit Deck, a session’s decks, or a table’s options. Play goes straight in.'],
+      ['Swipe a row right', 'Duplicate it.'],
       ['Swipe a row left', 'Delete it.'],
       ['Hold and drag a deck', 'Reorder it, or drop it into a group.'],
       ['Tap a group', 'Fold it open or closed. ••• for its options, like sharing all its decks.'],
-      ['Tap a table', 'Open, rename, duplicate or delete it.'],
+      ['••• (top right)', 'Import or back up decks, and restore the examples.'],
     ],
   },
   {

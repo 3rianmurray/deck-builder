@@ -137,7 +137,7 @@ export const TOUR: TourStep[] = [
   },
   {
     title: 'Open a table',
-    text: "Here's a Solitaire table, already dealt. Tap Open.",
+    text: "Here's a Solitaire table, already dealt. Tap Play.",
     target: 'home.table',
     until: 'tables-opened',
     dim: true,

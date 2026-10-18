@@ -44,6 +44,7 @@ export default function HomeScreen() {
     importDecks,
     duplicateDeck,
     sessions,
+    createSession,
     deleteSession,
     getDeck,
     groups,
@@ -83,7 +84,8 @@ export default function HomeScreen() {
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
   /** The Table (Free Play, sandbox in the code) whose options are showing. */
   const [tableMenu, setTableMenu] = useState<string | null>(null);
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  /** The app's menu (••• at the top): files and the examples. */
+  const [appMenuOpen, setAppMenuOpen] = useState(false);
   /**
    * The row swiped open (`deck:…`, `group:…` or `session:…`) and which of its buttons is showing: Delete on
    * the right, or a deck's Duplicate on the left. One at a time.
@@ -307,16 +309,22 @@ export default function HomeScreen() {
       {sandboxes.map((t) => {
         const open = () => router.push({ pathname: '/sandbox/[id]', params: { id: t.id } });
         return (
-          <SwipeRow key={t.id} {...swipe(`sandbox:${t.id}`, () => confirmDeleteSandbox(t.id, t.name))}>
+          <SwipeRow
+            key={t.id}
+            {...swipe(`sandbox:${t.id}`, () => confirmDeleteSandbox(t.id, t.name), () => {
+              closeRows();
+              if (duplicateSandbox(t.id)) haptics.success();
+            })}>
             <Pressable
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
-              // The row shows the table's options (as a group's ••• does); Open goes straight in.
+              // As every row: tapping it shows its options (a table has no settings screen); Play goes straight in.
               onPress={() => setTableMenu(t.id)}
               accessibilityRole="button"
               accessibilityLabel={`${t.name}, table`}
               accessibilityHint="Shows the table's options."
               {...rowActions([
-                { name: 'open', label: 'Open', run: open },
+                { name: 'play', label: 'Play', run: open },
+                { name: 'duplicate', label: 'Duplicate', run: () => duplicateSandbox(t.id) },
                 { name: 'delete', label: 'Delete', run: () => confirmDeleteSandbox(t.id, t.name) },
               ])}>
               <View style={{ flex: 1 }}>
@@ -327,10 +335,10 @@ export default function HomeScreen() {
               {/* The walkthrough's table: the Solitaire one (or the first, without it). */}
               {t.id === tourTableId ? (
                 <TourSpot id="home.table">
-                  <Button label="Open" variant="primary" onPress={open} />
+                  <Button label="Play" variant="primary" onPress={open} />
                 </TourSpot>
               ) : (
-                <Button label="Open" variant="primary" onPress={open} />
+                <Button label="Play" variant="primary" onPress={open} />
               )}
             </Pressable>
           </SwipeRow>
@@ -345,7 +353,13 @@ export default function HomeScreen() {
       {sessions.map((s) => {
         const names = s.deckIds.flatMap((d) => getDeck(d)?.name ?? []);
         return (
-          <SwipeRow key={s.id} {...swipe(`session:${s.id}`, () => confirmDeleteSession(s.id, s.name))}>
+          <SwipeRow
+            key={s.id}
+            {...swipe(`session:${s.id}`, () => confirmDeleteSession(s.id, s.name), () => {
+              closeRows();
+              createSession(`${s.name} Copy`, s.deckIds);
+              haptics.success();
+            })}>
             <Pressable
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
               onPress={() => router.push({ pathname: '/session/edit', params: { id: s.id } })}
@@ -356,6 +370,7 @@ export default function HomeScreen() {
                 ...(names.length
                   ? [{ name: 'play', label: 'Play', run: () => router.push({ pathname: '/session/[id]', params: { id: s.id } }) }]
                   : []),
+                { name: 'duplicate', label: 'Duplicate', run: () => createSession(`${s.name} Copy`, s.deckIds) },
                 { name: 'delete', label: 'Delete', run: () => confirmDeleteSession(s.id, s.name) },
               ])}>
               <View style={{ flex: 1 }}>
@@ -383,19 +398,30 @@ export default function HomeScreen() {
     <View style={styles.screen}>
       <Stack.Screen
         options={{
+          // The app's own housekeeping (files, the examples), and help.
           headerRight: () => (
-            <Pressable
-              onPress={() => router.push('/help')}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="Help"
-              style={({ pressed }) => pressed && { opacity: 0.6 }}>
-              <SymbolView
-                name={{ ios: 'questionmark.circle', android: 'help', web: 'help' }}
-                size={22}
-                tintColor={colors.accent}
-              />
-            </Pressable>
+            <View style={styles.headerButtons}>
+              <Pressable
+                onPress={() => setAppMenuOpen(true)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="More"
+                style={({ pressed }) => pressed && { opacity: 0.6 }}>
+                <SymbolView name={{ ios: 'ellipsis.circle', android: 'more_horiz', web: 'more_horiz' }} size={22} tintColor={colors.accent} />
+              </Pressable>
+              <Pressable
+                onPress={() => router.push('/help')}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Help"
+                style={({ pressed }) => pressed && { opacity: 0.6 }}>
+                <SymbolView
+                  name={{ ios: 'questionmark.circle', android: 'help', web: 'help' }}
+                  size={22}
+                  tintColor={colors.accent}
+                />
+              </Pressable>
+            </View>
           ),
         }}
       />
@@ -415,13 +441,9 @@ export default function HomeScreen() {
             {sessionsSection}
             <View style={styles.sectionRow}>
               <Text style={styles.section}>Decks</Text>
-              <Pressable
-                onPress={() => setAddMenuOpen(true)}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel="Add, import or back up decks"
-                style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.7 }]}>
-                <Text style={styles.addButtonText}>+</Text>
+              {/* Grouping is only about decks, so it's here (making decks is in the bar at the bottom). */}
+              <Pressable onPress={newGroup} hitSlop={10} accessibilityRole="button" style={({ pressed }) => pressed && { opacity: 0.6 }}>
+                <Text style={styles.sectionLink}>New Group</Text>
               </Pressable>
             </View>
             {decks.length || groups.length ? null : (
@@ -456,16 +478,30 @@ export default function HomeScreen() {
       </View>
 
       <ActionSheet
-        visible={addMenuOpen}
-        title="Decks"
-        onClose={() => setAddMenuOpen(false)}
+        visible={appMenuOpen}
+        title="Shufflevale"
+        onClose={() => setAppMenuOpen(false)}
         actions={[
-          { label: 'New Deck', onPress: newDeck },
-          // The name prompt is another modal, which iOS can only show once this menu has gone.
-          { label: 'New Group', opensModal: true, onPress: newGroup },
-          // The file picker and share sheet are system screens too.
+          // The file picker and share sheet are system screens, which iOS can only show once this menu has gone.
           { label: 'Import decks from a file…', opensModal: true, onPress: importFromFile },
           ...(decks.length ? [{ label: 'Back up all decks…', opensModal: true, onPress: backUpAll }] : []),
+          {
+            label: 'Restore examples',
+            opensModal: true,
+            onPress: () =>
+              examples.restore().then(
+                (back) => {
+                  haptics.success();
+                  Alert.alert(
+                    back.length ? 'Examples restored' : 'Nothing to restore',
+                    back.length
+                      ? `${back.join(' and ')} ${back.length === 1 ? 'is' : 'are'} back.`
+                      : 'The Playing Cards deck and a Solitaire table are both still here.',
+                  );
+                },
+                (e) => Alert.alert('Couldn’t restore the examples', e instanceof Error ? e.message : String(e)),
+              ),
+          },
         ]}
       />
 
@@ -512,7 +548,7 @@ export default function HomeScreen() {
         actions={
           menuTable
             ? [
-                { label: 'Open', onPress: () => router.push({ pathname: '/sandbox/[id]', params: { id: menuTable.id } }) },
+                { label: 'Play', onPress: () => router.push({ pathname: '/sandbox/[id]', params: { id: menuTable.id } }) },
                 ...(Platform.OS === 'ios'
                   ? [
                       {
@@ -541,15 +577,8 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   list: { padding: 16 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  addButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonText: { color: colors.accentText, fontSize: 22, fontWeight: '700', lineHeight: 24 },
+  sectionLink: { color: colors.accent, fontSize: 15, fontWeight: '600' },
+  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 18 },
   rowWrap: { paddingBottom: 10 },
   liftedWrap: { paddingHorizontal: 16 },
   row: {

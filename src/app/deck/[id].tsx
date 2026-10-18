@@ -399,6 +399,16 @@ export default function DeckEditorScreen() {
         padding={PADDING}
         bottomInset={insets.bottom + 72}
         scrollLocked={sliding}
+        // Holding a chosen card picks up every chosen card (it first, the rest in deck order), to move them
+        // together; they stay chosen. Holding any other card lets the choice go.
+        liftWith={(index) => {
+          const held = deck.cards[index]?.id;
+          if (!held || !chosen.includes(held)) return [index];
+          return [index, ...deck.cards.flatMap((c, i) => (i !== index && chosen.includes(c.id) ? [i] : []))];
+        }}
+        onHold={(h) => {
+          if (h && chosen.length && h.picked.every((i) => !chosen.includes(deck.cards[i]?.id))) setChosen([]);
+        }}
         onMove={(picked, to) => decks.reorderCards(deck.id, picked, to)}
         onPress={(item) => {
           // Choosing cards (to delete several): a tap ticks or unticks it.

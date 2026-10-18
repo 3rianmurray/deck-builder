@@ -72,6 +72,11 @@ interface Props<T> {
    * the finger holds the first item.
    */
   onHold?: (held: GridHold | null) => void;
+  /**
+   * What a hold on an item picks up, as item indexes (the held one first): e.g. every chosen item, when the held
+   * one is among them. Just the held item, by default.
+   */
+  liftWith?: (index: number) => number[];
   /** Keeps the grid from scrolling, e.g. while a slider in its header is being moved. */
   scrollLocked?: boolean;
 }
@@ -157,8 +162,15 @@ export function ReorderableGrid<T>({
   onPress,
   onMove,
   onHold,
+  liftWith,
   scrollLocked = false,
 }: Props<T>) {
+  // The latest liftWith, for the hold's timer.
+  const [lifting] = useState(() => {
+    const box = { liftWith };
+    return { set: (next: typeof liftWith) => Object.assign(box, { liftWith: next }), get: () => box.liftWith };
+  });
+  lifting.set(liftWith);
   // Kept in state, not a ref, because touch handlers scroll it; created once so it isn't re-attached each render.
   const [list, setList] = useState<ScrollView | null>(null);
   const [attachList] = useState(() => (view: ScrollView | null) => setList(view));
@@ -247,11 +259,11 @@ export function ReorderableGrid<T>({
     if (holdKey === null) return;
     const timer = setTimeout(() => {
       slideIntoPlace();
-      setPress((p) => p && { ...p, lifted: true });
+      setPress((p) => p && { ...p, lifted: true, picked: lifting.get()?.(p.from) ?? p.picked });
       haptics.lift();
     }, HOLD_MS);
     return () => clearTimeout(timer);
-  }, [holdKey]);
+  }, [holdKey, lifting]);
 
   // Keep scrolling while the carried items sit at an edge, in step with the screen. Each step also moves the
   // landing slot, since the grid slides under a finger that isn't moving.

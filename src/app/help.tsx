@@ -55,6 +55,7 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
       ['With cards selected', 'Flip them, or gather them into one stack, with the buttons; ••• to turn, lock or take them off the table. Drag any of them to move them all.'],
       ['Drag into a hand', 'Cards gather into a pile and slip into the hand when you let go.'],
       ['A card’s options', 'Draw, search, deal, fan out, turn, lock in place, or set it to never stack.'],
+      ['Search a stack', 'Its cards show face up in a tray. Tap to tick some, then drag one up onto the table: one lies face up; several fan out across.'],
       ['Table menu', 'Add a whole deck or chosen cards, reset the view, change the table color.'],
       ['Tools tab (left edge)', 'Snap to grid, and lock the camera.'],
       ['Hold a hand’s tab', 'Rename that hand.'],    ],

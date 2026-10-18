@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  GRID_STACK_REACH,
   addCards,
   addDeck,
   cameraAngle,
@@ -419,4 +420,18 @@ test('adding chosen cards brings every copy of each, face down, in one stack wit
   assert.deepEqual(s.cards.map((c) => c.cardId), ['b', 'b', 'a']);
   assert.ok(s.cards.every((c) => !c.faceUp));
   assert.equal(addCards(t, deck, [], { x: 0, y: 0 }, () => 'x'), t);
+});
+test('dropping onto a stack: over its middle without the grid; nearly on it with the grid, never a grid step away', () => {
+  const t = tableWith({ id: 's', x: 300, y: 300, angle: 0, cards: [card('1')] });
+  // Without the grid: anywhere over its middle 60% (30 across, 42 down each way, for a 100 × 140 card).
+  assert.equal(stackTargetAt(t, 328, 340, size)?.id, 's');
+  assert.equal(stackTargetAt(t, 300, 345, size), null);
+  // Turned a quarter, its long side runs across.
+  const turned = tableWith({ id: 's', x: 300, y: 300, angle: 90, cards: [card('1')] });
+  assert.equal(stackTargetAt(turned, 340, 300, size)?.id, 's');
+  assert.equal(stackTargetAt(turned, 300, 340, size), null);
+  // With the grid: within 27, but not at the next grid point straight on (40) or diagonally (28).
+  assert.equal(stackTargetAt(t, 318, 318, size, undefined, GRID_STACK_REACH)?.id, 's');
+  assert.equal(stackTargetAt(t, 300, 340, size, undefined, GRID_STACK_REACH), null);
+  assert.equal(stackTargetAt(t, 320, 320, size, undefined, GRID_STACK_REACH), null);
 });

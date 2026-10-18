@@ -284,14 +284,23 @@ export function stackAt(
 /** Whether cards can go onto a stack: not if any of its cards never stacks. */
 export const stackable = (s: SandboxStack) => !s.cards.some((c) => c.solo);
 
-/** How close (as a share of a card's width) a dropped card's middle must be to a stack's to go onto it. */
-const STACK_REACH = 0.4;
+/**
+ * How far into a card a dropped card's middle must come to go onto it, without the grid: within this share of its
+ * width and of its height, each way from its middle (its middle 60%), in its own turned frame.
+ */
+const STACK_REACH = 0.3;
+/**
+ * With the grid on: how close (table units) a dropped card's middle must come to a stack's middle. As generous as
+ * it can be while cards a grid step apart (40 straight, 28 diagonally, as fanned out) still stay apart.
+ */
+export const GRID_STACK_REACH = 27;
 
 /**
- * The stack a card dropped at a table point would go onto (the topmost near enough), leaving out `except`. With
- * the grid on, only one dropped almost exactly on it (within `reach` table units): cards set down near each other
- * snap and overlap instead, as in Tabletop Simulator. Given `face` (which way up the dropped cards are), only a stack
- * facing the same way: cards don't stack onto ones facing the other way.
+ * The stack a card dropped at a table point would go onto (the topmost it's over), leaving out `except`. Without the
+ * grid, any it's dropped over the middle of (see STACK_REACH); with the grid on, only one it's dropped almost exactly
+ * on (within `reach` table units, e.g. GRID_STACK_REACH): cards set down near each other snap and overlap instead, as
+ * in Tabletop Simulator. Given `face` (which way up the dropped cards are), only a stack facing the same way: cards
+ * don't stack onto ones facing the other way. Never onto cards that never stack.
  */
 export function stackTargetAt(
   t: SandboxTable,
@@ -306,12 +315,16 @@ export function stackTargetAt(
     const s = t.stacks[i];
     if (s.id === except || !stackable(s)) continue;
     if (face !== undefined && s.cards[s.cards.length - 1].faceUp !== face) continue;
-    const { w } = size(s.cards[s.cards.length - 1].deckId);
-    if (Math.hypot(x - s.x, y - s.y) <= (reach ?? w * STACK_REACH)) return s;
+    if (reach !== undefined) {
+      if (Math.hypot(x - s.x, y - s.y) <= reach) return s;
+      continue;
+    }
+    const { w, h } = size(s.cards[s.cards.length - 1].deckId);
+    const p = inStack(s, x, y);
+    if (Math.abs(p.x) <= w * STACK_REACH && Math.abs(p.y) <= h * STACK_REACH) return s;
   }
   return null;
 }
-
 // ---- Moving cards ----
 
 /**
@@ -684,7 +697,7 @@ export function fanStack(t: SandboxTable, stackId: string, direction: 'down' | '
 }
 
 /** How close (table units) a flipped card must lie to a stack under it to join it: almost exactly on it. */
-export const SETTLE_REACH = GRID_STEP / 2;
+export const SETTLE_REACH = GRID_STACK_REACH;
 
 /**
  * A stack just turned over joins the stack it lies on (one drawn below it, its middle within `reach`) if they now

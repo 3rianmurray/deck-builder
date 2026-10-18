@@ -1,5 +1,4 @@
 import { Stack, router } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
 import { useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import type { AccessibilityActionEvent } from 'react-native';
@@ -396,21 +395,16 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          // The app's menu: help, its files, the examples.
-          headerRight: () => (
-            <Pressable
-              onPress={() => setAppMenuOpen(true)}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="Menu"
-              style={({ pressed }) => pressed && { opacity: 0.6 }}>
-              <SymbolView name={{ ios: 'line.3.horizontal', android: 'menu', web: 'menu' }} size={22} weight="semibold" tintColor={colors.accent} />
-            </Pressable>
-          ),
-        }}
-      />
+      {/* The app's menu (help, its files, the examples): just its three lines, without iOS's glass bubble behind. */}
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Button
+          icon="line.3.horizontal"
+          tintColor={colors.accent}
+          hidesSharedBackground
+          accessibilityLabel="Menu"
+          onPress={() => setAppMenuOpen(true)}
+        />
+      </Stack.Toolbar>
       <ReorderableList
         rows={rows}
         keyOf={(r) => `${r.kind}:${r.id}`}

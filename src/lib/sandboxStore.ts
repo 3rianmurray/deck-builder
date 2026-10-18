@@ -53,6 +53,17 @@ export function createSandboxWith(name: string, lay: (empty: SandboxTable) => Sa
   return table;
 }
 
+/** A copy of a table, cards, hands, camera and all, just after it (named as a copy). */
+export function duplicateSandbox(id: string): SandboxTable | undefined {
+  const tables = all();
+  const at = tables.findIndex((t) => t.id === id);
+  if (at < 0) return undefined;
+  const now = Date.now();
+  const copy = { ...tables[at], id: newId(), name: `${tables[at].name} Copy`, createdAt: now, updatedAt: now };
+  set([...tables.slice(0, at + 1), copy, ...tables.slice(at + 1)]);
+  return copy;
+}
+
 /** Saves a changed table. */
 export function updateSandbox(table: SandboxTable) {
   set(all().map((t) => (t.id === table.id ? { ...table, updatedAt: Date.now() } : t)));

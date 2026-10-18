@@ -20,7 +20,7 @@ import { deleteDeckWarning } from '../../lib/deckInUse';
 import { sampleBack, sampleCards } from '../../lib/sampleDeck';
 import { cropToShape } from '../../lib/images';
 import { imageUri } from '../../lib/storage';
-import { tourEvent } from '../../lib/tour';
+import { tourEvent, useTourStep } from '../../lib/tour';
 import { cardRatio, copiesOf, deckSize } from '../../lib/types';
 import type { Card, CardShape } from '../../lib/types';
 import { colors } from '../../theme';
@@ -77,6 +77,8 @@ export default function DeckEditorScreen() {
    * choosing a sprite sheet, where that sheet comes from (`sheet-…`).
    */
   const [menu, setMenu] = useState<ArtTarget | `sheet-${ArtTarget}` | null>(null);
+  /** The walkthrough, if it's running: only then are the sample pictures offered. */
+  const tour = useTourStep();
   /** Images waiting in the cropper, and what they become once cropped. */
   const [crop, setCrop] = useState<{ uris: string[]; target: ArtTarget | { cardId: string } } | null>(null);
   /** A photo of a card being found and straightened, and what it's for. */
@@ -172,10 +174,11 @@ export default function DeckEditorScreen() {
     { label: 'Choose from Files', opensModal: true, onPress: () => fromFiles(target) },
     // A sprite sheet is a way of using a picture, not a place it comes from: so ask where it is next.
     {
-      label: target === 'cards' ? 'Import sprite sheet…' : 'From a sprite sheet…',
+      label: target === 'cards' ? 'Import Sprite Sheet' : 'From a Sprite Sheet',
       onPress: () => setMenu(`sheet-${target}`),
     },
-    { label: target === 'cards' ? 'Sample cards' : 'Sample back', onPress: () => fromSamples(target) },
+    // The app's own art, just for the walkthrough.
+    ...(tour ? [{ label: target === 'cards' ? 'Sample cards' : 'Sample back', onPress: () => fromSamples(target) }] : []),
   ];
   /** Opens the art menu for new cards or the back (and tells the walkthrough, which may be waiting for it). */
   const openArtMenu = (target: ArtTarget) => {
@@ -307,11 +310,6 @@ export default function DeckEditorScreen() {
 
             <Text style={styles.label}>Card size</Text>
             <CardSizePicker shape={deck.cardShape ?? { kind: 'standard' }} onChange={changeShape} />
-            {deck.cards.length > 0 ? (
-              <Text style={[styles.muted, { fontSize: 13 }]}>
-                Changing the size re-fits each card from the picture it was cut from. New images are cropped to it.
-              </Text>
-            ) : null}
 
             <View style={[styles.backRow, { marginTop: 12 }]}>
               {/* Once it has a picture, tapping it goes back to cropping that; until then, to choosing one. */}
@@ -344,11 +342,7 @@ export default function DeckEditorScreen() {
               <Text style={[styles.muted, { marginTop: 8 }]}>
                 Take a photo, pick images from Photos or Files, or cut up a sprite sheet to make cards. Tap a card to rename it, set how many copies are in the deck, or remove it.
               </Text>
-            ) : (
-              <Text style={[styles.muted, { fontSize: 13 }]}>
-                Hold a card and drag it to reorder. The first card is the top of the deck.
-              </Text>
-            )}
+            ) : null}
           </View>
         }
         renderItem={(item) => (

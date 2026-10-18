@@ -23,7 +23,8 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="index" options={{ title: 'My Decks' }} />
-          <Stack.Screen name="deck/[id]" options={{ title: 'Edit Deck' }} />
+          {/* No swipe-back: dragging a card to reorder it would leave the screen instead (see play/[id]). */}
+          <Stack.Screen name="deck/[id]" options={{ title: 'Edit Deck', gestureEnabled: false }} />
           {/*
           Swipe-back is off while playing: since iOS 26 it works from anywhere on screen, so dragging a card sideways
           would leave the table. The table draws its own top bar (with a back button) over the felt, so no header.

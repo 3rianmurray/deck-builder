@@ -21,7 +21,7 @@ import type { Row } from '../lib/groups';
 import { newId } from '../lib/id';
 import { playingCards } from '../lib/playingCards';
 import { solitaire } from '../lib/sandbox';
-import { createSandbox, createSandboxWith, deleteSandbox, useSandboxes } from '../lib/sandboxStore';
+import { createSandbox, createSandboxWith, deleteSandbox, duplicateSandbox, updateSandbox, useSandboxes } from '../lib/sandboxStore';
 import { loadSettings, saveSettings } from '../lib/storage';
 import { startTour, tourEvent, useTourStep } from '../lib/tour';
 import { deckSize } from '../lib/types';
@@ -83,6 +83,8 @@ export default function HomeScreen() {
   }, []);
 
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
+  /** The Free Play table whose options are showing. */
+  const [tableMenu, setTableMenu] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   /**
    * The row swiped open (`deck:…`, `group:…` or `session:…`) and which of its buttons is showing: Delete on
@@ -122,6 +124,7 @@ export default function HomeScreen() {
 
   const rows = buildRows(decks, groups);
   const menuGroup = groups.find((g) => g.id === groupMenu);
+  const menuTable = sandboxes.find((t) => t.id === tableMenu);
 
   const tour = useTourStep();
   const newDeck = () => {
@@ -153,6 +156,13 @@ export default function HomeScreen() {
       await shareDecks(decks);
     } catch (e) {
       Alert.alert('Couldn’t back up your decks', e instanceof Error ? e.message : String(e));
+    }
+  };
+  const shareGroup = async (groupId: string) => {
+    try {
+      await shareDecks(decks.filter((d) => d.groupId === groupId));
+    } catch (e) {
+      Alert.alert('Couldn’t share this group', e instanceof Error ? e.message : String(e));
     }
   };
   const importFromFile = async () => {
@@ -294,23 +304,23 @@ export default function HomeScreen() {
     <View style={{ gap: 10, marginBottom: 16 }}>
       <Text style={styles.section}>Free Play</Text>
       {sandboxes.map((t) => {
-        const onTable = t.stacks.reduce((n, s) => n + s.cards.length, 0);
-        const inHands = t.hands.reduce((n, h) => n + h.length, 0);
         const open = () => router.push({ pathname: '/sandbox/[id]', params: { id: t.id } });
         return (
           <SwipeRow key={t.id} {...swipe(`sandbox:${t.id}`, () => confirmDeleteSandbox(t.id, t.name))}>
             <Pressable
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
-              onPress={open}
+              // The row shows the table's options (as a group's ••• does); Open goes straight in.
+              onPress={() => setTableMenu(t.id)}
               accessibilityRole="button"
               accessibilityLabel={`${t.name}, free play table`}
-              {...rowActions([{ name: 'delete', label: 'Delete', run: () => confirmDeleteSandbox(t.id, t.name) }])}>
+              accessibilityHint="Shows the table's options."
+              {...rowActions([
+                { name: 'open', label: 'Open', run: open },
+                { name: 'delete', label: 'Delete', run: () => confirmDeleteSandbox(t.id, t.name) },
+              ])}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.name} numberOfLines={1}>
                   {t.name}
-                </Text>
-                <Text style={styles.meta} numberOfLines={1}>
-                  {onTable || inHands ? `${onTable} on the table · ${inHands} in hands` : 'Empty table'}
                 </Text>
               </View>
               <Button label="Open" variant="primary" onPress={open} />
@@ -465,10 +475,49 @@ export default function HomeScreen() {
                       },
                     ]
                   : []),
+                // The group's decks in one file, to keep somewhere safe or give to a friend.
+                ...(decks.some((d) => d.groupId === menuGroup.id)
+                  ? [
+                      {
+                        label: 'Share or back up this group…',
+                        opensModal: true,
+                        onPress: () => shareGroup(menuGroup.id),
+                      },
+                    ]
+                  : []),
                 {
                   label: 'Delete group (keeps its decks)',
                   destructive: true,
                   onPress: () => deleteGroup(menuGroup.id),
+                },
+              ]
+            : []
+        }
+      />
+
+      <ActionSheet
+        visible={!!menuTable}
+        title={menuTable?.name}
+        onClose={() => setTableMenu(null)}
+        actions={
+          menuTable
+            ? [
+                { label: 'Open', onPress: () => router.push({ pathname: '/sandbox/[id]', params: { id: menuTable.id } }) },
+                ...(Platform.OS === 'ios'
+                  ? [
+                      {
+                        label: 'Rename',
+                        opensModal: true,
+                        onPress: () => askName('Rename table', menuTable.name, (name) => updateSandbox({ ...menuTable, name })),
+                      },
+                    ]
+                  : []),
+                { label: 'Duplicate', onPress: () => duplicateSandbox(menuTable.id) },
+                {
+                  label: 'Delete',
+                  destructive: true,
+                  opensModal: true,
+                  onPress: () => confirmDeleteSandbox(menuTable.id, menuTable.name),
                 },
               ]
             : []

@@ -204,7 +204,6 @@ export function CropModal({ uris, ratio, onDone, onCancel }: Props) {
     <Modal visible={visible} animationType="slide" onRequestClose={cancel}>
       <View style={[styles.screen, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }]}>
         <Text style={styles.title}>{uris.length > 1 ? `Crop card ${index + 1} of ${uris.length}` : 'Crop card'}</Text>
-        <Text style={styles.hint}>Drag to move · Pinch to zoom</Text>
 
         <View
           style={styles.area}

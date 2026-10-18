@@ -711,7 +711,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const face = touch.cards[touch.cards.length - 1]?.faceUp;
     // Cards that never stack go onto nothing.
     const solo = touch.cards.some((c) => c.solo);
-    const over = p.y < L.handTop && !solo ? stackTargetAt(L.table, w.x, w.y, L.size, except, L.gridOn ? GRID_STACK_REACH : undefined, face) : null;
+    // Looked for on the table as it'll be once they're taken: a card can't go back onto where it alone lay.
+    const over = p.y < L.handTop && !solo ? stackTargetAt(takeAll(L.table, touch.sources), w.x, w.y, L.size, except, L.gridOn ? GRID_STACK_REACH : undefined, face) : null;
     L.setTarget(over?.id ?? null);
     // Over the hand: a gap opens where they'd go in, and near either end the row scrolls along.
     if (p.y >= L.handTop) {
@@ -831,7 +832,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const face = cards[cards.length - 1].faceUp;
     const onto = cards.some((c) => c.solo)
       ? null
-      : stackTargetAt(L.table, w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined, L.gridOn ? GRID_STACK_REACH : undefined, face);
+      : // On the table as it'll be once they're taken: where a card alone lay is nowhere to go back onto (it would
+        // land, unsnapped, as if joining it). The rest of a stack it came off still counts.
+        stackTargetAt(takeAll(L.table, sources), w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined, L.gridOn ? GRID_STACK_REACH : undefined, face);
     // With snapping on, its middle on the nearest grid crossing.
     const free = { x: w.x, y: w.y, angle: p.tableAngle };
     const at = L.gridOn && !onto ? snapToGrid(free) : free;

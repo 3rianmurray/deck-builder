@@ -435,3 +435,12 @@ test('dropping onto a stack: over its middle without the grid; nearly on it with
   assert.equal(stackTargetAt(t, 300, 340, size, undefined, GRID_STACK_REACH), null);
   assert.equal(stackTargetAt(t, 320, 320, size, undefined, GRID_STACK_REACH), null);
 });
+test('a card lifted off where it lay alone has nothing there to go back onto; the rest of a stack still counts', () => {
+  const alone = tableWith({ id: 'a', x: 100, y: 100, angle: 0, cards: [card('1')] });
+  const lifted = take(alone, { kind: 'card', stackId: 'a', iid: '1' });
+  // Dropped a few units from where it was (a small drag, zoomed in): no stack to join, so it's put down (and snapped).
+  assert.equal(stackTargetAt(lifted, 105, 102, size, undefined, GRID_STACK_REACH), null);
+  const pile = tableWith({ id: 'p', x: 100, y: 100, angle: 0, cards: [card('1'), card('2')] });
+  const topOff = take(pile, { kind: 'card', stackId: 'p', iid: '2' });
+  assert.equal(stackTargetAt(topOff, 105, 102, size, undefined, GRID_STACK_REACH)?.id, 'p');
+});

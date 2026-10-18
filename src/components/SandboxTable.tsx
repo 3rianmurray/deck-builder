@@ -1633,7 +1633,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       },
       {
         label: 'Onto the table, face up',
-        onPress: () => commit(putOnTable(take(table, src), [{ ...card, faceUp: true }], gridOn ? snapToGrid(beside, gridStep) : beside, newId())),
+        // Then the search goes, to show it there.
+        onPress: () => {
+          commit(putOnTable(take(table, src), [{ ...card, faceUp: true }], gridOn ? snapToGrid(beside, gridStep) : beside, newId()));
+          endSearch();
+        },
       },
       { label: 'Take off the table', destructive: true, onPress: () => commit(trashCards(take(table, src), [card])) },
     ];
@@ -1654,13 +1658,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return [
       {
         label: 'Onto the table, face up',
-        onPress: () =>
+        // Then the search goes, to show them there.
+        onPress: () => {
           commit(
             cards.reduce((t, card, i) => {
               const at = { x: beside.x + i * gridStep, y: beside.y, angle: searchStack.angle };
               return putOnTable(t, [{ ...card, faceUp: true }], gridOn ? snapToGrid(at, gridStep) : at, newId());
             }, rest),
-          ),
+          );
+          endSearch();
+        },
       },
       { label: `Into ${table.handNames[handIndex]}`, onPress: () => commit(putInHand(rest, cards.map((c) => ({ ...c, faceUp: true })), handIndex)) },
       { label: 'Top of this stack', onPress: () => commit(reorderStack(table, searchStack.id, places, 0)) },

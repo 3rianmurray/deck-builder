@@ -24,7 +24,7 @@ import { cropToShape, loadUpright, smallPixels } from '../../lib/images';
 import { guessSheet } from '../../lib/sheetGuess';
 import { imageUri } from '../../lib/storage';
 import { tourEvent, useTourStep } from '../../lib/tour';
-import { cardRatio, copiesOf, deckSize } from '../../lib/types';
+import { cardRatio, copiesOf, deckSize, detectShape } from '../../lib/types';
 import type { Card, CardShape } from '../../lib/types';
 import { colors } from '../../theme';
 import { MAX_TEXT_SCALE, Text } from '../../components/Text';
@@ -136,7 +136,7 @@ export default function DeckEditorScreen() {
       if (appleScannerAvailable()) {
         const scans = await scanCards();
         if (!scans.length) return;
-        const ratio = cardRatio(deck);
+        const ratio = await settleAuto(scans[0]);
         if (target === 'back') {
           const back = await fitScan(scans[0], ratio);
           setBack(back, back);
@@ -163,24 +163,45 @@ export default function DeckEditorScreen() {
   // One picture that looks like a sprite sheet (a grid of cards): asked whether to cut it up as one, rather than
   // crop it as a single card.
   const cropOrCut = async (uris: string[], target: ArtTarget) => {
-    if (uris.length !== 1 || !(await looksLikeSheet(uris[0], cardRatio(deck)))) return setCrop({ uris, target });
+    // To crop: an automatic card size is worked out from the first picture first, so the frame fits it.
+    const crop = async () => {
+      await settleAuto(uris[0]);
+      setCrop({ uris, target });
+    };
+    if (uris.length !== 1 || !(await looksLikeSheet(uris[0], cardRatio(deck)))) return crop();
     Alert.alert(
       'This looks like a sprite sheet',
       target === 'cards' ? 'Import it as a sprite sheet, cut into cards?' : 'Choose the back from it as a sprite sheet?',
       [
-        { text: 'No', style: 'cancel', onPress: () => setCrop({ uris, target }) },
+        { text: 'No', style: 'cancel', onPress: () => withBusy(crop) },
         { text: 'Yes', onPress: () => setSpriteSheet({ uri: uris[0], target }) },
       ],
     );
-  };  // The app's own sample art: no cropping needed, as it's already card shaped.
+  };
+
+  /**
+   * Works out an automatic card size (one not yet worked out) from a picture of a card, the deck's first art,
+   * cutting anything already cut to fit it again. Gives the deck's card shape (width / height) from then on.
+   */
+  const settleAuto = async (uri: string): Promise<number> => {
+    if (deck.cardShape?.kind !== 'auto' || deck.cardShape.detected) return cardRatio(deck);
+    const img = await loadUpright(uri);
+    const shape: CardShape = { kind: 'auto', detected: detectShape(img.width / img.height) };
+    changeShape(shape);
+    return cardRatio({ cardShape: shape });
+  };
+
+  // The app's own sample art: no cropping needed, as it's already card shaped.
   const fromSamples = (target: ArtTarget) =>
     withBusy(async () => {
       if (target === 'back') {
         const back = await sampleBack();
+        await settleAuto(back);
         setBack(back, back);
         tourEvent('back-set');
       } else {
         const { uris, names } = await sampleCards();
+        await settleAuto(uris[0]);
         // Already card shaped; each is its own original.
         decks.addCards(deck.id, uris, names, uris);
         tourEvent('cards-added');
@@ -246,6 +267,15 @@ export default function DeckEditorScreen() {
   // shows whole on landscape cards, rather than the middle of a portrait crop of it). Cards and backs added
   // before originals were kept just show trimmed, as before.
   const changeShape = (shape: CardShape) => {
+    // Auto, chosen for a deck that has art already: worked out from that.
+    const art = deck.cards[0]?.original ?? deck.cards[0]?.image ?? deck.backOriginal ?? deck.backImage;
+    if (shape.kind === 'auto' && !shape.detected && art) {
+      withBusy(async () => {
+        const img = await loadUpright(imageUri(art));
+        changeShape({ kind: 'auto', detected: detectShape(img.width / img.height) });
+      });
+      return;
+    }
     const before = cardRatio(deck);
     decks.setCardShape(deck.id, shape);
     const after = cardRatio({ cardShape: shape });
@@ -506,9 +536,14 @@ export default function DeckEditorScreen() {
         pickOne={spriteSheet?.target === 'back'}
         cardRatio={cardRatio(deck)}
         onDone={(uris) => {
-          if (spriteSheet?.target === 'back') setBack(uris[0], uris[0]);
-          else decks.addCards(deck.id, uris, undefined, uris);
+          const target = spriteSheet?.target;
           setSpriteSheet(null);
+          // An automatic card size is the cut cards' shape.
+          withBusy(async () => {
+            await settleAuto(uris[0]);
+            if (target === 'back') setBack(uris[0], uris[0]);
+            else decks.addCards(deck.id, uris, undefined, uris);
+          });
         }}
         onCancel={() => setSpriteSheet(null)}
       />

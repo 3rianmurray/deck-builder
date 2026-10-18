@@ -169,7 +169,8 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       getDeck,
       createDeck(name) {
         const now = Date.now();
-        const deck: Deck = { id: newId(), name, backImage: null, cards: [], createdAt: now, updatedAt: now };
+        // New decks' card size is worked out from their first art (see CardShape).
+        const deck: Deck = { id: newId(), name, cardShape: { kind: 'auto' }, backImage: null, cards: [], createdAt: now, updatedAt: now };
         setDecks((all) => [deck, ...all]);
         return deck;
       },

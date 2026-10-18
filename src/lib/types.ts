@@ -25,17 +25,33 @@ export function deckSize(deck: Deck): number {
   return deck.cards.reduce((n, c) => n + copiesOf(c), 0);
 }
 
+/** The units a custom card size is typed in. */
+export type SizeUnit = 'in' | 'mm';
+
 /**
- * The physical card size a deck is printed at. Presets are portrait unless `landscape` is set; custom sizes are
- * in any unit, since only the ratio matters, and are landscape when wider than tall.
+ * A card size that's been settled. Presets are portrait unless `landscape` is set; custom sizes are landscape when
+ * wider than tall, in `unit` (sizes saved before units were asked for have none: see `cardSizeMm`).
  */
-export type CardShape =
+export type FixedShape =
   | { kind: 'standard'; landscape?: boolean }
   | { kind: 'usMini'; landscape?: boolean }
-  | { kind: 'custom'; width: number; height: number };
+  | { kind: 'custom'; width: number; height: number; unit?: SizeUnit };
+
+/**
+ * The physical card size a deck is printed at: a settled one, or `auto`, worked out from the first art added to
+ * the deck (`detected`, once it has been; a standard card until then).
+ */
+export type CardShape = FixedShape | { kind: 'auto'; detected?: FixedShape };
+
+/** The size a shape stands for now: an automatic one's detected size, or a standard card until it has one. */
+export function settledShape(shape: CardShape | undefined): FixedShape {
+  if (!shape) return { kind: 'standard' };
+  return shape.kind === 'auto' ? (shape.detected ?? { kind: 'standard' }) : shape;
+}
 
 export function isLandscape(shape: CardShape): boolean {
-  return shape.kind === 'custom' ? shape.width > shape.height : !!shape.landscape;
+  const s = settledShape(shape);
+  return s.kind === 'custom' ? s.width > s.height : !!s.landscape;
 }
 
 /** Width-to-height ratios of the preset sizes, held upright. */
@@ -52,7 +68,7 @@ const MAX_RATIO = 4;
 
 /** The deck's card width divided by its height. */
 export function cardRatio(deck: Pick<Deck, 'cardShape'>): number {
-  const shape = deck.cardShape ?? { kind: 'standard' };
+  const shape = settledShape(deck.cardShape);
   if (shape.kind !== 'custom') return shape.landscape ? 1 / PRESET_RATIOS[shape.kind] : PRESET_RATIOS[shape.kind];
   const ratio = shape.width / shape.height;
   return Number.isFinite(ratio) ? Math.min(MAX_RATIO, Math.max(MIN_RATIO, ratio)) : PRESET_RATIOS.standard;
@@ -65,20 +81,20 @@ export const PRESET_SIZES_MM = {
   usMini: { w: 41, h: 63 },
 } as const;
 
-/** Custom sizes this small are taken as inches (no card is 12 mm across); anything larger, as millimetres. */
+/** Custom sizes saved without a unit, this small, are taken as inches (no card is 12 mm across). */
 const INCH_LIMIT = 12;
 
 /**
  * A deck's real card size, in millimetres, as its cards lie: a landscape card is the same card as a portrait
- * one, turned, so the same size with its sides swapped. Custom sizes may be typed in inches or millimetres.
+ * one, turned, so the same size with its sides swapped.
  */
 export function cardSizeMm(deck: Pick<Deck, 'cardShape'>): { w: number; h: number } {
-  const shape = deck.cardShape ?? { kind: 'standard' };
+  const shape = settledShape(deck.cardShape);
   if (shape.kind !== 'custom') {
     const s = PRESET_SIZES_MM[shape.kind];
     return shape.landscape ? { w: s.h, h: s.w } : { w: s.w, h: s.h };
   }
-  const inches = shape.width <= INCH_LIMIT && shape.height <= INCH_LIMIT;
+  const inches = shape.unit ? shape.unit === 'in' : shape.width <= INCH_LIMIT && shape.height <= INCH_LIMIT;
   const k = inches ? 25.4 : 1;
   // The same shape limits as `cardRatio`, kept to the long side.
   const ratio = cardRatio(deck);
@@ -87,6 +103,32 @@ export function cardSizeMm(deck: Pick<Deck, 'cardShape'>): { w: number; h: numbe
   return ratio >= 1 ? { w: long, h: long / ratio } : { w: long * ratio, h: long };
 }
 
+/** How close (as a share) a picture's shape must come to a preset's to be taken for it. */
+const PRESET_MATCH = 0.03;
+
+/**
+ * The card size a picture of a card looks like, from its shape (width / height): Standard or US Mini, either way
+ * up, when it's within a few percent of one; otherwise its own shape, as tall (or as wide) as a standard card.
+ */
+export function detectShape(ratio: number): FixedShape {
+  const landscape = ratio > 1;
+  const upright = landscape ? 1 / ratio : ratio;
+  for (const kind of ['standard', 'usMini'] as const) {
+    if (Math.abs(upright / PRESET_RATIOS[kind] - 1) <= PRESET_MATCH) return { kind, landscape };
+  }
+  const long = PRESET_SIZES_MM.standard.h;
+  const short = Math.round(long * Math.min(MAX_RATIO, Math.max(MIN_RATIO, upright)) * 10) / 10;
+  return landscape ? { kind: 'custom', width: long, height: short, unit: 'mm' } : { kind: 'custom', width: short, height: long, unit: 'mm' };
+}
+
+/** A typed size, e.g. "2.5in", "63.5 mm" or "2,5 in": its number and unit, or null if either is missing. */
+export function parseSizeWithUnit(text: string): { value: number; unit: SizeUnit } | null {
+  const m = text.trim().match(/^(\d+(?:[.,]\d*)?|[.,]\d+)\s*(in|inch|inches|"|mm)$/i);
+  if (!m) return null;
+  const value = parseFloat(m[1].replace(',', '.'));
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return { value, unit: m[2].toLowerCase() === 'mm' ? 'mm' : 'in' };
+}
 /** How round a card's corners are when a deck doesn't say: its corner radius, as a share of its width. */
 export const DEFAULT_ROUNDNESS = 0.06;
 /** The roundest corners can be (a quarter of the width: very round). */

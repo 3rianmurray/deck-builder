@@ -1,96 +1,140 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
-import { cardRatio, isLandscape } from '../lib/types';
-import type { CardShape } from '../lib/types';
+import * as haptics from '../lib/haptics';
+import { cardRatio, isLandscape, parseSizeWithUnit, settledShape } from '../lib/types';
+import type { CardShape, FixedShape, SizeUnit } from '../lib/types';
 import { colors } from '../theme';
 import { MAX_TEXT_SCALE, Text } from './Text';
 
-const OPTIONS: { kind: CardShape['kind']; label: string; portrait: string; landscape: string }[] = [
-  { kind: 'standard', label: 'Standard', portrait: 'Playing card · 2.5 × 3.5 in (5:7)', landscape: 'Playing card · 3.5 × 2.5 in (7:5)' },
-  { kind: 'usMini', label: 'US Mini', portrait: '41 × 63 mm (about 1:1.54)', landscape: '63 × 41 mm (about 1.54:1)' },
-  { kind: 'custom', label: 'Custom', portrait: '', landscape: '' },
+type Kind = CardShape['kind'];
+
+const OPTIONS: { kind: Kind; label: string }[] = [
+  { kind: 'auto', label: 'Auto' },
+  { kind: 'standard', label: 'Standard' },
+  { kind: 'usMini', label: 'US Mini' },
+  { kind: 'custom', label: 'Custom' },
 ];
 
-/** Accepts "2.5" or "2,5"; returns null unless it's a positive number. */
-function parseSize(text: string): number | null {
-  const n = parseFloat(text.replace(',', '.'));
-  return Number.isFinite(n) && n > 0 ? n : null;
+/** A settled size in words, e.g. "Standard · 2.5 × 3.5 in". */
+function describe(shape: FixedShape): string {
+  const l = isLandscape(shape);
+  if (shape.kind === 'standard') return `Standard · ${l ? '3.5 × 2.5' : '2.5 × 3.5'} in`;
+  if (shape.kind === 'usMini') return `US Mini · ${l ? '63 × 41' : '41 × 63'} mm`;
+  return `${shape.width} × ${shape.height}${shape.unit ? ` ${shape.unit}` : ''}`;
 }
 
-/** Chooses the physical card size, which sets the shape of every card and of the crop frame. */
-export function CardSizePicker({ shape, onChange }: { shape: CardShape; onChange: (shape: CardShape) => void }) {
-  // Drafts let the user clear a field mid-edit without the deck jumping to a broken size.
-  const [widthText, setWidthText] = useState(shape.kind === 'custom' ? String(shape.width) : '2.5');
-  const [heightText, setHeightText] = useState(shape.kind === 'custom' ? String(shape.height) : '3.5');
+/** A custom size's side as it's shown for editing, with its unit (sizes saved before units are guessed at). */
+function sideText(n: number, shape: Extract<FixedShape, { kind: 'custom' }>): string {
+  const unit = shape.unit ?? (shape.width <= 12 && shape.height <= 12 ? 'in' : 'mm');
+  return `${n}${unit}`;
+}
 
-  const commitCustom = (w: string, h: string) => {
-    const width = parseSize(w);
-    const height = parseSize(h);
-    if (width && height) onChange({ kind: 'custom', width, height });
-  };
+/** Two typed sides as a custom size: in one unit (millimetres, if they were typed in different ones). */
+function customFrom(w: string, h: string): FixedShape | null {
+  const a = parseSizeWithUnit(w);
+  const b = parseSizeWithUnit(h);
+  if (!a || !b) return null;
+  if (a.unit === b.unit) return { kind: 'custom', width: a.value, height: b.value, unit: a.unit };
+  const mm = (x: { value: number; unit: SizeUnit }) => Math.round((x.unit === 'in' ? x.value * 25.4 : x.value) * 10) / 10;
+  return { kind: 'custom', width: mm(a), height: mm(b), unit: 'mm' };
+}
+
+/**
+ * Chooses the physical card size, which sets the shape of every card and of the crop frame: Auto (worked out from
+ * the deck's first art), Standard, US Mini or a custom size, typed with its unit.
+ */
+export function CardSizePicker({ shape, onChange }: { shape: CardShape; onChange: (shape: CardShape) => void }) {
+  const settled = settledShape(shape);
+  const custom = settled.kind === 'custom' ? settled : null;
+  // Drafts let the player clear a field mid-edit without the deck jumping to a broken size.
+  const [widthText, setWidthText] = useState(custom ? sideText(custom.width, custom) : '2.5in');
+  const [heightText, setHeightText] = useState(custom ? sideText(custom.height, custom) : '3.5in');
+  const [open, setOpen] = useState(false);
 
   const landscape = isLandscape(shape);
 
-  /** Commits typed custom sizes, swapped if needed so they match the chosen orientation. */
-  const commitOriented = (wantLandscape: boolean) => {
-    const w = parseSize(widthText);
-    const h = parseSize(heightText);
-    if (w && h && w > h !== wantLandscape && w !== h) {
-      setWidthText(heightText);
-      setHeightText(widthText);
-      commitCustom(heightText, widthText);
+  /** Commits typed custom sizes; given an orientation, swapped if needed to match it. */
+  const commitCustom = (w: string, h: string, wantLandscape?: boolean) => {
+    const next = customFrom(w, h);
+    if (!next || next.kind !== 'custom') return;
+    if (wantLandscape !== undefined && next.width > next.height !== wantLandscape && next.width !== next.height) {
+      setWidthText(h);
+      setHeightText(w);
+      onChange({ ...next, width: next.height, height: next.width });
     } else {
-      commitCustom(widthText, heightText);
+      onChange(next);
     }
   };
 
   // Changing size keeps the orientation, and vice versa.
-  const choose = (kind: CardShape['kind']) => {
-    if (kind === 'custom') commitOriented(landscape);
+  const choose = (kind: Kind) => {
+    setOpen(false);
+    haptics.tick();
+    if (kind === shape.kind) return;
+    if (kind === 'auto') onChange({ kind: 'auto' });
+    else if (kind === 'custom') commitCustom(widthText, heightText, landscape);
     else onChange({ kind, landscape });
   };
 
   const orient = (wantLandscape: boolean) => {
-    if (shape.kind === 'custom') commitOriented(wantLandscape);
-    else onChange({ kind: shape.kind, landscape: wantLandscape });
+    if (settled.kind === 'custom') commitCustom(widthText, heightText, wantLandscape);
+    else onChange({ kind: settled.kind, landscape: wantLandscape });
   };
 
   const ratio = cardRatio({ cardShape: shape });
-  const selected = OPTIONS.find((o) => o.kind === shape.kind)!;
+  const current = OPTIONS.find((o) => o.kind === shape.kind)!;
+  const widthOk = !!parseSizeWithUnit(widthText);
+  const heightOk = !!parseSizeWithUnit(heightText);
 
   return (
     <View style={{ gap: 8 }}>
-      <View style={styles.segment}>
-        {OPTIONS.map((o) => (
-          <Pressable
-            key={o.kind}
-            onPress={() => choose(o.kind)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: shape.kind === o.kind }}
-            style={[styles.segmentItem, shape.kind === o.kind && styles.segmentSelected]}>
-            <Text style={[styles.segmentText, shape.kind === o.kind && { color: colors.accentText }]}>{o.label}</Text>
-          </Pressable>
-        ))}
-      </View>
+      {/* A drop-down: the chosen size, opening to the others. */}
+      <Pressable
+        onPress={() => setOpen((o) => !o)}
+        accessibilityRole="button"
+        accessibilityLabel={`Card size: ${current.label}`}
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => [styles.dropdown, pressed && { opacity: 0.75 }]}>
+        <Text style={styles.dropdownText}>{current.label}</Text>
+        <Text style={styles.chevron}>{open ? '▴' : '▾'}</Text>
+      </Pressable>
+      {open ? (
+        <View style={styles.menu}>
+          {OPTIONS.map((o) => (
+            <Pressable
+              key={o.kind}
+              onPress={() => choose(o.kind)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: shape.kind === o.kind }}
+              style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: colors.surfaceRaised }]}>
+              <Text style={[styles.menuText, shape.kind === o.kind && { color: colors.accent }]}>{o.label}</Text>
+              {shape.kind === o.kind ? <Text style={[styles.menuText, { color: colors.accent }]}>✓</Text> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
-      <View style={styles.segment}>
-        {(
-          [
-            [false, 'Portrait'],
-            [true, 'Landscape'],
-          ] as const
-        ).map(([value, label]) => (
-          <Pressable
-            key={label}
-            onPress={() => orient(value)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: landscape === value }}
-            style={[styles.segmentItem, landscape === value && styles.segmentSelected]}>
-            <Text style={[styles.segmentText, landscape === value && { color: colors.accentText }]}>{label}</Text>
-          </Pressable>
-        ))}
-      </View>
+      {/* Auto works out which way up the cards are, too. */}
+      {shape.kind === 'auto' ? null : (
+        <View style={styles.segment}>
+          {(
+            [
+              [false, 'Portrait'],
+              [true, 'Landscape'],
+            ] as const
+          ).map(([value, label]) => (
+            <Pressable
+              key={label}
+              onPress={() => orient(value)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: landscape === value }}
+              style={[styles.segmentItem, landscape === value && styles.segmentSelected]}>
+              <Text style={[styles.segmentText, landscape === value && { color: colors.accentText }]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
       <View style={styles.detailRow}>
         {/* A small outline of the chosen shape. */}
@@ -101,6 +145,7 @@ export function CardSizePicker({ shape, onChange }: { shape: CardShape; onChange
               <SizeField
                 label="Width"
                 value={widthText}
+                ok={widthOk}
                 onChange={(t) => {
                   setWidthText(t);
                   commitCustom(t, heightText);
@@ -110,42 +155,72 @@ export function CardSizePicker({ shape, onChange }: { shape: CardShape; onChange
               <SizeField
                 label="Height"
                 value={heightText}
+                ok={heightOk}
                 onChange={(t) => {
                   setHeightText(t);
                   commitCustom(widthText, t);
                 }}
               />
             </View>
-            {/* Sizes are real ones (they set how big cards are in sandbox play), so say how they're read. */}
-            <Text style={styles.detail}>In inches or millimetres, e.g. 2.5 × 3.5 or 63.5 × 88.9</Text>
+            <Text style={[styles.detail, !(widthOk && heightOk) && { color: colors.danger }]}>
+              {widthOk && heightOk ? 'Each with in or mm, e.g. 2.5in × 3.5in' : 'Add in or mm to each, e.g. 2.5in or 63mm'}
+            </Text>
           </View>
         ) : (
-          <Text style={styles.detail}>{landscape ? selected.landscape : selected.portrait}</Text>
+          <Text style={styles.detail}>
+            {shape.kind === 'auto'
+              ? shape.detected
+                ? `Looks like ${describe(shape.detected)}`
+                : 'Worked out from the first art you add'
+              : describe(settled)}
+          </Text>
         )}
       </View>
     </View>
   );
 }
 
-function SizeField({ label, value, onChange }: { label: string; value: string; onChange: (text: string) => void }) {
+function SizeField({ label, value, ok, onChange }: { label: string; value: string; ok: boolean; onChange: (text: string) => void }) {
   return (
     <TextInput
       maxFontSizeMultiplier={MAX_TEXT_SCALE}
       value={value}
-      onChangeText={(t) => onChange(t.replace(/[^\d.,]/g, ''))}
-      keyboardType="decimal-pad"
+      onChangeText={(t) => onChange(t.replace(/[^\d.,a-zA-Z" ]/g, ''))}
+      autoCapitalize="none"
+      autoCorrect={false}
       returnKeyType="done"
-      maxLength={6}
+      maxLength={10}
       selectTextOnFocus
-      placeholder={label}
+      placeholder={label === 'Width' ? '2.5in' : '3.5in'}
       placeholderTextColor={colors.textMuted}
-      style={styles.input}
-      accessibilityLabel={`Card ${label.toLowerCase()}`}
+      style={[styles.input, !ok && styles.inputBad]}
+      accessibilityLabel={`Card ${label.toLowerCase()}, with in or mm`}
     />
   );
 }
 
 const styles = StyleSheet.create({
+  dropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  dropdownText: { color: colors.text, fontSize: 16, fontWeight: '600' },
+  chevron: { color: colors.textMuted, fontSize: 16 },
+  menu: { backgroundColor: colors.surface, borderRadius: 10, overflow: 'hidden', marginTop: -4 },
+  menuItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  menuText: { color: colors.text, fontSize: 16 },
   segment: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 10, padding: 3 },
   segmentItem: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
   segmentSelected: { backgroundColor: colors.accent },
@@ -164,5 +239,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     borderRadius: 10,
     paddingVertical: 10,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
+  inputBad: { borderColor: colors.danger },
 });

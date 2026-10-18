@@ -23,6 +23,12 @@ import {
   take,
   takeAll,
   dealToHand,
+  fanStack,
+  removeStacks,
+  rotateStacks,
+  setSolo,
+  setStack,
+  settleOnto,
   fitCamera,
   tableBounds,
   gatherStacks,
@@ -333,4 +339,60 @@ test('reset the view: every card fits in the space given, below the top bar, upr
     assert.ok(p.y >= space.y - 1e-6 && p.y <= space.y + space.h + 1e-6);
   }
   assert.equal(tableBounds(tableWith(), size), null);
+});
+test('a stack can be turned left as well as right', () => {
+  const t = tableWith({ id: 'a', x: 0, y: 0, angle: 0, cards: [card('1')] });
+  assert.equal(turnStack(t, 'a', -90).stacks[0].angle, -90);
+  assert.equal(turnStack(t, 'a').stacks[0].angle, 90);
+});
+
+test('a card turned over onto a stack facing the same way joins it; facing the other way, it stays apart', () => {
+  const t = tableWith(
+    { id: 'under', x: 100, y: 100, angle: 0, cards: [card('1', true)] },
+    { id: 'over', x: 105, y: 100, angle: 0, cards: [card('2', false)] },
+  );
+  // Still face down on a face-up card: apart.
+  assert.equal(settleOnto(t, 'over').stacks.length, 2);
+  const flipped = settleOnto(flipStack(t, 'over'), 'over');
+  assert.equal(flipped.stacks.length, 1);
+  assert.deepEqual(flipped.stacks[0].cards.map((c) => c.iid), ['1', '2']);
+  assert.equal(flipped.stacks[0].id, 'under');
+  // Too far off it: apart.
+  const far = tableWith({ id: 'under', x: 100, y: 100, angle: 0, cards: [card('1', true)] }, { id: 'over', x: 160, y: 100, angle: 0, cards: [card('2', true)] });
+  assert.equal(settleOnto(far, 'over').stacks.length, 2);
+});
+
+test('cards that never stack: nothing goes onto them, they join nothing', () => {
+  const t = setSolo(tableWith({ id: 'a', x: 100, y: 100, angle: 0, cards: [card('1', true)] }), 'a', true);
+  assert.equal(stackTargetAt(t, 100, 100, size), null);
+  const both = { ...t, stacks: [...t.stacks, { id: 'b', x: 100, y: 100, angle: 0, cards: [card('2', true)] }] };
+  assert.equal(settleOnto(both, 'b').stacks.length, 2);
+  assert.equal(setSolo(t, 'a', false).stacks[0].cards[0].solo, undefined);
+});
+
+test('locked stacks stay put when a group moves or turns', () => {
+  const t = setStack(
+    tableWith({ id: 'a', x: 100, y: 100, angle: 0, cards: [card('1')] }, { id: 'b', x: 300, y: 100, angle: 0, cards: [card('2')] }),
+    'a',
+    { locked: true },
+  );
+  const moved = moveStacks(t, ['a', 'b'], { x: 10, y: 0 });
+  assert.equal(moved.stacks.find((s) => s.id === 'a')!.x, 100);
+  assert.equal(moved.stacks.find((s) => s.id === 'b')!.x, 310);
+  const turned = rotateStacks(t, ['a', 'b'], { x: 200, y: 100 }, 90, { x: 0, y: 0 });
+  assert.equal(turned.stacks.find((s) => s.id === 'a')!.x, 100);
+  const b = turned.stacks.find((s) => s.id === 'b')!;
+  near(b.x, 200);
+  near(b.y, 200);
+  assert.equal(b.angle, 90);
+});
+
+test('fanning a stack lays its cards a grid step apart, its top card last and on top', () => {
+  const t = tableWith({ id: 'a', x: 100, y: 100, angle: 0, cards: [card('1'), card('2'), card('3')] });
+  let n = 0;
+  const down = fanStack(t, 'a', 'down', () => `f${n++}`);
+  assert.deepEqual(down.stacks.map((s) => [s.x, s.y, s.cards[0].iid]), [[100, 100, '1'], [100, 140, '2'], [100, 180, '3']]);
+  const across = fanStack(t, 'a', 'across', () => `g${n++}`);
+  assert.deepEqual(across.stacks.map((s) => s.x), [100, 140, 180]);
+  assert.equal(removeStacks(down, ['f0', 'f1']).stacks.length, 1);
 });

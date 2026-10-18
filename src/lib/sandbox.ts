@@ -14,6 +14,8 @@ export interface SandboxCard {
   deckId: string;
   cardId: string;
   faceUp: boolean;
+  /** It never stacks: nothing goes onto it, and it goes onto nothing (set from its menu). */
+  solo?: boolean;
 }
 
 /** A pile of one or more cards lying somewhere on the table, all at one angle. Its last card is on top. */
@@ -25,6 +27,8 @@ export interface SandboxStack {
   /** Which way it's turned, in degrees clockwise, relative to the table. */
   angle: number;
   cards: SandboxCard[];
+  /** It stays where it is: it can't be moved as a whole (cards still go on and come off it, and it still flips). */
+  locked?: boolean;
 }
 
 /**
@@ -52,6 +56,8 @@ export interface SandboxTable {
   snapToGrid?: boolean;
   /** The camera stays put: sliding, zooming and turning the table do nothing (cards still move). */
   lockCamera?: boolean;
+  /** The table's cloth colour (a key of the app's colours), or none for green felt. */
+  background?: string;
   /** The camera as it was left, or none yet (it starts looking at the middle of the table). */
   camera?: Camera;
   /** The part of the table a ready-made layout lies in: the camera starts on it (and goes back to it on reset). */
@@ -275,6 +281,9 @@ export function stackAt(
   }
   return null;
 }
+/** Whether cards can go onto a stack: not if any of its cards never stacks. */
+export const stackable = (s: SandboxStack) => !s.cards.some((c) => c.solo);
+
 /** How close (as a share of a card's width) a dropped card's middle must be to a stack's to go onto it. */
 const STACK_REACH = 0.4;
 
@@ -295,7 +304,7 @@ export function stackTargetAt(
 ): SandboxStack | null {
   for (let i = t.stacks.length - 1; i >= 0; i--) {
     const s = t.stacks[i];
-    if (s.id === except) continue;
+    if (s.id === except || !stackable(s)) continue;
     if (face !== undefined && s.cards[s.cards.length - 1].faceUp !== face) continue;
     const { w } = size(s.cards[s.cards.length - 1].deckId);
     if (Math.hypot(x - s.x, y - s.y) <= (reach ?? w * STACK_REACH)) return s;
@@ -455,9 +464,9 @@ export function stacksInShape(t: SandboxTable, shape: P[], size: CardSize): stri
     .map((s) => s.id);
 }
 
-/** Moves stacks by the same amount each (a group dragged together). */
+/** Moves stacks by the same amount each (a group dragged together). Locked ones stay put. */
 export const moveStacks = (t: SandboxTable, ids: string[], by: { x: number; y: number }, place = (p: { x: number; y: number; angle: number }) => p) => {
-  const moving = new Set(ids);
+  const moving = new Set(ids.filter((id) => !t.stacks.find((s) => s.id === id)?.locked));
   const moved = t.stacks.map((s) => (moving.has(s.id) ? { ...s, ...place({ x: s.x + by.x, y: s.y + by.y, angle: s.angle }) } : s));
   // Brought to the top, as they were just touched.
   return { ...t, stacks: [...moved.filter((s) => !moving.has(s.id)), ...moved.filter((s) => moving.has(s.id))] };
@@ -487,9 +496,9 @@ const updateStack = (t: SandboxTable, stackId: string, fn: (s: SandboxStack) => 
 export const flipStack = (t: SandboxTable, stackId: string) =>
   updateStack(t, stackId, (s) => ({ ...s, cards: [...s.cards].reverse().map((c) => ({ ...c, faceUp: !c.faceUp })) }));
 
-/** Turns a stack a quarter turn clockwise, landing on the table's 45° steps. */
-export const turnStack = (t: SandboxTable, stackId: string) =>
-  updateStack(t, stackId, (s) => ({ ...s, angle: normalizeAngle(Math.round((s.angle + 90) / SNAP_STEP) * SNAP_STEP) }));
+/** Turns a stack a quarter turn, clockwise (or by y degrees: −90 for anticlockwise), landing on the table's 45° steps. */
+export const turnStack = (t: SandboxTable, stackId: string, by = 90) =>
+  updateStack(t, stackId, (s) => ({ ...s, angle: normalizeAngle(Math.round((s.angle + by) / SNAP_STEP) * SNAP_STEP) }));
 
 /** Moves and turns a stack (dragged), without changing its cards. */
 export const placeStack = (t: SandboxTable, stackId: string, at: { x: number; y: number; angle: number }) =>
@@ -608,3 +617,82 @@ export function prune(t: SandboxTable, decks: Deck[]): SandboxTable {
   const same = stacks.length === t.stacks.length && stacks.every((s, i) => s.cards.length === t.stacks[i].cards.length) && hands.every((h, i) => h.length === t.hands[i].length);
   return same ? t : { ...t, stacks, hands };
 }
+
+/**
+ * Moves and turns stacks together (a group dragged, and twisted): each turned `angle` degrees about `pivot` (a
+ * table point), then moved `by`, its own turn changing to match. `place` settles each (e.g. onto the grid). Locked
+ * ones stay put.
+ */
+export function rotateStacks(
+  t: SandboxTable,
+  ids: string[],
+  pivot: { x: number; y: number },
+  angle: number,
+  by: { x: number; y: number },
+  place = (p: { x: number; y: number; angle: number }) => p,
+): SandboxTable {
+  const r = (angle * Math.PI) / 180;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+  const moving = new Set(ids.filter((id) => !t.stacks.find((s) => s.id === id)?.locked));
+  const moved = t.stacks.map((s) => {
+    if (!moving.has(s.id)) return s;
+    const dx = s.x - pivot.x;
+    const dy = s.y - pivot.y;
+    const at = place({ x: pivot.x + dx * cos - dy * sin + by.x, y: pivot.y + dx * sin + dy * cos + by.y, angle: normalizeAngle(s.angle + angle) });
+    return { ...s, ...at, angle: normalizeAngle(at.angle) };
+  });
+  return { ...t, stacks: [...moved.filter((s) => !moving.has(s.id)), ...moved.filter((s) => moving.has(s.id))] };
+}
+
+/**
+ * Spreads a stack out, each card its own stack a `step` apart (a grid step: as close as the grid lets cards sit),
+ * down the table or across it, from where the stack lay: its bottom card there, its top card furthest along and on
+ * top, so every card shows. They keep the stack's turn. `ids` names the new stacks.
+ */
+export function fanStack(t: SandboxTable, stackId: string, direction: 'down' | 'across', ids: () => string, step = GRID_STEP): SandboxTable {
+  const s = t.stacks.find((st) => st.id === stackId);
+  if (!s || s.cards.length < 2) return t;
+  const fanned = s.cards.map((card, i) => ({
+    id: ids(),
+    x: Math.min(TABLE_W, s.x + (direction === 'across' ? i * step : 0)),
+    y: Math.min(TABLE_H, s.y + (direction === 'down' ? i * step : 0)),
+    angle: s.angle,
+    cards: [card],
+  }));
+  return { ...t, stacks: [...t.stacks.filter((st) => st.id !== stackId), ...fanned] };
+}
+
+/** How close (table units) a flipped card must lie to a stack under it to join it: almost exactly on it. */
+export const SETTLE_REACH = GRID_STEP / 2;
+
+/**
+ * A stack just turned over joins the stack it lies on (one drawn below it, its middle within `reach`) if they now
+ * face the same way, going on top of it, as if it had been put down there. Otherwise the table as it is.
+ */
+export function settleOnto(t: SandboxTable, stackId: string, reach = SETTLE_REACH): SandboxTable {
+  const at = t.stacks.findIndex((s) => s.id === stackId);
+  const s = t.stacks[at];
+  if (!s || !stackable(s)) return t;
+  const face = s.cards[s.cards.length - 1].faceUp;
+  for (let i = at - 1; i >= 0; i--) {
+    const under = t.stacks[i];
+    if (Math.hypot(under.x - s.x, under.y - s.y) > reach) continue;
+    // The one right under it decides: facing the other way (or never stacking), it stays apart.
+    if (!stackable(under) || under.cards[under.cards.length - 1].faceUp !== face) return t;
+    const merged = { ...under, cards: [...under.cards, ...s.cards] };
+    return { ...t, stacks: [...t.stacks.filter((st) => st.id !== under.id && st.id !== stackId), merged] };
+  }
+  return t;
+}
+
+/** Changes one stack's settings (locked, say). */
+export const setStack = (t: SandboxTable, stackId: string, changes: Partial<Pick<SandboxStack, 'locked'>>) =>
+  updateStack(t, stackId, (s) => ({ ...s, ...changes }));
+
+/** Marks every card of a stack as never stacking (or stacking again). */
+export const setSolo = (t: SandboxTable, stackId: string, solo: boolean) =>
+  updateStack(t, stackId, (s) => ({ ...s, cards: s.cards.map(({ solo: _old, ...c }) => (solo ? { ...c, solo: true } : c)) }));
+
+/** Takes stacks off the table altogether. */
+export const removeStacks = (t: SandboxTable, ids: string[]) => ({ ...t, stacks: t.stacks.filter((s) => !ids.includes(s.id)) });

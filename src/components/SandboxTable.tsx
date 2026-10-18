@@ -62,7 +62,6 @@ import {
   toScreen,
   toTable,
   turnStack,
-  normalizeAngle,
   moveLayer,
   reorderStack,
   fanStack,
@@ -72,7 +71,7 @@ import {
   setStack,
   settleOnto,
 } from '../lib/sandbox';
-import type { Camera, CardSize, SandboxCard, SandboxDie, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
+import type { Camera, CardSize, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
 import { tourEvent } from '../lib/tour';
 import { cardRatio, cardSizeMm, PRESET_SIZES_MM } from '../lib/types';
@@ -84,7 +83,6 @@ import { CardFocus } from './CardFocus';
 import type { FocusRow } from './CardFocus';
 import { AddCardsModal } from './AddCardsModal';
 import { TrashModal } from './TrashModal';
-import { D20, D20_SIZE } from './D20';
 import { DealPanel } from './DealPanel';
 import { Riffle } from './Riffle';
 import { StackSearchPanel } from './StackSearchPanel';
@@ -165,18 +163,6 @@ const GRID_PEEK_MS = 1500;
 const GRID_FADE_MS = 1000;
 /** How far below the top of the screen's safe area the tools drawer sits (clear of the top bar). */
 const TOOLS_FROM_TOP = 64;
-
-/** A d20 thrown: what it lands on, how far it skids (table units), and how far it spins (degrees). */
-function throwD20() {
-  const a = Math.random() * Math.PI * 2;
-  const skid = 30 + Math.random() * 50;
-  return {
-    to: 1 + Math.floor(Math.random() * 20),
-    dx: Math.cos(a) * skid,
-    dy: Math.sin(a) * skid,
-    turn: (Math.random() < 0.5 ? -1 : 1) * (540 + Math.random() * 360),
-  };
-}
 
 const FLIP_ICON = { ios: 'arrow.trianglehead.2.clockwise.rotate.90', android: 'flip', web: 'flip' } as const;
 
@@ -297,9 +283,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return { get: () => box.id, set: (id: number) => Object.assign(box, { id }) };
   });
   const gridFadeStyle = useAnimatedStyle(() => ({ opacity: gridFade.value }));
-  /** The trial d20: dragged (where it is meanwhile), or rolling (to what, and how it skids and spins). */
-  const [dieDrag, setDieDrag] = useState<{ id: string; x: number; y: number } | null>(null);
-  const [dieRoll, setDieRoll] = useState<{ id: string; key: string; to: number; dx: number; dy: number; turn: number } | null>(null);
   /** The table's trash is open, to put cards back. */
   const [trashOpen, setTrashOpen] = useState(false);
   /** A stack just brought onto the table, flying in to where the camera's taking it on screen. */
@@ -620,47 +603,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return rowWidths.length;
   };
 
-  // ---- The trial d20 ----
-  // Put on the Solitaire table once, beside its top row, to try out.
-  const wantsDie = !!table && table.name === 'Solitaire' && !table.diceTried;
-  useEffect(() => {
-    if (!wantsDie || !table) return;
-    updateSandbox({ ...table, diceTried: true, dice: [{ id: newId(), x: 2320, y: 1000, angle: 0, value: 20 }] });
-    // Once, as the table opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantsDie]);
-  /** The die under a point on the table, if any (the one on top). */
-  const dieAt = (x: number, y: number) => [...(table?.dice ?? [])].reverse().find((d) => Math.hypot(d.x - x, d.y - y) <= D20_SIZE / 2);
-  /** Rolls a die: a random number, a little skid and a spin or two. */
-  const rollDie = (id: string) => {
-    if (dieRoll) return;
-    setDieRoll({ id, key: newId(), ...throwD20() });
-
-    haptics.lift();
-  };
-  /** A roll done: the die stays where it skidded to, turned as it landed, showing its number. */
-  const dieLanded = () => {
-    if (!table || !dieRoll) return;
-    const r = dieRoll;
-    setDieRoll(null);
-    commit({
-      ...table,
-      dice: (table.dice ?? []).map((d) =>
-        d.id === r.id
-          ? { ...d, value: r.to, x: Math.min(TABLE_W, Math.max(0, d.x + r.dx)), y: Math.min(TABLE_H, Math.max(0, d.y + r.dy)), angle: normalizeAngle(d.angle + r.turn) }
-          : d,
-      ),
-    });
-    haptics.drop();
-  };
-  /** A die let go after a drag: it stays there. */
-  const placeDie = (id: string, x: number, y: number) => {
-    setDieDrag(null);
-    if (!table) return;
-    commit({ ...table, dice: (table.dice ?? []).map((d) => (d.id === id ? { ...d, x: Math.min(TABLE_W, Math.max(0, x)), y: Math.min(TABLE_H, Math.max(0, y)) } : d)) });
-    haptics.drop();
-  };
-
   // ---- Touches: one handler for the table and the hand, so cards can be carried between them. ----
   // Everything it needs that changes from render to render, read when it's needed.
   const [latest] = useState(() => {
@@ -702,24 +644,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       setHeld: (h: Held | null) => void;
       setTarget: (id: string | null) => void;
       setMenu: (m: Menu) => void;
-      dieAt: (x: number, y: number) => SandboxDie | undefined;
-      rollDie: (id: string) => void;
-      placeDie: (id: string, x: number, y: number) => void;
-      setDieDrag: (d: { id: string; x: number; y: number } | null) => void;
       searchFrom: string | null;
       endSearch: () => void;
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, dieAt, rollDie, placeDie, setDieDrag, searchFrom: searching, endSearch });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
     type Pt = { x: number; y: number };
     const s = {
-      mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress' | 'lasso' | 'group' | 'button' | 'die',
-      /** The die pressed (to roll, or drag), and where it was. */
-      die: null as null | { id: string; x: number; y: number; moved: boolean },
+      mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress' | 'lasso' | 'group' | 'button',
       /** Waiting to see if a press on a stack is held (the whole stack comes) rather than dragged (its top card). */
       holdTimer: null as null | ReturnType<typeof setTimeout>,
       /** The press is on a selected stack: a drag moves the whole group. */
@@ -1065,13 +1001,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             return;
           }
         }
-        // A die: tapped, it rolls; dragged, it moves.
-        const die = L.dieAt(w.x, w.y);
-        if (die) {
-          touch.mode = 'die';
-          touch.die = { id: die.id, x: die.x, y: die.y, moved: false };
-          return;
-        }
         const hit = L.table ? stackAt(L.table, w.x, w.y, L.size) : null;
         touch.onEmpty = false;
         if (hit) {
@@ -1190,18 +1119,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         }
         return;
       }
-      if (touch.mode === 'die' && touch.die) {
-        const f = touch.fingers.get(touch.first);
-        if (!f) return;
-        if (!touch.die.moved && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) <= TAP_SLOP) return;
-        if (!touch.die.moved) haptics.lift();
-        touch.die.moved = true;
-        const cam = readCamera();
-        const a = toTable(cam, f.start.x, f.start.y);
-        const b = toTable(cam, f.now.x, f.now.y);
-        latest.get().setDieDrag({ id: touch.die.id, x: touch.die.x + b.x - a.x, y: touch.die.y + b.y - a.y });
-        return;
-      }
       if (touch.mode === 'lasso') {
         // The lasso follows the finger; the stacks it goes round light up as it does.
         const f = touch.fingers.get(touch.first);
@@ -1295,18 +1212,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // What it went round stays picked out.
         L.setLassoPath(null);
         if (L.selected.length) haptics.drop();
-        touch.mode = 'none';
-      } else if (touch.mode === 'die' && touch.die && lifted.includes(touch.first)) {
-        const d = touch.die;
-        touch.die = null;
-        const f = touch.fingers.get(touch.first);
-        if (!d.moved) L.rollDie(d.id);
-        else if (f) {
-          const cam = readCamera();
-          const a = toTable(cam, f.start.x, f.start.y);
-          const b = toTable(cam, f.now.x, f.now.y);
-          L.placeDie(d.id, d.x + b.x - a.x, d.y + b.y - a.y);
-        }
         touch.mode = 'none';
       } else if (touch.mode === 'group') {
         if (touch.groupTwist && lifted.includes(touch.groupTwist.id)) touch.groupTwist = null;
@@ -1414,10 +1319,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const cancel = () => {
       const L = latest.get();
       clearHold();
-      if (touch.mode === 'die') {
-        touch.die = null;
-        L.setDieDrag(null);
-      }
       if (touch.fromSearch) {
         touch.fromSearch = false;
         L.endSearch();
@@ -2001,16 +1902,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 />
               ),
             )}
-            {/* Dice, over the cards. */}
-            {(table.dice ?? []).map((d) => (
-              <D20
-                key={d.id}
-                die={d}
-                at={dieDrag?.id === d.id ? dieDrag : d}
-                roll={dieRoll?.id === d.id ? dieRoll : null}
-                onLanded={dieLanded}
-              />
-            ))}
             {/* A stack being shuffled: the riffle, played where it lies, turned as it is. */}
             {riffling && riffleStack && riffleDeck ? (
               <View

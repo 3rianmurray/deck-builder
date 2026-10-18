@@ -94,6 +94,8 @@ const TAP_MS = 300;
 /** How far round a stack's count badge (in screen points) a touch takes the whole stack. */
 /** How long a press on a stack must be held, still, for the whole stack to come up (a quick drag takes its top card). */
 const HOLD_STACK_MS = 350;
+/** Stands in for the finger carrying cards taken out of the search, till the table's gesture says which it is. */
+const TAKE_OUT_FINGER = -7;
 /** How long a stack brought onto the table takes to fly in (and the camera to glide over to it). */
 const ARRIVE_MS = 480;
 /** Hand cards sliding to new places (one gone, one coming in, the gap moving). */
@@ -647,7 +649,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       /** When a hand card was pressed (it can't be lifted out for a moment, as in table mode). */
       pressedAt: 0,
       /** The table's own finger handling, for hand cards' touches to feed into once a card is lifted out. */
-      api: null as null | { down: (f: Finger[]) => void; move: (f: Finger[]) => void; up: (f: Finger[]) => void; cancel: () => void },
+      api: null as null | {
+        down: (f: Finger[]) => void;
+        move: (f: Finger[]) => void;
+        up: (f: Finger[]) => void;
+        cancel: () => void;
+        startTakeOut: (at: { x: number; y: number }) => void;
+      },
       /** Each finger's start and latest position, by id. */
       fingers: new Map<number, { start: Pt; now: Pt }>(),
       /** The finger that pressed (or carries). */
@@ -1288,7 +1296,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       L.setHandGap(null);
       touch.mode = 'none';
     };
-    touch.api = { down, move, up, cancel };
+    touch.api = { down, move, up, cancel, startTakeOut: (at) => startTakeOut(at) };
     /** A hand card lifted out (the gesture has seen a mostly upward drag from where the finger landed). */
     const liftFromHand = (start: Touch, all: Touch[]) => {
       down([start]);
@@ -1324,6 +1332,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       L.setHeld({ sources: touch.sources, cards: touch.cards });
       haptics.lift();
       move(all);
+    };
+    /** Cards taken out of the search, shown under the finger at once (till the table knows which finger it is). */
+    const startTakeOut = (at: { x: number; y: number }) => {
+      const pending = { id: TAKE_OUT_FINGER, x: at.x, y: at.y };
+      beginTakeOut(pending, [pending]);
+    };
+    /** The finger carrying cards taken out of the search, now known to the table: it carries them on. */
+    const adoptTakeOut = (finger: Touch, all: Touch[]) => {
+      if (touch.mode !== 'carry' || touch.first !== TAKE_OUT_FINGER) return;
+      const was = touch.fingers.get(TAKE_OUT_FINGER);
+      touch.fingers.clear();
+      for (const a of all) touch.fingers.set(a.id, { start: { x: a.x, y: a.y }, now: { x: a.x, y: a.y } });
+      touch.fingers.set(finger.id, { start: was?.start ?? { x: finger.x, y: finger.y }, now: { x: finger.x, y: finger.y } });
+      touch.first = finger.id;
+      move(all);
+    };
+    /** That finger lifted before it ever moved: the cards are put down where it is. */
+    const dropTakeOut = (finger: Touch) => {
+      adoptTakeOut(finger, [finger]);
+      up([finger]);
     };
     /** A tap in the tray: on a card, its menu (or, a second tap, a flip). */
     const tapInHand = (at: Touch) => {
@@ -1377,7 +1405,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           takeOut.set({ active: false, x: 0, y: 0 });
           trayTouch.set({ ...tt, watching: false, panel: false });
           manager.activate();
-          scheduleOnRN(beginTakeOut, { id: near.id, x: near.x, y: near.y }, points(e.allTouches));
+          scheduleOnRN(adoptTakeOut, { id: near.id, x: near.x, y: near.y }, points(e.allTouches));
           return;
         }
         if (tt.watching) {
@@ -1401,6 +1429,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         const tt = trayTouch.get();
         const allUp = e.allTouches.length <= e.changedTouches.length;
         if (tt.watching && tt.panel) {
+          // Cards taken out, and the finger lifted before it moved: they're put down right there.
+          const to = takeOut.get();
+          if (to.active && e.changedTouches.length) {
+            let near = e.changedTouches[0];
+            for (const a of e.changedTouches) if (Math.hypot(a.x - to.x, a.y - to.y) < Math.hypot(near.x - to.x, near.y - to.y)) near = a;
+            takeOut.set({ active: false, x: 0, y: 0 });
+            scheduleOnRN(dropTakeOut, { id: near.id, x: near.x, y: near.y });
+          }
           if (allUp) {
             trayTouch.set({ id: -1, x: 0, y: 0, t: 0, watching: false, panel: false });
             manager.end();
@@ -2126,6 +2162,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 searchTake.set(iids);
                 setSearchLeaving(true);
                 takeOut.set({ active: true, x: finger.x, y: finger.y });
+                // Under the finger straight away, not just once it moves.
+                gestureState.get().api?.startTakeOut(finger);
               }}
               cardActions={searchActions}
               onClose={endSearch}

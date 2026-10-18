@@ -53,6 +53,13 @@ import {
   toScreen,
   toTable,
   turnStack,
+  fanStack,
+  removeStacks,
+  rotateStacks,
+  setSolo,
+  setStack,
+  settleOnto,
+  stackable,
 } from '../lib/sandbox';
 import type { Camera, CardSize, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
@@ -91,6 +98,15 @@ const TAP_SLOP = 8;
 const EXTRA_TAP_MS = 350;
 /** Roughly the hand tray's height, for placing the camera at the start (the tray sizes itself to its cards). */
 const HAND_H = 160;
+/** Cloth colours a table can have (beside the classic felt, its default), by key: name and colour. */
+const CLOTHS: Record<string, { name: string; color: string }> = {
+  blue: { name: 'Blue', color: '#1d3a5c' },
+  green: { name: 'Green', color: '#1f4d33' },
+  red: { name: 'Red', color: '#6b1e24' },
+  purple: { name: 'Purple', color: '#43295f' },
+  charcoal: { name: 'Charcoal', color: '#2a2d33' },
+  tan: { name: 'Tan', color: '#8a6d47' },
+};
 /** How far down the screen the top bar's buttons reach, below the safe area (see TableTopBar). */
 const TOP_BAR_H = 56;
 /** Room left round the cards when the view is fitted to them. */
@@ -129,7 +145,8 @@ type Menu =
   | { kind: 'stack'; id: string }
   | { kind: 'hand'; hand: number; iid: string }
   | { kind: 'table' }
-  | { kind: 'addDeck' };
+  | { kind: 'addDeck' }
+  | { kind: 'colour' };
 
 /** A card being carried by a finger. */
 interface Held {
@@ -149,6 +166,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const insets = useSafeAreaInsets();
   const { width: screenW } = useWindowDimensions();
   const [history, setHistory] = useState<SandboxTable[]>([]);
+  /** Changes undone, latest last, to make again (gone once anything else changes). */
+  const [future, setFuture] = useState<SandboxTable[]>([]);
   const [handIndex, setHandIndex] = useState(0);
   const [folded, setFolded] = useState(false);
   /** Stacks picked out with the lasso: outlined in gold, and dragged together. */
@@ -264,13 +283,23 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const commit = (next: SandboxTable) => {
     if (!table || next === table) return;
     setHistory((h) => [...h.slice(-(UNDO_STEPS - 1)), table]);
+    setFuture([]);
     updateSandbox(next);
   };
   const undo = () => {
     const prev = history[history.length - 1];
     if (!prev || !table) return;
     setHistory(history.slice(0, -1));
+    setFuture((f) => [...f, table]);
     updateSandbox({ ...prev, camera: table.camera, name: table.name, handNames: table.handNames });
+    haptics.tick();
+  };
+  const redo = () => {
+    const next = future[future.length - 1];
+    if (!next || !table) return;
+    setFuture(future.slice(0, -1));
+    setHistory((h) => [...h.slice(-(UNDO_STEPS - 1)), table]);
+    updateSandbox({ ...next, camera: table.camera, name: table.name, handNames: table.handNames });
     haptics.tick();
   };
   const saveCamera = () => table && updateSandbox({ ...table, camera: readCamera() });
@@ -1212,8 +1241,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       const top = menuStack.cards[menuStack.cards.length - 1];
       const n = menuStack.cards.length;
       const tiles: SheetTile[] = [
-        { label: 'Flip over', icon: FLIP_ICON, onPress: () => commit(flipStack(table, menuStack.id)) },
-        { label: 'Turn 90°', icon: { ios: 'rotate.right', android: 'rotate_right', web: 'rotate_right' }, onPress: () => commit(turnStack(table, menuStack.id)) },
+        { label: 'Flip over', icon: FLIP_ICON, onPress: () => commit(settleOnto(flipStack(table, menuStack.id), menuStack.id)) },
+        { label: 'Turn left', icon: { ios: 'rotate.left', android: 'rotate_left', web: 'rotate_left' }, onPress: () => commit(turnStack(table, menuStack.id, -90)) },
+        { label: 'Turn right', icon: { ios: 'rotate.right', android: 'rotate_right', web: 'rotate_right' }, onPress: () => commit(turnStack(table, menuStack.id)) },
         // Into the open hand: the top card, or any card, looked for.
         {
           label: 'Draw',
@@ -1235,6 +1265,36 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         },
         ...(n > 1
           ? [{ label: 'Shuffle', icon: { ios: 'shuffle', android: 'shuffle', web: 'shuffle' } as const, onPress: () => commit(shuffleStack(table, menuStack.id)) }]
+          : []),
+        // Spread out, every card showing, as close as the grid allows.
+        ...(n > 1
+          ? [
+              {
+                label: 'Fan down',
+                icon: { ios: 'rectangle.split.1x2', android: 'view_agenda', web: 'view_agenda' } as const,
+                onPress: () => commit(fanStack(table, menuStack.id, 'down', newId)),
+              },
+              {
+                label: 'Fan across',
+                icon: { ios: 'rectangle.split.3x1', android: 'view_column', web: 'view_column' } as const,
+                onPress: () => commit(fanStack(table, menuStack.id, 'across', newId)),
+              },
+            ]
+          : []),
+        {
+          label: menuStack.locked ? 'Unlock' : 'Lock in place',
+          icon: menuStack.locked ? ({ ios: 'lock.open', android: 'lock_open', web: 'lock_open' } as const) : ({ ios: 'lock', android: 'lock', web: 'lock' } as const),
+          onPress: () => commit(setStack(table, menuStack.id, { locked: !menuStack.locked })),
+        },
+        // A single card can be kept from stacking: nothing goes onto it, and it goes onto nothing.
+        ...(n === 1
+          ? [
+              {
+                label: top.solo ? 'Let it stack' : 'Never stack',
+                icon: top.solo ? ({ ios: 'square.stack', android: 'layers', web: 'layers' } as const) : ({ ios: 'nosign', android: 'block', web: 'block' } as const),
+                onPress: () => commit(setSolo(table, menuStack.id, !top.solo)),
+              },
+            ]
           : []),
         ...(top.faceUp
           ? [{ label: 'Full size', icon: { ios: 'arrow.up.left.and.arrow.down.right', android: 'open_in_full', web: 'open_in_full' } as const, keepsOpen: true, onPress: () => setZoomed(top) }]
@@ -1280,6 +1340,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         tiles: [],
         actions: [
           { label: 'Add a deck…', onPress: () => setTimeout(() => setMenu({ kind: 'addDeck' }), 250) },
+          { label: 'Table colour…', onPress: () => setTimeout(() => setMenu({ kind: 'colour' }), 250) },
           {
             label: 'Reset the view',
             onPress: () => {
@@ -1303,6 +1364,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         ],
       };
     }
+    if (menu.kind === 'colour') {
+      const pick = (background: string | undefined) => {
+        const { background: _old, ...rest } = table;
+        updateSandbox(background ? { ...rest, background } : rest);
+        haptics.tick();
+      };
+      return {
+        title: 'Table colour',
+        tiles: [],
+        actions: [
+          { label: `Classic felt${table.background ? '' : '  ✓'}`, onPress: () => pick(undefined) },
+          ...Object.entries(CLOTHS).map(([key, c]) => ({ label: `${c.name}${table.background === key ? '  ✓' : ''}`, onPress: () => pick(key) })),
+        ],
+      };
+    }
     if (menu.kind === 'addDeck') {
       const playable = decks.filter((d) => d.cards.length);
       return {
@@ -1321,6 +1397,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return { set: (fn: () => void) => Object.assign(box, { fn }), get: () => box.fn };
   });
   latestUndo.set(undo);
+  const [latestRedo] = useState(() => {
+    const box = { fn: () => {} };
+    return { set: (fn: () => void) => Object.assign(box, { fn }), get: () => box.fn };
+  });
+  latestRedo.set(redo);
   const carrying = !!held;
   useEffect(() => {
     if (!table) return onControls(null);
@@ -1329,9 +1410,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       canUndo: history.length > 0,
       busy: carrying,
       undo: () => latestUndo.get()(),
+      redo: () => latestRedo.get()(),
+      canRedo: future.length > 0,
       openMenu: () => setMenu({ kind: 'table' }),
     });
-  }, [history.length, carrying, onControls, table, latestUndo]);
+  }, [history.length, future.length, carrying, onControls, table, latestUndo, latestRedo]);
 
   if (!table) {
     return (
@@ -1345,6 +1428,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   }
 
   const chosenIds = new Set(chosen);
+  const cloth = table.background ? CLOTHS[table.background] : undefined;
   const heldTop = held ? held.cards[held.cards.length - 1] : null;
   const heldDeck = heldTop ? getDeck(heldTop.deckId) : undefined;
   const heldSize = heldTop ? size(heldTop.deckId) : null;
@@ -1358,7 +1442,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           {/* The table, seen through the camera. */}
           <Animated.View style={[styles.world, worldStyle]} pointerEvents="none">
             <View style={styles.tableEdge} />
-            <Image source={require('../../assets/textures/felt.png')} resizeMode="repeat" style={styles.felt} />
+            {/* The cloth's colour, if one's been chosen: under a lighter weave. */}
+            {cloth ? <View style={[styles.cloth, { backgroundColor: cloth.color }]} /> : null}
+            <Image source={require('../../assets/textures/felt.png')} resizeMode="repeat" style={[styles.felt, cloth && styles.feltOverCloth]} />
             {gridOn ? <GridLines /> : null}
             {table.stacks.map((s) =>
               groupMoving && chosenIds.has(s.id) ? null : (
@@ -1684,7 +1770,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'colour')}
         title={sheet?.title}
         actions={sheet?.actions ?? []}
         onClose={() => setMenu(null)}
@@ -1906,6 +1992,12 @@ const StackView = memo(function StackView({
         </View>
       ) : null}
       {target || selected ? <View style={styles.target} /> : null}
+      {/* Locked in place: a small padlock on its corner. */}
+      {stack.locked ? (
+        <View style={styles.lockBadge}>
+          <SymbolView name={{ ios: 'lock.fill', android: 'lock', web: 'lock' }} size={11} tintColor={colors.text} />
+        </View>
+      ) : null}
     </View>
   );
 });
@@ -1917,6 +2009,8 @@ const styles = StyleSheet.create({
   link: { color: colors.accent, fontSize: 16, fontWeight: '600' },
   world: { position: 'absolute', left: 0, top: 0, width: TABLE_W, height: TABLE_H, transformOrigin: [0, 0, 0] },
   felt: { position: 'absolute', left: 0, top: 0, width: TABLE_W, height: TABLE_H, opacity: 0.9 },
+  cloth: { position: 'absolute', left: 0, top: 0, width: TABLE_W, height: TABLE_H },
+  feltOverCloth: { opacity: 0.3 },
   // A wooden rim round the table, so its edge is clear when zoomed out.
   tableEdge: {
     position: 'absolute',
@@ -1991,6 +2085,19 @@ const styles = StyleSheet.create({
   },
   held: { position: 'absolute' },
   hidden: { opacity: 0 },
+  lockBadge: {
+    position: 'absolute',
+    left: -6,
+    bottom: -6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(8,18,26,0.85)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
   // The tray and its tabs, which slide together when it folds.
   trayWrap: { position: 'absolute', left: 0, right: 0 },
   // The groove the hand's cards sit in, as along table mode's rail.

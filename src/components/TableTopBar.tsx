@@ -15,6 +15,9 @@ export interface TableControls {
   /** Cards are being dragged: then nothing in the bar does anything. */
   busy: boolean;
   undo: () => void;
+  /** Redo, for tables that have it: the undone change made again. */
+  redo?: () => void;
+  canRedo?: boolean;
   openMenu: () => void;
 }
 
@@ -57,14 +60,24 @@ export function TableTopBar({ controls }: { controls: TableControls | null }) {
         <View />
       )}
       {controls ? (
-        <TourSpot id="table.undo">
-          <RoundButton
-            icon={{ ios: 'arrow.uturn.backward', android: 'undo', web: 'undo' }}
-            label="Undo"
-            onPress={controls.undo}
-            disabled={!controls.canUndo || controls.busy}
-          />
-        </TourSpot>
+        <View style={styles.pair}>
+          <TourSpot id="table.undo">
+            <RoundButton
+              icon={{ ios: 'arrow.uturn.backward', android: 'undo', web: 'undo' }}
+              label="Undo"
+              onPress={controls.undo}
+              disabled={!controls.canUndo || controls.busy}
+            />
+          </TourSpot>
+          {controls.redo ? (
+            <RoundButton
+              icon={{ ios: 'arrow.uturn.forward', android: 'redo', web: 'redo' }}
+              label="Redo"
+              onPress={controls.redo}
+              disabled={!controls.canRedo || controls.busy}
+            />
+          ) : null}
+        </View>
       ) : (
         <View style={styles.round} />
       )}
@@ -114,6 +127,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.22)',
   },
+  pair: { flexDirection: 'row', gap: 8 },
   round: { width: SIZE, height: SIZE, borderRadius: SIZE / 2, alignItems: 'center', justifyContent: 'center' },
   title: {
     flexShrink: 1,

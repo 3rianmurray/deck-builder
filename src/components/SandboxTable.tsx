@@ -915,6 +915,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const from = sources[0]?.kind === 'card' ? L.table.stacks.find((st) => st.id === (sources[0] as { stackId: string }).stackId) : undefined;
     if (sources.length === 1 && from && from.cards.length > 1) offerTipSoon('tables-hold-stack', 600);
     touch.drops += 1;
+    if (touch.drops === 2) offerTipSoon('tables-double-tap', 600);
     if (touch.drops === 4) offerTipSoon('tables-second-finger', 600);
     // For the walkthrough (a whole stack first, so one drop never counts for two of its steps).
     if (whole?.kind === 'stack') tourEvent('tables-lifted');
@@ -1264,6 +1265,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               } else {
                 now.setSelected([src.stackId]);
                 haptics.tick();
+                // A tip, the first time: tapping again opens its options.
+                offerTipSoon('tables-tap-twice', 400);
               }
             }, DOUBLE_TAP_MS);
           }

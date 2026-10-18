@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import * as haptics from '../lib/haptics';
+import { offerTipSoon } from '../lib/tips';
 import { loadUpright, saveCrop, smallPixels } from '../lib/images';
 import { guessSheet } from '../lib/sheetGuess';
 import type { LoadedImage, QuarterTurn } from '../lib/images';
@@ -25,6 +26,7 @@ import type { Grid, SheetOrder } from '../lib/spriteSheet';
 import type { SheetGuess } from '../lib/sheetGuess';
 import { colors } from '../theme';
 import { Button } from './Button';
+import { TipToast } from './TipToast';
 import { MAX_TEXT_SCALE, Text } from './Text';
 
 const MAX_CELLS_PER_SIDE = 20;
@@ -74,6 +76,9 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
   const [painting, setPainting] = useState(false);
 
   const image = loaded && loaded.source === uri ? loaded : null;
+  // A tip, the first time: the numbers slide.
+  const open = uri !== null;
+  useEffect(() => (open ? offerTipSoon('sprite-slide', 1500) : undefined), [open]);
 
   useEffect(() => {
     if (!uri) return;
@@ -361,6 +366,8 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
           />
         </View>
       </KeyboardAvoidingView>
+      {/* This screen is its own window, over the app's: tips show here too. */}
+      <TipToast />
     </Modal>
   );
 }

@@ -4,6 +4,7 @@ import type { GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import * as haptics from '../lib/haptics';
+import { offerTipSoon } from '../lib/tips';
 import type { SandboxCard } from '../lib/sandbox';
 import type { Deck } from '../lib/types';
 import { colors } from '../theme';
@@ -107,6 +108,8 @@ export function StackSearchPanel({
 
   useEffect(() => {
     if (visible) {
+      // A tip, the first time: taking cards out.
+      offerTipSoon('search-take-out', 1200);
       fade.setValue(1);
       Animated.timing(open, { toValue: 1, duration: IN_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     } else {

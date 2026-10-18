@@ -33,6 +33,7 @@ import { useDecks } from '../lib/DecksContext';
 import * as haptics from '../lib/haptics';
 import * as T from '../lib/table';
 import { fitTilt, project, tiltTransform, unproject } from '../lib/tilt';
+import { countFor, offerTipSoon } from '../lib/tips';
 import { setTourTarget, tourEvent, tourRunning, useTourStep } from '../lib/tour';
 import { cardRadius, cardRatio } from '../lib/types';
 import type { Card, CardInstance, Deck, Spot, TableState, Zone } from '../lib/types';
@@ -941,6 +942,8 @@ function Table({
     const top = table.deck[0];
     if (!top || flying || deckBusy) return;
     tourEvent('revealed');
+    // A tip, after a few: holding a card shows it full size.
+    if (countFor('reveals') === 3) offerTipSoon('reveal-hold', 1400);
     // Felt as it comes off the deck, and again as it lands on the discard pile.
     haptics.deal();
     const move = () => apply((t) => T.moveCard(t, top.iid, 'discard'));
@@ -3453,6 +3456,8 @@ function SearchPanel({
 
   useEffect(() => {
     if (visible) {
+      // A tip, the first time: taking cards out.
+      offerTipSoon('search-take-out', 1200);
       fade.setValue(1);
       Animated.timing(open, { toValue: 1, duration: SEARCH_IN_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     } else {

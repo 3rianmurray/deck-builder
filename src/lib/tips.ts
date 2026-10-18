@@ -14,6 +14,11 @@ export const TIPS = {
   'session-swipe': 'Swipe sideways to move between this session’s decks.',
   'home-swipe': 'Swipe a row right to duplicate it, or left to delete it.',
   'deck-hold-reorder': 'Hold a card and drag it to reorder the deck.',
+  'tables-tap-twice': 'Tap a card to pick it out; tap it again for all its options.',
+  'tables-double-tap': 'Double-tap a card to turn it over.',
+  'reveal-hold': 'Hold a card to see it full size.',
+  'search-take-out': 'Hold a card, then tap Close with another finger, to take it out onto the table.',
+  'sprite-slide': 'Slide a finger across a number to change it.',
 } as const;
 
 export type TipId = keyof typeof TIPS;
@@ -28,6 +33,14 @@ const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => listeners.delete(l);
 };
+
+/** Counts something done since the app opened (e.g. cards turned over), for tips that come after a few. */
+const counts = new Map<string, number>();
+export function countFor(what: string): number {
+  const n = (counts.get(what) ?? 0) + 1;
+  counts.set(what, n);
+  return n;
+}
 
 /** Tips are on (they are, unless turned off in the menu). */
 export const tipsOn = () => !loadSettings().tipsOff;

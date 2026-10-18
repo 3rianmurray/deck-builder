@@ -9,6 +9,8 @@ import { CardView } from './CardView';
 import { Text } from './Text';
 
 const THUMB = 26;
+/** The card beside it (given a deck), big enough to see its corners. */
+const PREVIEW_W = 88;
 
 /**
  * How round a deck's card corners are: a slider from square to very round, with one of its cards beside it
@@ -83,7 +85,7 @@ export function RoundnessSlider({
 
   return (
     <View style={styles.row}>
-      {deck ? <CardView deck={{ ...deck, roundness: value }} card={card} faceUp={!!card} width={44} /> : null}
+      {deck ? <CardView deck={{ ...deck, roundness: value }} card={card} faceUp={!!card} width={PREVIEW_W} /> : null}
       <View style={{ flex: 1, gap: 4 }}>
         <View
           {...touches.panHandlers}
@@ -101,9 +103,11 @@ export function RoundnessSlider({
           onAccessibilityAction={(e) =>
             onChange(Math.min(MAX_ROUNDNESS, Math.max(0, saved + (e.nativeEvent.actionName === 'increment' ? 0.02 : -0.02))))
           }>
-          <View style={styles.track} />
-          <View style={[styles.fill, { width: left + THUMB / 2 }]} />
-          <View style={[styles.thumb, { left }]} />
+          {/* None of these take touches, so a touch's place is always measured along the whole track (on the thumb,
+              it would be measured from the thumb, and jump to the start). */}
+          <View style={[styles.track, styles.noTouch]} />
+          <View style={[styles.fill, styles.noTouch, { width: left + THUMB / 2 }]} />
+          <View style={[styles.thumb, styles.noTouch, { left }]} />
         </View>
         <View style={styles.ends}>
           <Text style={styles.end}>Square</Text>
@@ -131,5 +135,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
   },
   ends: { flexDirection: 'row', justifyContent: 'space-between' },
+  noTouch: { pointerEvents: 'none' },
   end: { color: colors.textMuted, fontSize: 12 },
 });

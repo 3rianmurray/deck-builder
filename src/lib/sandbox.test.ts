@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  addCards,
   addDeck,
   cameraAngle,
   cameraZoom,
@@ -395,4 +396,27 @@ test('fanning a stack lays its cards a grid step apart, its top card last and on
   const across = fanStack(t, 'a', 'across', () => `g${n++}`);
   assert.deepEqual(across.stacks.map((s) => s.x), [100, 140, 180]);
   assert.equal(removeStacks(down, ['f0', 'f1']).stacks.length, 1);
+});
+test('adding chosen cards brings every copy of each, face down, in one stack with the deck order kept', () => {
+  const deck = {
+    id: 'd',
+    name: 'D',
+    backImage: null,
+    cards: [
+      { id: 'a', name: 'A', image: '' },
+      { id: 'b', name: 'B', image: '', copies: 2 },
+      { id: 'c', name: 'C', image: '' },
+    ],
+    createdAt: 0,
+    updatedAt: 0,
+  } as Deck;
+  let n = 0;
+  const t = addCards(newSandbox('t', 'T', 0), deck, ['c', 'a', 'b'].slice(1), { x: 50, y: 60 }, () => `i${n++}`);
+  assert.equal(t.stacks.length, 1);
+  const s = t.stacks[0];
+  assert.deepEqual([s.x, s.y], [50, 60]);
+  // A on top (the deck's first card), then B's two copies; C wasn't chosen.
+  assert.deepEqual(s.cards.map((c) => c.cardId), ['b', 'b', 'a']);
+  assert.ok(s.cards.every((c) => !c.faceUp));
+  assert.equal(addCards(t, deck, [], { x: 0, y: 0 }, () => 'x'), t);
 });

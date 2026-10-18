@@ -608,6 +608,26 @@ export function solitaire(t: SandboxTable, deck: Deck, ids: () => string, random
   return { ...t, stacks, snapToGrid: true, focus };
 }
 
+/**
+ * Brings some of a deck's cards onto the table: the ones chosen (every copy of each), in the deck's order, in one
+ * face-down stack at (x, y). `ids` makes unique ids for the stack and its cards.
+ */
+export function addCards(
+  t: SandboxTable,
+  deck: Deck,
+  cardIds: string[],
+  at: { x: number; y: number },
+  ids: () => string,
+): SandboxTable {
+  const chosen = new Set(cardIds);
+  const cards: SandboxCard[] = deck.cards
+    .filter((c) => chosen.has(c.id))
+    .flatMap((c) => Array.from({ length: c.copies ?? 1 }, () => ({ iid: ids(), deckId: deck.id, cardId: c.id, faceUp: false })));
+  if (!cards.length) return t;
+  // Bottom first: the deck's first card ends up on top, as at the top of a deck.
+  return { ...t, stacks: [...t.stacks, { id: ids(), x: at.x, y: at.y, angle: 0, cards: cards.reverse() }] };
+}
+
 /** The table without any cards from decks that no longer exist (or cards since removed from their deck). */
 export function prune(t: SandboxTable, decks: Deck[]): SandboxTable {
   const known = new Set(decks.flatMap((d) => d.cards.map((c) => `${d.id}:${c.id}`)));

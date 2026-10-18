@@ -15,6 +15,7 @@ import { askName } from '../lib/names';
 import * as haptics from '../lib/haptics';
 import { newId } from '../lib/id';
 import {
+  addCards,
   addDeck,
   CARD_W,
   cameraAngle,
@@ -68,6 +69,7 @@ import { colors } from '../theme';
 import { ActionSheet } from './ActionSheet';
 import type { SheetTile } from './ActionSheet';
 import { CardFocus } from './CardFocus';
+import { AddCardsModal } from './AddCardsModal';
 import { DealPanel } from './DealPanel';
 import { Riffle } from './Riffle';
 import { StackSearch } from './StackSearch';
@@ -232,6 +234,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [dealingFrom, setDealingFrom] = useState<string | null>(null);
   /** Looking through this stack: its menu shows its cards, to take one into the hand. */
   const [searching, setSearching] = useState<string | null>(null);
+  /** Choosing cards from a deck to bring onto the table. */
+  const [addingCards, setAddingCards] = useState(false);
   /** A stack being riffle shuffled (as in a deck's play screen): which, a fresh key each time, and whether it's started. */
   const [riffling, setRiffling] = useState<{ stackId: string; key: number; started: boolean } | null>(null);
   const [zoomed, setZoomed] = useState<SandboxCard | null>(null);
@@ -1373,15 +1377,24 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return putOnTable(t, cards, gridOn ? snapToGrid(at) : at, newId());
   };
 
-  const addDeckToTable = (deck: Deck) => {
-    if (!table) return;
+  /** Where something new goes on the table: the middle of the view, or beside anything already there. */
+  const freeSpot = () => {
     const m = viewMiddle();
-    // Beside anything already in the middle, rather than on it.
     // With snapping on, on grid crossings (a card and a half apart is three of them).
     const start = gridOn ? snapToGrid({ ...m, angle: 0 }) : m;
     let x = start.x;
-    while (table.stacks.some((s) => Math.hypot(s.x - x, s.y - start.y) < CARD_W)) x += CARD_W * 1.5;
-    commit(addDeck(table, deck, { x, y: start.y }, newId));
+    while (table?.stacks.some((s) => Math.hypot(s.x - x, s.y - start.y) < CARD_W)) x += CARD_W * 1.5;
+    return { x, y: start.y };
+  };
+  const addDeckToTable = (deck: Deck) => {
+    if (!table) return;
+    commit(addDeck(table, deck, freeSpot(), newId));
+    haptics.drop();
+  };
+  /** Some of a deck's cards, chosen one by one: in one face-down stack. */
+  const addCardsToTable = (deck: Deck, cardIds: string[]) => {
+    if (!table) return;
+    commit(addCards(table, deck, cardIds, freeSpot(), newId));
     haptics.drop();
   };
 
@@ -1510,6 +1523,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         tiles: [],
         actions: [
           { label: 'Add a deck…', onPress: () => setTimeout(() => setMenu({ kind: 'addDeck' }), 250) },
+          // Its own screen, which iOS can only show once this menu has gone.
+          { label: 'Add cards…', opensModal: true, onPress: () => setAddingCards(true) },
           { label: 'Table color…', onPress: () => setTimeout(() => setMenu({ kind: 'color' }), 250) },
           {
             label: 'Reset the view',
@@ -1997,6 +2012,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           ) : undefined
         }
       />
+      <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
         visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color')}

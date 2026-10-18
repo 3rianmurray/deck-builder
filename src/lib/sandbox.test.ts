@@ -514,3 +514,10 @@ test('layers: to the back or front, or down and up past the next card it overlap
   // Nothing under 'a' to pass.
   assert.equal(moveLayer(t, 'a', 'down', size), t);
 });
+test('a fan near the edge of the table starts back far enough to fit, still a step apart', () => {
+  const t = tableWith({ id: 'a', x: 3560, y: 100, angle: 0, cards: [card('1'), card('2'), card('3'), card('4')] });
+  let n = 0;
+  const xs = fanStack(t, 'a', 'across', () => `f${n++}`, 40).stacks.map((s) => s.x);
+  // 3560 + 120 would run off the 3600-wide table: back two steps, to 3480.
+  assert.deepEqual(xs, [3480, 3520, 3560, 3600]);
+});

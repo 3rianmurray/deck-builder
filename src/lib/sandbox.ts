@@ -705,10 +705,18 @@ export function rotateStacks(
 export function fanStack(t: SandboxTable, stackId: string, direction: 'down' | 'across', ids: () => string, step = GRID_STEP): SandboxTable {
   const s = t.stacks.find((st) => st.id === stackId);
   if (!s || s.cards.length < 2) return t;
+  // The whole fan on the table: near its edge, it starts back far enough to fit (a step apart, whole steps back so
+  // it stays on the grid); one too long for the table is squeezed to fit it.
+  const across = direction === 'across';
+  const length = across ? TABLE_W : TABLE_H;
+  const from = across ? s.x : s.y;
+  const gap = Math.min(step, length / (s.cards.length - 1));
+  const span = gap * (s.cards.length - 1);
+  const start = from + span <= length ? from : Math.max(0, from - Math.ceil((from + span - length) / gap) * gap);
   const fanned = s.cards.map((card, i) => ({
     id: ids(),
-    x: Math.min(TABLE_W, s.x + (direction === 'across' ? i * step : 0)),
-    y: Math.min(TABLE_H, s.y + (direction === 'down' ? i * step : 0)),
+    x: across ? start + i * gap : s.x,
+    y: across ? s.y : start + i * gap,
     angle: s.angle,
     cards: [card],
   }));

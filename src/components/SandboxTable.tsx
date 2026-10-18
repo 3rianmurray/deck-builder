@@ -191,16 +191,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const groupTurn = useSharedValue(0);
   const groupPX = useSharedValue(0);
   const groupPY = useSharedValue(0);
-  // The group layer's own middle is its top-left corner (it has no size), so: turn about the grab point, then move.
-  const groupStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: groupDX.value + groupPX.value },
-      { translateY: groupDY.value + groupPY.value },
-      { rotate: `${groupTurn.value}deg` },
-      { translateX: -groupPX.value },
-      { translateY: -groupPY.value },
-    ],
-  }));
+  // Turned about the grab point p, then moved by d: a point x goes to R(x − p) + p + d. The layer has no size, so it
+  // turns about its top-left corner (the table's origin): that's R·x then a single move of p + d − R·p. (One move
+  // and one turn: the same transform written as move, turn, move back has its two moves merged into one.)
+  const groupStyle = useAnimatedStyle(() => {
+    const r = (groupTurn.value * Math.PI) / 180;
+    const px = groupPX.value;
+    const py = groupPY.value;
+    return {
+      transform: [
+        { translateX: px + groupDX.value - (px * Math.cos(r) - py * Math.sin(r)) },
+        { translateY: py + groupDY.value - (px * Math.sin(r) + py * Math.cos(r)) },
+        { rotate: `${groupTurn.value}deg` },
+      ],
+    };
+  });
   /** Cards flying into a stack just gathered (each the top of a stack that was picked out). */
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   /** Where carried cards would go into the hand, while they're over it: a gap opens there. */
@@ -429,7 +434,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setFlyers([]);
     setPileFlights([]);
     const turn = gestureState.get().groupAngle;
-    if (!table || (!by.x && !by.y && !turn)) return;
+    // Nothing left to move (e.g. trashed mid-drag), or not moved at all.
+    if (!table || !chosen.length || (!by.x && !by.y && !turn)) return;
     const place = gridOn ? (p: { x: number; y: number; angle: number }) => snapToGrid(p) : undefined;
     commit(turn ? rotateStacks(table, chosen, gestureState.get().groupFrom, turn, by, place) : moveStacks(table, chosen, by, place));
     haptics.drop();
@@ -565,6 +571,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       setLassoPath: (p: { x: number; y: number }[] | null) => void;
       setGroupMoving: (moving: boolean) => void;
       stackButton: { x: number; y: number; size: number };
+      trashButton: { x: number; y: number; size: number };
       dropGroup: (by: { x: number; y: number }) => void;
       flipGroup: () => void;
       trashSelection: () => void;
@@ -585,7 +592,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, trashButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -972,6 +979,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           if (c.id === touch.first) continue;
           if (on(c, L.flipButton)) L.flipGroup();
           else if (on(c, L.stackButton)) L.gatherGroup(touch.groupLead);
+          else if (on(c, L.trashButton)) L.trashSelection();
           else if (!touch.groupTwist) {
             // Anywhere else, a second finger twists the group round the first.
             const first = touch.fingers.get(touch.first);
@@ -1869,8 +1877,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
           ) : null}
 
-          {/* With cards picked out (not being dragged): one to take them off the table. */}
-          {!held && !groupMoving && chosen.length ? (
+          {/* With cards picked out (dragged or not): one to take them off the table. */}
+          {!held && chosen.length ? (
             <View
               pointerEvents="none"
               style={[styles.flipButton, styles.trashButton, { left: trashButton.x, top: trashButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }]}>

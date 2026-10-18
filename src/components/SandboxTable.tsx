@@ -159,6 +159,8 @@ const TOOLS_H = 452;
 const TOOLS_TAB_TOP = 42;
 /** How long the grid shows when its size is chosen (with its lines off). */
 const GRID_PEEK_MS = 1500;
+/** And how long it takes to fade away after that. */
+const GRID_FADE_MS = 1000;
 /** How far below the top of the screen's safe area the tools drawer sits (clear of the top bar). */
 const TOOLS_FROM_TOP = 64;
 
@@ -274,6 +276,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [addingCards, setAddingCards] = useState(false);
   /** The grid shown for a moment (its size just chosen), even with its lines off. */
   const [gridPeek, setGridPeek] = useState(0);
+  /** The peeked grid's lines fading away. */
+  const gridFade = useSharedValue(1);
+  const [latestPeek] = useState(() => {
+    const box = { id: 0 };
+    return { get: () => box.id, set: (id: number) => Object.assign(box, { id }) };
+  });
+  const gridFadeStyle = useAnimatedStyle(() => ({ opacity: gridFade.value }));
   /** The table's trash is open, to put cards back. */
   const [trashOpen, setTrashOpen] = useState(false);
   /** A stack just brought onto the table, flying in to where the camera's taking it on screen. */
@@ -1865,7 +1874,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             {/* The cloth's color, if one's been chosen: under a lighter weave. */}
             {cloth ? <View style={[styles.cloth, { backgroundColor: cloth.color }]} /> : null}
             <Image source={require('../../assets/textures/felt.png')} resizeMode="repeat" style={[styles.felt, cloth && styles.feltOverCloth]} />
-            {table.showGrid || gridPeek ? <GridLines step={gridStep} /> : null}
+            {table.showGrid ? <GridLines step={gridStep} /> : null}
+            {!table.showGrid && gridPeek ? (
+              <Animated.View style={[StyleSheet.absoluteFill, gridFadeStyle]}>
+                <GridLines step={gridStep} />
+              </Animated.View>
+            ) : null}
             {table.stacks.map((s) =>
               groupMoving && chosenIds.has(s.id) && !s.locked ? null : (
                 <StackView
@@ -2090,8 +2104,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                       haptics.tick();
                       // The lines for a moment, to see the spacing chosen.
                       const peek = Date.now();
+                      latestPeek.set(peek);
                       setGridPeek(peek);
-                      setTimeout(() => setGridPeek((p) => (p === peek ? 0 : p)), GRID_PEEK_MS);
+                      gridFade.set(1);
+                      // Then they fade away (unless another size has been chosen meanwhile), and go.
+                      setTimeout(() => {
+                        if (latestPeek.get() === peek) gridFade.set(withTiming(0, { duration: GRID_FADE_MS }));
+                      }, GRID_PEEK_MS);
+                      setTimeout(() => {
+                        if (latestPeek.get() === peek) setGridPeek(0);
+                      }, GRID_PEEK_MS + GRID_FADE_MS);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel={`${name} grid`}

@@ -16,6 +16,8 @@ export interface SandboxCard {
   faceUp: boolean;
   /** It never stacks: nothing goes onto it, and it goes onto nothing (set from its menu). */
   solo?: boolean;
+  /** Brought on by itself (with Add cards), not as part of a whole deck: gathered up as a single, not a deck. */
+  single?: boolean;
 }
 
 /** A pile of one or more cards lying somewhere on the table, all at one angle. Its last card is on top. */
@@ -649,7 +651,7 @@ export function addCards(
   const chosen = new Set(cardIds);
   const cards: SandboxCard[] = deck.cards
     .filter((c) => chosen.has(c.id))
-    .flatMap((c) => Array.from({ length: c.copies ?? 1 }, () => ({ iid: ids(), deckId: deck.id, cardId: c.id, faceUp: false })));
+    .flatMap((c) => Array.from({ length: c.copies ?? 1 }, () => ({ iid: ids(), deckId: deck.id, cardId: c.id, faceUp: false, single: true })));
   if (!cards.length) return t;
   // Bottom first: the deck's first card ends up on top, as at the top of a deck.
   return { ...t, stacks: [...t.stacks, { id: ids(), x: at.x, y: at.y, angle: 0, cards: cards.reverse() }] };
@@ -867,7 +869,8 @@ export function setsOfDeck(deck: Deck, cards: SandboxCard[]): number {
  * Gathers the table up by deck, for a new game: every deck with a card anywhere on it (the table, a hand or the
  * trash) back as complete decks (every card and copy, as the deck is now; as many of them as were brought on, see
  * setsOfDeck), each shuffled and face down, in a row from `at` a card and a half apart (`place` settles each spot,
- * e.g. onto the grid). Hands and trash are emptied.
+ * e.g. onto the grid). Cards brought on one by one (`single`) come back as singles instead: each deck's fanned out
+ * face up, a `step` apart, in a row below. Hands and trash are emptied.
  */
 export function gatherDecks(
   t: SandboxTable,
@@ -876,17 +879,33 @@ export function gatherDecks(
   ids: () => string,
   random: () => number = Math.random,
   place = (p: { x: number; y: number; angle: number }) => p,
+  step = GRID_STEP,
 ): SandboxTable {
   const all = [...t.stacks.flatMap((s) => s.cards), ...t.hands.flat(), ...(t.trash ?? [])];
+  const whole = all.filter((c) => !c.single);
   const used: string[] = [];
   for (const c of all) if (!used.includes(c.deckId)) used.push(c.deckId);
-  const sets = used
-    .map((id) => decks.find((d) => d.id === id))
-    .filter((d): d is Deck => !!d && d.cards.length > 0)
-    .flatMap((deck) => Array.from({ length: setsOfDeck(deck, all) }, () => deck));
+  const known = used.map((id) => decks.find((d) => d.id === id)).filter((d): d is Deck => !!d && d.cards.length > 0);
+  // Whole decks, as many of each as were brought on, in a row.
+  const sets = known.flatMap((deck) => (whole.some((c) => c.deckId === deck.id) ? Array.from({ length: setsOfDeck(deck, whole) }, () => deck) : []));
   const empty: SandboxTable = { ...t, stacks: [], hands: t.hands.map(() => []), trash: [] };
-  return sets.reduce((table, deck, i) => {
+  let table = sets.reduce((tb, deck, i) => {
     const spot = place({ x: at.x + i * CARD_W * 1.5, y: at.y, angle: 0 });
-    return addDeck(table, deck, { x: spot.x, y: spot.y }, ids, random);
+    return addDeck(tb, deck, { x: spot.x, y: spot.y }, ids, random);
   }, empty);
+  // Cards brought on one by one: by deck, each deck's fanned out face up across a row below (in the deck's order).
+  let row = sets.length ? 1 : 0;
+  for (const deck of known) {
+    const singles = all
+      .filter((c) => c.single && c.deckId === deck.id)
+      .sort((a, b) => deck.cards.findIndex((k) => k.id === a.cardId) - deck.cards.findIndex((k) => k.id === b.cardId));
+    if (!singles.length) continue;
+    const y = at.y + row * CARD_W * 1.8;
+    singles.forEach((c, i) => {
+      const spot = place({ x: at.x + i * step, y, angle: 0 });
+      table = { ...table, stacks: [...table.stacks, { id: ids(), x: spot.x, y: spot.y, angle: 0, cards: [{ ...c, faceUp: true }] }] };
+    });
+    row++;
+  }
+  return table;
 }

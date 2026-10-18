@@ -540,7 +540,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** Which of the selection's buttons is at a point on screen, if any (while nothing's carried). */
   const selectionButtonAt = (x: number, y: number): 'flip' | 'gather' | 'more' | null => {
     const on = (b: { x: number; y: number; size: number }) => Math.hypot(x - (b.x + b.size / 2), y - (b.y + b.size / 2)) <= b.size / 2 + 8;
-    if (!chosen.length || held || groupMoving) return null;
+    // Not while the tools are out: they lie over the buttons, which wait, dimmed.
+    if (!chosen.length || held || groupMoving || toolsOpen) return null;
     if (on(flipButton)) return 'flip';
     if (chosen.length > 1 && on(stackButton)) return 'gather';
     if (on(moreButton)) return 'more';
@@ -1570,10 +1571,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           const m = viewMiddle();
           // As many decks as were brought on (two copies of a deck come back as two), in a row across the middle.
           const all = [...table.stacks.flatMap((s) => s.cards), ...table.hands.flat(), ...(table.trash ?? [])];
-          const count = decks.filter((d) => d.cards.length && all.some((c) => c.deckId === d.id)).reduce((n, d) => n + setsOfDeck(d, all), 0);
+          const whole = all.filter((c) => !c.single);
+          const count = Math.max(1, decks.filter((d) => d.cards.length && whole.some((c) => c.deckId === d.id)).reduce((n, d) => n + setsOfDeck(d, whole), 0));
           const start = { x: m.x - ((count - 1) * CARD_W * 1.5) / 2, y: m.y };
           const place = gridOn ? (p: { x: number; y: number; angle: number }) => snapToGrid(p, gridStep) : undefined;
-          const next = gatherDecks(table, decks, start, newId, Math.random, place);
+          const next = gatherDecks(table, decks, start, newId, Math.random, place, gridStep);
           commit(next);
           fitView(next);
           haptics.drop();
@@ -2042,7 +2044,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           </Animated.View>
 
           {/* The tools drawer, on the left edge: its tab pulls it out, and tucks it away again. */}
-          <Animated.View style={[styles.tools, { top: toolsTop }, toolsStyle]} pointerEvents="box-none">
+          <Animated.View style={[styles.tools, { top: toolsTop, zIndex: 10 }, toolsStyle]} pointerEvents="box-none">
             <ScrollView style={styles.toolsPanel} contentContainerStyle={{ gap: 10 }} showsVerticalScrollIndicator={false}>
               <Text style={styles.toolsTitle}>Tools</Text>
               {(
@@ -2131,7 +2133,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           {held || groupMoving || chosen.length ? (
             <View
               pointerEvents="none"
-              style={[styles.flipButton, { left: flipButton.x, top: flipButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }]}>
+              style={[styles.flipButton, { left: flipButton.x, top: flipButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && !held && !groupMoving && styles.waiting]}>
               <SymbolView name={FLIP_ICON} size={28} weight="semibold" tintColor={colors.accentText} />
             </View>
           ) : null}
@@ -2140,7 +2142,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           {!held && chosen.length > 1 ? (
             <View
               pointerEvents="none"
-              style={[styles.flipButton, { left: stackButton.x, top: stackButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }]}>
+              style={[styles.flipButton, { left: stackButton.x, top: stackButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && !held && !groupMoving && styles.waiting]}>
               <SymbolView name={{ ios: 'square.stack.3d.down.right', android: 'layers', web: 'layers' }} size={26} weight="semibold" tintColor={colors.accentText} />
             </View>
           ) : null}
@@ -2149,7 +2151,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           {!held && !groupMoving && chosen.length ? (
             <View
               pointerEvents="none"
-              style={[styles.flipButton, styles.moreButtonLook, { left: moreButton.x, top: moreButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }]}>
+              style={[styles.flipButton, styles.moreButtonLook, { left: moreButton.x, top: moreButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && styles.waiting]}>
               <SymbolView name={{ ios: 'ellipsis', android: 'more_horiz', web: 'more_horiz' }} size={24} weight="bold" tintColor={colors.text} />
             </View>
           ) : null}
@@ -2692,6 +2694,8 @@ const styles = StyleSheet.create({
   },
   held: { position: 'absolute' },
   hidden: { opacity: 0 },
+  /** The selection's buttons while the tools lie over them: dimmed, and doing nothing till they're put away. */
+  waiting: { opacity: 0.5 },
   moreButtonLook: { backgroundColor: 'rgba(8,18,26,0.85)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.3)' },
   lockBadge: {
     position: 'absolute',

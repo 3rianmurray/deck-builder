@@ -532,3 +532,21 @@ test('gathering up: two of the same deck brought on come back as two decks', () 
   const one = addDeck(newSandbox('t', 'T', 0), deck, { x: 0, y: 0 }, () => `c${n++}`);
   assert.equal(gatherDecks(one, [deck], { x: 0, y: 0 }, () => `h${n++}`).stacks.length, 1);
 });
+test('gathering up: cards brought on one by one come back as singles, fanned face up below their deck', () => {
+  const deck = { id: 'd', name: 'D', backImage: null, cards: [{ id: 'x', name: 'X', image: '' }, { id: 'y', name: 'Y', image: '' }], createdAt: 0, updatedAt: 0 } as Deck;
+  let n = 0;
+  const withDeck = addDeck(newSandbox('t', 'T', 0), deck, { x: 0, y: 0 }, () => `a${n++}`);
+  const withSingles = addCards(withDeck, deck, ['y', 'x'], { x: 500, y: 500 }, () => `s${n++}`);
+  const g = gatherDecks(withSingles, [deck], { x: 100, y: 100 }, () => `g${n++}`, () => 0.5, undefined, 40);
+  // One whole deck, and two singles fanned out face up in the deck's order, a row below.
+  assert.equal(g.stacks.length, 3);
+  assert.equal(g.stacks[0].cards.length, 2);
+  const singles = g.stacks.slice(1);
+  assert.deepEqual(singles.map((s) => [s.x, s.cards[0].cardId, s.cards[0].faceUp]), [[100, 'x', true], [140, 'y', true]]);
+  assert.ok(singles.every((s) => s.y > 100));
+  // Only singles of a deck: no whole deck made up, just the singles.
+  const onlySingles = addCards(newSandbox('t', 'T', 0), deck, ['x'], { x: 0, y: 0 }, () => `o${n++}`);
+  const g2 = gatherDecks(onlySingles, [deck], { x: 100, y: 100 }, () => `h${n++}`);
+  assert.equal(g2.stacks.length, 1);
+  assert.equal(g2.stacks[0].cards.length, 1);
+});

@@ -24,6 +24,7 @@ import { createSandbox, deleteSandbox, duplicateSandbox, updateSandbox, useSandb
 import { loadSettings, saveSettings } from '../lib/storage';
 import { startTour, tourEvent, useTourStep } from '../lib/tour';
 import { deckSize } from '../lib/types';
+import { versionLabel } from '../lib/version';
 import { colors } from '../theme';
 import { Text } from '../components/Text';
 import { TourSpot } from '../components/TourSpot';
@@ -406,8 +407,8 @@ export default function HomeScreen() {
         // A row swiped open can't be picked up: a press on it closes it instead.
         canLift={(r, x, width) => openRow?.key !== `${r.kind}:${r.id}` && x < width - BUTTON_ZONE}
         onDrop={drop}
-        bottomInset={insets.bottom + 72}
-        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 100 }]}
+        bottomInset={insets.bottom + 92}
+        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 120 }]}
         header={
           <>
             {sandboxSection}
@@ -439,13 +440,19 @@ export default function HomeScreen() {
           ) : null
         }
       />
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 4 }]}>
         {/* The three things to make: a deck (the cards), a session (decks to flip through), a table (to lay out). */}
-        <TourSpot id="home.newDeck" style={{ flex: 1 }}>
-          <Button label="+ Deck" variant="primary" onPress={newDeck} />
-        </TourSpot>
-        <Button label="+ Session" onPress={() => router.push('/session/edit')} disabled={decks.length === 0} style={{ flex: 1 }} />
-        <Button label="+ Table" onPress={newSandboxTable} style={{ flex: 1 }} />
+        <View style={styles.footerButtons}>
+          <TourSpot id="home.newDeck" style={{ flex: 1 }}>
+            <Button label="+ Deck" variant="primary" onPress={newDeck} />
+          </TourSpot>
+          <Button label="+ Session" onPress={() => router.push('/session/edit')} disabled={decks.length === 0} style={{ flex: 1 }} />
+          <Button label="+ Table" onPress={newSandboxTable} style={{ flex: 1 }} />
+        </View>
+        {/* Which version is running, down to the update (to tell one TestFlight update from the next). */}
+        <Text style={styles.version} numberOfLines={1}>
+          {versionLabel()}
+        </Text>
       </View>
 
       <ActionSheet
@@ -580,9 +587,9 @@ const styles = StyleSheet.create({
   emptyTitle: { color: colors.text, fontSize: 22, fontWeight: '700' },
   emptyBody: { color: colors.textMuted, fontSize: 15, textAlign: 'center', lineHeight: 21 },
   section: { color: colors.textMuted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  footerButtons: { flexDirection: 'row', gap: 10 },
+  version: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginTop: 8, opacity: 0.8 },
   footer: {
-    flexDirection: 'row',
-    gap: 10,
     paddingHorizontal: 16,
     paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,

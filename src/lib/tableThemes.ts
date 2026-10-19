@@ -21,85 +21,40 @@ export interface TableTheme {
   ink: string;
 }
 
-/** Walnut, for the classic felt and green cloth. */
-const WALNUT = {
-  rim: '#3b2414',
-  rail: ['#6b4528', '#4a2d18', '#2e1b0e'],
-  shine: 'rgba(255,220,180,0.3)',
-  tab: '#4a2d18',
-  tabOn: '#6b4528',
-  tabPressed: '#3a2212',
-  ink: '255,240,220',
-} as const;
+/**
+ * A tray's material: light to dark, its top edge's shine, and the writing on it. Each theme's tray is a different
+ * material from its cloth, one that goes with it (as a leather rail goes with a card table's baize), not the
+ * same color again. The table's rim is the same material.
+ */
+function tray(light: string, mid: string, dark: string, deep: string, shine: string, ink: string) {
+  return { rim: dark, rail: [light, mid, dark] as [string, string, string], shine, tab: mid, tabOn: light, tabPressed: deep, ink };
+}
+
+/** Walnut. */
+const WALNUT = tray('#6b4528', '#4a2d18', '#2e1b0e', '#3a2212', 'rgba(255,220,180,0.3)', '255,240,220');
+/** Cognac leather. */
+const COGNAC = tray('#9a6238', '#744524', '#432714', '#5a361c', 'rgba(255,215,170,0.35)', '255,240,222');
+/** Honey oak. */
+const OAK = tray('#ad8450', '#835f35', '#4f381f', '#6a4c2a', 'rgba(255,236,196,0.38)', '255,246,228');
+/** Camel leather. */
+const CAMEL = tray('#b48d5c', '#8a693f', '#574024', '#735733', 'rgba(255,238,205,0.38)', '255,247,232');
+/** Black lacquer with a gold edge. */
+const EBONY = tray('#403b39', '#2a2625', '#151312', '#201d1c', 'rgba(230,190,110,0.45)', '245,228,196');
+/** Antique brass. */
+const BRASS = tray('#9c7c40', '#74592b', '#45341a', '#5e4823', 'rgba(255,232,170,0.42)', '255,246,222');
+/** Deep navy. */
+const NAVY = tray('#34507a', '#223858', '#121f33', '#1a2b45', 'rgba(205,222,255,0.3)', '232,240,252');
 
 export const TABLE_THEMES: Record<string, TableTheme> = {
-  // Graphite with cool steel: the default.
-  charcoal: {
-    name: 'Charcoal',
-    cloth: '#2a2d33',
-    outside: '#121316',
-    rim: '#1b1d21',
-    rail: ['#4b5059', '#33373e', '#1d1f23'],
-    shine: 'rgba(210,222,240,0.28)',
-    tab: '#33373e',
-    tabOn: '#4b5059',
-    tabPressed: '#26292e',
-    ink: '232,238,246',
-  },
-  classic: { name: 'Classic Felt', outside: '#0d2a1c', ...WALNUT, rail: [...WALNUT.rail] },
-  green: { name: 'Green', cloth: '#1f4d33', outside: '#0d2318', ...WALNUT, rail: [...WALNUT.rail] },
-  // Navy with slate blue.
-  blue: {
-    name: 'Blue',
-    cloth: '#1d3a5c',
-    outside: '#0b1726',
-    rim: '#14263a',
-    rail: ['#3d5a7a', '#28415d', '#152538'],
-    shine: 'rgba(200,225,255,0.28)',
-    tab: '#28415d',
-    tabOn: '#3d5a7a',
-    tabPressed: '#1d3249',
-    ink: '228,238,252',
-  },
-  // Burgundy with mahogany.
-  red: {
-    name: 'Red',
-    cloth: '#6b1e24',
-    outside: '#240b0d',
-    rim: '#2e1210',
-    rail: ['#6a3226', '#4a2019', '#2a110d'],
-    shine: 'rgba(255,205,190,0.28)',
-    tab: '#4a2019',
-    tabOn: '#6a3226',
-    tabPressed: '#3a1813',
-    ink: '255,236,228',
-  },
-  // Plum.
-  purple: {
-    name: 'Purple',
-    cloth: '#43295f',
-    outside: '#170e22',
-    rim: '#241634',
-    rail: ['#5c4078', '#402a57', '#24173a'],
-    shine: 'rgba(230,210,255,0.28)',
-    tab: '#402a57',
-    tabOn: '#5c4078',
-    tabPressed: '#322046',
-    ink: '242,234,252',
-  },
-  // Sand with light oak.
-  tan: {
-    name: 'Tan',
-    cloth: '#8a6d47',
-    outside: '#2e2416',
-    rim: '#4e3820',
-    rail: ['#a77d4c', '#7d5834', '#4f341e'],
-    shine: 'rgba(255,235,200,0.35)',
-    tab: '#7d5834',
-    tabOn: '#a77d4c',
-    tabPressed: '#664628',
-    ink: '255,244,226',
-  },
+  // Charcoal baize on cognac leather: the default.
+  charcoal: { name: 'Charcoal', cloth: '#2a2d33', outside: '#121316', ...COGNAC },
+  // The felt and walnut the tables have always had.
+  classic: { name: 'Classic Felt', outside: '#0d2a1c', ...WALNUT },
+  green: { name: 'Green', cloth: '#1f4d33', outside: '#0d2318', ...OAK },
+  blue: { name: 'Blue', cloth: '#1d3a5c', outside: '#0b1726', ...CAMEL },
+  red: { name: 'Red', cloth: '#6b1e24', outside: '#240b0d', ...EBONY },
+  purple: { name: 'Purple', cloth: '#43295f', outside: '#170e22', ...BRASS },
+  tan: { name: 'Tan', cloth: '#8a6d47', outside: '#2e2416', ...NAVY },
 };
 
 /**

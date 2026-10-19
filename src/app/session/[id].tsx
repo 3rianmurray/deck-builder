@@ -12,6 +12,8 @@ import { TabletopSurface } from '../../components/Tabletop';
 import * as haptics from '../../lib/haptics';
 import { useDecks } from '../../lib/DecksContext';
 import { offerTipSoon } from '../../lib/tips';
+import { playThemeKey, usePlayTheme } from '../../lib/playThemes';
+import { themeOf } from '../../lib/tableThemes';
 import { colors } from '../../theme';
 import { MAX_TEXT_SCALE, Text } from '../../components/Text';
 
@@ -88,6 +90,7 @@ export default function SessionScreen() {
       });
   });
   const session = getSession(id);
+  const theme = themeOf(usePlayTheme(playThemeKey('', id)));
   const decks = (session?.deckIds ?? []).flatMap((deckId) => getDeck(deckId) ?? []);
   const current = Math.max(0, Math.min(index, decks.length - 1));
   // A tip, the first time a session with several decks opens: swiping between them.
@@ -127,7 +130,7 @@ export default function SessionScreen() {
   return (
     <View style={styles.felt}>
       {/* The cloth runs under the top bar and the tabs too, as one surface. */}
-      <TabletopSurface />
+      <TabletopSurface theme={theme} />
       {/* The session's name on top (the tabs below name the decks); tapping it opens the deck on screen's menu. */}
       <TableTopBar controls={controls && { ...controls, title: session.name }} />
       {/* The deck tabs step away while the deck on screen is being searched (the search is full screen). */}

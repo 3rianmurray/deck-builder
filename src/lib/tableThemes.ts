@@ -63,5 +63,25 @@ export const TABLE_THEMES: Record<string, TableTheme> = {
  */
 export const themeOf = (key: string | undefined): TableTheme => TABLE_THEMES[key ?? 'classic'] ?? TABLE_THEMES.classic;
 
+/** A color lightened (factor over 1) or darkened (under 1). */
+function shade(hex: string, factor: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v: number) => Math.max(0, Math.min(255, Math.round(v * factor)));
+  const [r, g, b] = [ch((n >> 16) & 255), ch((n >> 8) & 255), ch(n & 255)];
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
+/** The classic felt's green, where a cloth is drawn as a color (sessions and decks played on their own). */
+const CLASSIC_CLOTH = '#235c3c';
+
+/**
+ * A theme's cloth as sessions and decks played on their own draw it: lit from above, light far off, the cloth's
+ * own color in the middle, dark near the player. Also a darker band for things laid on it.
+ */
+export function clothShades(theme: TableTheme): { light: string; mid: string; deep: string; dark: string } {
+  const c = theme.cloth ?? CLASSIC_CLOTH;
+  return { light: shade(c, 1.35), mid: c, deep: shade(c, 0.6), dark: shade(c, 0.75) };
+}
+
 /** The order they're offered in. */
 export const THEME_KEYS = ['charcoal', 'classic', 'green', 'blue', 'red', 'purple', 'tan'];

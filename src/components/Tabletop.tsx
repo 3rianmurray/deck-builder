@@ -3,6 +3,8 @@ import { createContext, useContext } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import type { ViewStyle } from 'react-native';
 
+import { clothShades } from '../lib/tableThemes';
+import type { TableTheme } from '../lib/tableThemes';
 import { colors } from '../theme';
 
 const FELT_TEXTURE = require('../../assets/textures/felt.png');
@@ -22,11 +24,12 @@ export const tabletopShadow = {
  * shrinks into the distance, as if seen from a seat at the table), lit from above, darker far off and close up.
  * Purely decorative: it sits behind the play area and never takes touches.
  */
-export function TabletopSurface() {
+export function TabletopSurface({ theme }: { theme?: TableTheme } = {}) {
+  const shades = theme ? clothShades(theme) : { light: colors.feltLight, mid: colors.felt, deep: colors.feltDeep };
   return (
     <View style={[StyleSheet.absoluteFill, styles.surface]}>
       {/* Base cloth color, lighter where the lamp is (top center), darker nearer the player. */}
-      <LinearGradient colors={[colors.feltLight, colors.felt, colors.feltDeep]} locations={[0, 0.45, 1]} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={[shades.light, shades.mid, shades.deep]} locations={[0, 0.45, 1]} style={StyleSheet.absoluteFill} />
       {/*
         The weave, on a plane tilted back. It's oversized so the tilt never shows its edges. The clipping
         wrapper flattens it before it meets the layers around it; without it, iOS sorts the tilted plane by

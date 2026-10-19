@@ -57,6 +57,8 @@ export interface Settings {
   tipsOff?: boolean;
   /** The tips already shown (each shows once). */
   seenTips?: string[];
+  /** Table themes chosen for sessions and decks played on their own (see lib/playThemes). */
+  playThemes?: Record<string, string>;
 }
 export const loadSettings = () => readJson<Settings>(SETTINGS_FILE, {});
 export const saveSettings = (settings: Settings) => writeJson(SETTINGS_FILE, settings);

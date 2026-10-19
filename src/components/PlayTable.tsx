@@ -36,6 +36,9 @@ import { countFor, offerTipSoon } from '../lib/tips';
 import { setTourTarget, tourEvent, tourRunning, useTourStep } from '../lib/tour';
 import { cardRadius, cardRatio } from '../lib/types';
 import type { Card, CardInstance, Deck, Spot, TableState, Zone } from '../lib/types';
+import { askName } from '../lib/names';
+import { playThemeKey, setPlayTheme, usePlayTheme } from '../lib/playThemes';
+import { TABLE_THEMES, THEME_KEYS, themeOf } from '../lib/tableThemes';
 import { colors } from '../theme';
 import { Text } from './Text';
 
@@ -44,6 +47,8 @@ type Sheet =
   | { kind: 'card'; iid: string; whole?: boolean }
   | { kind: 'discard' }
   | { kind: 'table' }
+  /** The table's theme, to choose another. */
+  | { kind: 'theme' }
   /** Several cards (top first) let go on an empty table spot, asking how to put them down. */
   | { kind: 'place'; iids: string[]; spot: Spot; faceUp: boolean; insert?: boolean };
 
@@ -402,6 +407,14 @@ export const DeckTable = memo(function DeckTable({
         table={table}
         setTable={setTable}
         setHandFolded={(folded) => decks.setHandFolded(deck.id, folded)}
+        themeKey={playThemeKey(deck.id, sessionId)}
+        renameLabel={sessionId ? 'Rename session' : 'Rename deck'}
+        // What the top bar names: the session (renamed here as on its edit screen), or the deck played alone.
+        rename={() => {
+          const session = sessionId ? decks.getSession(sessionId) : undefined;
+          if (session) askName('Rename session', session.name, (name) => decks.updateSession(session.id, { name, deckIds: session.deckIds }));
+          else askName('Rename deck', deck.name, (name) => decks.renameDeck(deck.id, name));
+        }}
         active={active}
         onTouchingCard={onTouchingCard}
         onControls={onControls}
@@ -415,6 +428,9 @@ function Table({
   table,
   setTable,
   setHandFolded,
+  themeKey,
+  rename,
+  renameLabel,
   active,
   onTouchingCard,
   onControls,
@@ -423,7 +439,13 @@ function Table({
   table: TableState;
   setTable: Dispatch<SetStateAction<TableState | undefined>>;
   setHandFolded: (folded: boolean) => void;
+  /** Where this table's theme is kept (see lib/playThemes). */
+  themeKey: string;
+  rename: () => void;
+  renameLabel: string;
 }) {
+  const themeName = usePlayTheme(themeKey);
+  const theme = themeOf(themeName);
   // Decks play in reveal mode: cards are laid out on Tables (see SandboxTable). Table mode's code stays for now.
   const reveal = true as boolean;
   const { width, height: windowHeight } = useWindowDimensions();
@@ -2325,8 +2347,23 @@ function Table({
             ...(table.trash.length
               ? [{ label: `Look in the trash (${table.trash.length})`, onPress: () => setSearchZone('trash' as const) }]
               : []),
+            // As on Tables: its look, and its name.
+            { label: 'Table theme…', opensModal: true, onPress: () => open({ kind: 'theme' }) },
+            { label: renameLabel, opensModal: true, onPress: rename },
             { label: 'Reset table', destructive: true, opensModal: true, onPress: confirmReset },
           ],
+        };
+      case 'theme':
+        return {
+          title: 'Table theme',
+          // Each cloth with a tray to match, as on Tables.
+          actions: THEME_KEYS.map((key) => ({
+            label: `${TABLE_THEMES[key].name}${themeName === key ? '  ✓' : ''}`,
+            onPress: () => {
+              setPlayTheme(themeKey, key);
+              haptics.tick();
+            },
+          })),
         };
       // A sheet kind this version no longer has (e.g. remembered across a reload): show nothing.
       default:
@@ -2805,7 +2842,7 @@ function Table({
               highlight('hand'),
             ]}
             onLayout={measure('hand')}>
-            <WoodRail />
+            <WoodRail colors={theme.rail} shine={theme.shine} />
             {/* A pull tab on the tray's top edge. Tapping it folds the tray away (giving the table more room) or
                 opens it again. */}
             <Pressable
@@ -2819,8 +2856,11 @@ function Table({
               accessibilityRole="button"
               accessibilityLabel={`Hand, ${table.hand.length} cards`}
               accessibilityHint={handOpen ? 'Folds the hand away' : 'Opens the hand'}
-              style={({ pressed }) => [styles.handTab, { marginTop: -HAND_TAB_HEIGHT }, pressed && styles.handTabPressed]}>
-              <Text style={styles.handTabText}>Hand · {table.hand.length}</Text>
+              style={({ pressed }) => [
+                styles.handTab,
+                { marginTop: -HAND_TAB_HEIGHT, backgroundColor: pressed ? theme.tabPressed : theme.tabOn, borderColor: theme.shine },
+              ]}>
+              <Text style={[styles.handTabText, { color: `rgba(${theme.ink},0.9)` }]}>Hand · {table.hand.length}</Text>
               <SymbolView
                 name={handOpen ? { ios: 'chevron.down', android: 'expand_more', web: 'expand_more' } : { ios: 'chevron.up', android: 'expand_less', web: 'expand_less' }}
                 size={10}
@@ -3707,8 +3747,6 @@ const styles = StyleSheet.create({
     borderRightWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,220,180,0.35)',
   },
-  // Darker while pressed (not see-through).
-  handTabPressed: { backgroundColor: '#4a2d18' },
   handTabText: { color: 'rgba(255,240,220,0.9)', fontSize: 12, fontWeight: '700' },
   // Edge to edge: the cards scroll right off the sides, as across the whole rail.
   handGroove: {

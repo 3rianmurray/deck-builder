@@ -31,7 +31,7 @@ Open a big table and bring on any of your decks, or just the cards you choose.
 • Four hands along the bottom, for passing the phone around.
 • Shuffle, deal, draw, search, and fan a stack out.
 • Lasso a group of cards to move, flip or gather them together.
-• Snap to grid, lock cards in place, and change the table's color.
+• Snap to grid, lock cards in place, and pick a table theme.
 • Undo and redo anything.
 A ready-dealt game of Solitaire, with a classic 52-card deck, is included to show what tables can do.
 
@@ -64,12 +64,12 @@ Data Not Collected. Everything stays on the device; sharing a deck file only hap
 2026 [your name or company, as it should appear]
 
 ## App Review notes
-No account or sign-in. On first launch a guided tour starts (it can be skipped). A Playing Cards deck and a Solitaire table are created automatically so tables can be tried right away: open the Solitaire table from the home screen. Camera access is only used to scan cards; photo access only to import card art.
+No account or sign-in. On first launch a guided tour starts (it can be skipped). A Playing Cards deck and a Solitaire table are created automatically so tables can be tried right away: open the Solitaire table from the home screen. Help (in the ☰ menu on the home screen) lists every gesture. Camera access is only used to scan cards; photo access only to import card art.
 
 ## TestFlight: What to Test
 Try the guided tour (tap ? on the home screen, then Replay the Tutorial), build a deck from your own photos or a sprite sheet, and play the Solitaire table. Report anything confusing or any card that won't do what you expect.
 
 ## URLs
-• Support URL: https://3rianmurray.github.io/deck-builder/
-• Privacy Policy URL: https://3rianmurray.github.io/deck-builder/privacy.html
-• Marketing URL (optional): https://3rianmurray.github.io/deck-builder/
+• Support URL: https://3rianmurray.github.io/shufflevale/
+• Privacy Policy URL: https://3rianmurray.github.io/shufflevale/privacy.html
+• Marketing URL (optional): https://3rianmurray.github.io/shufflevale/

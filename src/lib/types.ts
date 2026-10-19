@@ -81,6 +81,19 @@ export const PRESET_SIZES_MM = {
   usMini: { w: 41, h: 63 },
 } as const;
 
+/**
+ * The smallest and biggest a card's side can be, in millimeters (about 0.6 in to 11.8 in): from a tiny token to a
+ * big board tile. Much bigger and a table would try to draw pictures far too large for the phone.
+ */
+export const MIN_SIDE_MM = 15;
+export const MAX_SIDE_MM = 300;
+
+/** Whether a typed side is a size a card can be (see `MIN_SIDE_MM`, `MAX_SIDE_MM`). */
+export function sideInRange(side: { value: number; unit: SizeUnit }): boolean {
+  const mm = side.unit === 'in' ? side.value * 25.4 : side.value;
+  return mm >= MIN_SIDE_MM - 0.05 && mm <= MAX_SIDE_MM + 0.05;
+}
+
 /** Custom sizes saved without a unit, this small, are taken as inches (no card is 12 mm across). */
 const INCH_LIMIT = 12;
 
@@ -98,8 +111,10 @@ export function cardSizeMm(deck: Pick<Deck, 'cardShape'>): { w: number; h: numbe
   const k = inches ? 25.4 : 1;
   // The same shape limits as `cardRatio`, kept to the long side.
   const ratio = cardRatio(deck);
-  const long = Math.max(shape.width, shape.height) * k;
-  if (!Number.isFinite(long) || long <= 0) return { ...PRESET_SIZES_MM.standard };
+  // Kept to sizes a card can be, for sizes saved before there were limits.
+  const typed = Math.max(shape.width, shape.height) * k;
+  if (!Number.isFinite(typed) || typed <= 0) return { ...PRESET_SIZES_MM.standard };
+  const long = Math.min(MAX_SIDE_MM, Math.max(MIN_SIDE_MM, typed));
   return ratio >= 1 ? { w: long, h: long / ratio } : { w: long * ratio, h: long };
 }
 

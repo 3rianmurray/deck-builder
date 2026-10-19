@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import * as haptics from '../lib/haptics';
-import { cardRatio, isLandscape, parseSizeWithUnit, settledShape } from '../lib/types';
+import { cardRatio, isLandscape, parseSizeWithUnit, settledShape, sideInRange } from '../lib/types';
 import type { CardShape, FixedShape, SizeUnit } from '../lib/types';
 import { colors } from '../theme';
 import { MAX_TEXT_SCALE, Text } from './Text';
@@ -34,7 +34,7 @@ function sideText(n: number, shape: Extract<FixedShape, { kind: 'custom' }>): st
 function customFrom(w: string, h: string): FixedShape | null {
   const a = parseSizeWithUnit(w);
   const b = parseSizeWithUnit(h);
-  if (!a || !b) return null;
+  if (!a || !b || !sideInRange(a) || !sideInRange(b)) return null;
   if (a.unit === b.unit) return { kind: 'custom', width: a.value, height: b.value, unit: a.unit };
   const mm = (x: { value: number; unit: SizeUnit }) => Math.round((x.unit === 'in' ? x.value * 25.4 : x.value) * 10) / 10;
   return { kind: 'custom', width: mm(a), height: mm(b), unit: 'mm' };
@@ -84,8 +84,12 @@ export function CardSizePicker({ shape, onChange }: { shape: CardShape; onChange
 
   const ratio = cardRatio({ cardShape: shape });
   const current = OPTIONS.find((o) => o.kind === shape.kind)!;
-  const widthOk = !!parseSizeWithUnit(widthText);
-  const heightOk = !!parseSizeWithUnit(heightText);
+  const widthSide = parseSizeWithUnit(widthText);
+  const heightSide = parseSizeWithUnit(heightText);
+  const widthOk = !!widthSide && sideInRange(widthSide);
+  const heightOk = !!heightSide && sideInRange(heightSide);
+  // Typed with units, but too small or too big.
+  const outOfRange = !!widthSide && !!heightSide && !(widthOk && heightOk);
 
   return (
     <View style={{ gap: 8 }}>
@@ -163,7 +167,11 @@ export function CardSizePicker({ shape, onChange }: { shape: CardShape; onChange
               />
             </View>
             <Text style={[styles.detail, !(widthOk && heightOk) && { color: colors.danger }]}>
-              {widthOk && heightOk ? 'Each with in or mm, e.g. 2.5in × 3.5in' : 'Add in or mm to each, e.g. 2.5in or 63mm'}
+              {widthOk && heightOk
+                ? 'Each with in or mm, e.g. 2.5in × 3.5in'
+                : outOfRange
+                  ? 'Each side from 15mm to 300mm (0.6in to 11.8in)'
+                  : 'Add in or mm to each, e.g. 2.5in or 63mm'}
             </Text>
           </View>
         ) : (

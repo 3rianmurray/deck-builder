@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { cardRadius, cardRatio, cardSizeMm, detectShape, isLandscape, parseSizeWithUnit, PRESET_RATIOS } from './types.ts';
+import { cardRadius, cardRatio, cardSizeMm, detectShape, isLandscape, parseSizeWithUnit, PRESET_RATIOS, sideInRange } from './types.ts';
 
 test('decks without a size are standard 5:7', () => {
   assert.equal(cardRatio({}), 5 / 7);
@@ -65,8 +65,8 @@ test('custom sizes need a unit, and are read in it', () => {
   assert.equal(parseSizeWithUnit('2.5'), null);
   assert.equal(parseSizeWithUnit('mm'), null);
   assert.equal(parseSizeWithUnit('0mm'), null);
-  // A size in millimeters stays millimeters, however small.
-  assert.deepEqual(cardSizeMm({ cardShape: { kind: 'custom', width: 10, height: 12, unit: 'mm' } }), { w: 10, h: 12 });
+  // A size in millimeters stays millimeters, even one small enough to look like inches.
+  assert.deepEqual(cardSizeMm({ cardShape: { kind: 'custom', width: 10, height: 15, unit: 'mm' } }), { w: 10, h: 15 });
   assert.ok(Math.abs(cardSizeMm({ cardShape: { kind: 'custom', width: 2, height: 3, unit: 'in' } }).h - 76.2) < 1e-9);
 });
 
@@ -75,4 +75,16 @@ test('corners: square, the usual roundness, or rounder', () => {
   assert.equal(cardRadius({}, 100), 6);
   assert.equal(cardRadius({ roundness: 0.2 }, 100), 20);
   assert.equal(cardRadius({ roundness: 1 }, 100), 25);
+});
+test('card sides are kept between 15 mm and 300 mm', () => {
+  assert.equal(sideInRange({ value: 63, unit: 'mm' }), true);
+  assert.equal(sideInRange({ value: 0.6, unit: 'in' }), true);
+  assert.equal(sideInRange({ value: 11.8, unit: 'in' }), true);
+  assert.equal(sideInRange({ value: 10, unit: 'mm' }), false);
+  assert.equal(sideInRange({ value: 12, unit: 'in' }), false);
+  assert.equal(sideInRange({ value: 5000, unit: 'mm' }), false);
+  // A huge size saved before the limits is drawn at the biggest a card can be, the same shape.
+  const huge = cardSizeMm({ cardShape: { kind: 'custom', width: 9000, height: 12000, unit: 'mm' } });
+  assert.equal(huge.h, 300);
+  assert.equal(huge.w, 225);
 });

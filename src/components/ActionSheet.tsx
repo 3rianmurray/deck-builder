@@ -18,6 +18,8 @@ export interface SheetAction {
   opensModal?: boolean;
   /** The sheet stays open, e.g. for an action that shows something over it (see `overlay`). */
   keepsOpen?: boolean;
+  /** Starts a new group of actions: a little space above it. */
+  groupStart?: boolean;
 }
 
 /** An action shown as a small labeled icon tile, in a grid above the other actions. */
@@ -183,7 +185,7 @@ export function ActionSheet(props: Props) {
                 disabled={isOff(a)}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: isOff(a) }}
-                style={({ pressed }) => [styles.action, isGuided(a) && styles.guided, pressed && styles.pressed, isOff(a) && styles.tileDisabled]}>
+                style={({ pressed }) => [styles.action, a.groupStart && styles.groupStart, isGuided(a) && styles.guided, pressed && styles.pressed, isOff(a) && styles.tileDisabled]}>
                 <Text style={[styles.actionText, a.destructive && { color: colors.danger }]}>{a.label}</Text>
               </Pressable>
             ))}
@@ -220,6 +222,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancel: { marginTop: 6 },
+  groupStart: { marginTop: 10 },
   // Each tile sits in a cell with a little padding all round, so the gaps between them stay even.
   tiles: { flexDirection: 'row', flexWrap: 'wrap', margin: -3 },
   tileCell: { padding: 3 },

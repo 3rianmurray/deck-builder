@@ -514,19 +514,18 @@ export default function HomeScreen() {
         title="Shufflevale"
         onClose={() => setAppMenuOpen(false)}
         actions={[
+          // In three groups: learning the app, your decks and files, and about the app.
           { label: 'Help', onPress: () => router.push('/help') },
-          // The version running (down to the update), and where to get help.
-          { label: 'About Shufflevale', onPress: () => router.push('/about') },
-          // Tips (now and then, the first times things are used): off, or on, and all of them again.
-          tipsOn()
-            ? { label: 'Turn Tips Off', onPress: () => setTipsOn(false) }
-            : { label: 'Turn Tips On', onPress: () => setTipsOn(true) },
-          { label: 'Show Tips Again', onPress: () => {
+          // Tips (now and then, the first times things are used): all of them again, or off (or on).
+          { label: 'Show tips again', onPress: () => {
             resetTips();
             haptics.success();
           } },
+          tipsOn()
+            ? { label: 'Turn tips off', onPress: () => setTipsOn(false) }
+            : { label: 'Turn tips on', onPress: () => setTipsOn(true) },
           // The file picker and share sheet are system screens, which iOS can only show once this menu has gone.
-          { label: 'Import decks from a file…', opensModal: true, onPress: importFromFile },
+          { label: 'Import decks from a file…', opensModal: true, groupStart: true, onPress: importFromFile },
           ...(decks.length ? [{ label: 'Back up all decks…', opensModal: true, onPress: backUpAll }] : []),
           {
             label: 'Restore examples',
@@ -545,6 +544,8 @@ export default function HomeScreen() {
                 (e) => Alert.alert('Couldn’t restore the examples', e instanceof Error ? e.message : String(e)),
               ),
           },
+          // The version running (down to the update), and where to get help.
+          { label: 'About Shufflevale', groupStart: true, onPress: () => router.push('/about') },
         ]}
       />
 

@@ -113,6 +113,10 @@ export interface Settings {
   seenTips?: string[];
   /** Table themes chosen for sessions and decks played on their own (see lib/playThemes). */
   playThemes?: Record<string, string>;
+  /** Shufflevale Pro has been bought on this phone's Apple Account (see lib/pro), remembered for offline use. */
+  proOwned?: boolean;
+  /** The tester switch, in TestFlight builds: act as free or as Pro. */
+  proOverride?: 'free' | 'pro';
 }
 export const loadSettings = () => readJson<Settings>(SETTINGS_FILE, {});
 export const saveSettings = (settings: Settings) => writeJson(SETTINGS_FILE, settings);

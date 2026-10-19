@@ -15,6 +15,8 @@ import { askName } from '../lib/names';
 import { DeckFileError } from '../lib/deckFile';
 import { pickDeckFile, shareDecks } from '../lib/deckExport';
 import { deleteDeckWarning } from '../lib/deckInUse';
+import { cardRoom, cardsUsed, FREE_CARD_LIMIT } from '../lib/limits';
+import { exampleAllowances, usePro } from '../lib/pro';
 import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
@@ -105,8 +107,20 @@ export default function HomeScreen() {
   });
   const closeRows = () => setOpenRow(null);
 
+  // Shufflevale Pro: the free version's card limit, and deck files (see lib/pro, lib/limits).
+  const pro = usePro();
+  const allowances = exampleAllowances();
+  const used = cardsUsed(decks, allowances);
+  const openPro = (reason?: 'cards' | 'files') => router.push({ pathname: '/pro', params: reason ? { reason } : {} });
+
   const copyDeck = (id: string) => {
     closeRows();
+    // A copy's cards are new cards, so they need room in the free version (an example's copy too).
+    const copying = getDeck(id)?.cards.length ?? 0;
+    if (copying > cardRoom(decks, allowances, pro)) {
+      openPro('cards');
+      return;
+    }
     if (duplicateDeck(id)) haptics.success();
   };
 
@@ -525,8 +539,13 @@ export default function HomeScreen() {
             ? { label: 'Turn tips off', onPress: () => setTipsOn(false) }
             : { label: 'Turn tips on', onPress: () => setTipsOn(true) },
           // The file picker and share sheet are system screens, which iOS can only show once this menu has gone.
-          { label: 'Import decks from a file…', opensModal: true, groupStart: true, onPress: importFromFile },
-          ...(decks.length ? [{ label: 'Back up all decks…', opensModal: true, onPress: backUpAll }] : []),
+          // Deck files are part of Pro: shown for everyone, opening Pro without it.
+          pro
+            ? { label: 'Import decks from a file…', opensModal: true, groupStart: true, onPress: importFromFile }
+            : { label: 'Import decks from a file… · Pro', groupStart: true, onPress: () => openPro('files') },
+          ...(decks.length
+            ? [pro ? { label: 'Back up all decks…', opensModal: true, onPress: backUpAll } : { label: 'Back up all decks… · Pro', onPress: () => openPro('files') }]
+            : []),
           {
             label: 'Restore examples',
             opensModal: true,
@@ -544,8 +563,14 @@ export default function HomeScreen() {
                 (e) => Alert.alert('Couldn’t restore the examples', e instanceof Error ? e.message : String(e)),
               ),
           },
+          // Pro: owned, or what's left of the free version's cards.
+          {
+            label: pro ? 'Shufflevale Pro ✓' : `Shufflevale Pro · ${Math.min(used, FREE_CARD_LIMIT)} of ${FREE_CARD_LIMIT} free cards used`,
+            groupStart: true,
+            onPress: () => openPro(),
+          },
           // The version running (down to the update), and where to get help.
-          { label: 'About Shufflevale', groupStart: true, onPress: () => router.push('/about') },
+          { label: 'About Shufflevale', onPress: () => router.push('/about') },
         ]}
       />
 
@@ -569,9 +594,9 @@ export default function HomeScreen() {
                 ...(decks.some((d) => d.groupId === menuGroup.id)
                   ? [
                       {
-                        label: 'Share or back up this group…',
-                        opensModal: true,
-                        onPress: () => shareGroup(menuGroup.id),
+                        label: pro ? 'Share or back up this group…' : 'Share or back up this group… · Pro',
+                        opensModal: pro,
+                        onPress: () => (pro ? shareGroup(menuGroup.id) : openPro('files')),
                       },
                     ]
                   : []),

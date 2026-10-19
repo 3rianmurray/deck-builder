@@ -36,7 +36,10 @@ Open a big table and bring on any of your decks, or just the cards you choose.
 A ready-dealt game of Solitaire, with a classic 52-card deck, is included to show what tables can do.
 
 YOURS, AND PRIVATE
-Your decks live on your phone. No account, no ads, no tracking. Share a deck or a group of decks as a single file to back it up or give it to a friend.
+Your decks live on your phone. No account, no ads, no tracking.
+
+FREE TO TRY, PRO TO GO FURTHER
+Shufflevale is free with up to 60 cards of your own, and every feature to play them. Shufflevale Pro, a one-time purchase, removes the card limit and adds deck files: share a deck or a whole group with a friend, back them up to Files, and bring them to a new phone.
 
 New to it? A short guided tour walks you through making your first deck and playing it, and Help lists every gesture.
 
@@ -63,8 +66,16 @@ Data Not Collected. Everything stays on the device; sharing a deck file only hap
 ## Copyright
 2026 [your name or company, as it should appear]
 
+## In-app purchase: Shufflevale Pro
+- Product ID: com.3rianmurray.shufflevale.pro (Non-Consumable), $4.99 (Tier 5)
+- Reference name: Shufflevale Pro
+- Display name (30 max): Shufflevale Pro
+- Description (45 max): Unlimited cards, plus sharing and backups
+- Review note: Opened from the home screen's ☰ menu (Shufflevale Pro), or when the free version's 60-card limit is reached, or from any "· Pro" deck-file option. Restore Purchases is on the same screen.
+- Review screenshot: the Pro screen.
+
 ## App Review notes
-No account or sign-in. On first launch a guided tour starts (it can be skipped). A Playing Cards deck and a Solitaire table are created automatically so tables can be tried right away: open the Solitaire table from the home screen. Help (in the ☰ menu on the home screen) lists every gesture. Camera access is only used to scan cards; photo access only to import card art.
+No account or sign-in. Shufflevale Pro (one-time, non-consumable) unlocks unlimited cards and deck files; the free version holds 60 of the player's own cards (the built-in Playing Cards deck doesn't count). The Pro screen is in the home screen's ☰ menu, with Restore Purchases. On first launch a guided tour starts (it can be skipped). A Playing Cards deck and a Solitaire table are created automatically so tables can be tried right away: open the Solitaire table from the home screen. Help (in the ☰ menu on the home screen) lists every gesture. Camera access is only used to scan cards; photo access only to import card art.
 
 ## TestFlight: What to Test
 Try the guided tour (tap ? on the home screen, then Replay the Tutorial), build a deck from your own photos or a sprite sheet, and play the Solitaire table. Report anything confusing or any card that won't do what you expect.

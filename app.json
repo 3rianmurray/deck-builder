@@ -3,7 +3,7 @@
     "name": "Shufflevale",
     "slug": "card-table",
     "scheme": "shufflevale",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -40,7 +40,13 @@
       "expo-font",
       "expo-asset",
       "expo-sharing",
-      ["react-native-document-scanner-plugin", { "cameraPermission": "Shufflevale uses your camera so you can photograph your own artwork and turn it into cards." }]
+      [
+        "react-native-document-scanner-plugin",
+        {
+          "cameraPermission": "Shufflevale uses your camera so you can photograph your own artwork and turn it into cards."
+        }
+      ],
+      "expo-iap"
     ],
     "extra": {
       "router": {},

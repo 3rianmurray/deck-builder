@@ -1,14 +1,20 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { NamePrompt } from '../components/NamePrompt';
 import { TipToast } from '../components/TipToast';
 import { TourOverlay } from '../components/TourOverlay';
 import { DecksProvider } from '../lib/DecksContext';
+import { startPro } from '../lib/pro';
 import { colors } from '../theme';
 
 export default function RootLayout() {
+  // The App Store, for Shufflevale Pro: its price, and whether it's owned (see lib/pro).
+  useEffect(() => {
+    void startPro();
+  }, []);
   return (
     // For swipeable rows (see SwipeRow).
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -43,6 +49,7 @@ export default function RootLayout() {
           <Stack.Screen name="sandbox/new" options={{ title: 'New Table' }} />
           <Stack.Screen name="help" options={{ title: 'Help' }} />
           <Stack.Screen name="about" options={{ title: 'About' }} />
+          <Stack.Screen name="pro" options={{ title: 'Pro', presentation: 'modal' }} />
           {/* Its own top bar, and sideways swipes there move cards and the camera, not the screen. */}
           <Stack.Screen name="sandbox/[id]" options={{ headerShown: false, gestureEnabled: false }} />
         </Stack>

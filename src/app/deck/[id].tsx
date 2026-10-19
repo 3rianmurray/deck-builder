@@ -19,6 +19,8 @@ import { askName, MAX_NAME_LENGTH, titleCase } from '../../lib/names';
 import { appleScannerAvailable, fitScan, scanCards } from '../../lib/appleScanner';
 import { shareDecks } from '../../lib/deckExport';
 import { deleteDeckWarning } from '../../lib/deckInUse';
+import { cardRoom, FREE_CARD_LIMIT } from '../../lib/limits';
+import { exampleAllowances, usePro } from '../../lib/pro';
 import { sandboxes } from '../../lib/sandboxStore';
 import * as haptics from '../../lib/haptics';
 import { sampleBack, sampleCards } from '../../lib/sampleDeck';
@@ -120,6 +122,9 @@ export default function DeckEditorScreen() {
   const [cropNext, setCropNext] = useState<{ uris: string[]; target: ArtTarget } | null>(null);
   /** A sprite sheet being cut into cards, or picked from for the card back. */
   const [spriteSheet, setSpriteSheet] = useState<{ uri: string; target: ArtTarget } | null>(null);
+  const pro = usePro();
+  /** How many more cards fit in the free version (unlimited with Pro). */
+  const room = cardRoom(decks.decks, exampleAllowances(), pro);
 
   if (!deck) {
     return (
@@ -142,6 +147,28 @@ export default function DeckEditorScreen() {
     }
   };
 
+  /** Opens Shufflevale Pro (once a menu or picker has gone), saying why. */
+  const openPro = (reason: 'cards' | 'files') => router.push({ pathname: '/pro', params: { reason } });
+
+  /**
+   * New cards: as many as the free version has room for (all of them with Pro). Past that, says how many were
+   * added and offers Pro; nothing already added is lost.
+   */
+  const addNewCards = (uris: string[], originals: string[], names?: string[]) => {
+    const fit = Math.min(uris.length, room);
+    if (fit > 0) decks.addCards(deck.id, uris.slice(0, fit), names?.slice(0, fit), originals.slice(0, fit));
+    if (fit < uris.length) {
+      Alert.alert(
+        fit ? `Added ${fit} of ${uris.length} cards` : 'You’ve reached the free limit',
+        `The free version holds ${FREE_CARD_LIMIT} cards. Shufflevale Pro removes the limit.`,
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'See Pro', onPress: () => openPro('cards') },
+        ],
+      );
+    }
+  };
+
   // Art for new cards (several at once from Photos or Files) or the card back (one). Everything goes through
   // the cropper, except sprite sheets, which have their own screen.
   const fromCamera = (target: ArtTarget) =>
@@ -157,7 +184,7 @@ export default function DeckEditorScreen() {
           setBack(back, back);
         } else {
           const cards = await Promise.all(scans.map((s) => fitScan(s, ratio)));
-          decks.addCards(deck.id, cards, undefined, cards);
+          addNewCards(cards, cards);
         }
         return;
       }
@@ -257,6 +284,11 @@ export default function DeckEditorScreen() {
   };
   /** Opens the art menu for new cards or the back (and tells the walkthrough, which may be waiting for it). */
   const openArtMenu = (target: ArtTarget) => {
+    // No room for more cards in the free version: Pro instead (the walkthrough's sample cards are always allowed).
+    if (target === 'cards' && room <= 0 && !tour) {
+      openPro('cards');
+      return;
+    }
     setMenu(target);
     tourEvent(target === 'cards' ? 'add-cards-menu' : 'back-menu');
   };
@@ -311,7 +343,7 @@ export default function DeckEditorScreen() {
     const target = crop?.target;
     if (target === 'back') setBack(uris[0], originals[0]);
     else if (typeof target === 'object') decks.replaceCardImage(deck.id, target.cardId, uris[0], originals[0]);
-    else decks.addCards(deck.id, uris, undefined, originals);
+    else addNewCards(uris, originals);
     setCrop(null);
   };
   const shareDeck = () => withBusy(() => shareDecks([deck]));
@@ -588,7 +620,10 @@ export default function DeckEditorScreen() {
         onClose={() => setDeckMenuOpen(false)}
         actions={[
           // To keep a copy somewhere safe, move it to another phone, or give it to a friend.
-          ...(deck.cards.length ? [{ label: 'Share or back up this deck…', opensModal: true, onPress: shareDeck }] : []),
+          // Deck files are part of Pro: shown for everyone, opening Pro without it.
+          ...(deck.cards.length
+            ? [{ label: pro ? 'Share or back up this deck…' : 'Share or back up this deck… · Pro', opensModal: !!pro, onPress: pro ? shareDeck : () => openPro('files') }]
+            : []),
           { label: 'Delete deck', destructive: true, opensModal: true, onPress: confirmDelete },
         ]}
       />
@@ -630,7 +665,7 @@ export default function DeckEditorScreen() {
         onDone={(card) => {
           // Already exactly card shaped: it's its own original, should the card size change.
           if (scan?.target === 'back') setBack(card, card);
-          else decks.addCards(deck.id, [card], undefined, [card]);
+          else addNewCards([card], [card]);
           setScan(null);
         }}
         onCropByHand={(uri) => {
@@ -659,7 +694,7 @@ export default function DeckEditorScreen() {
           withBusy(async () => {
             await settleAuto(uris[0]);
             if (target === 'back') setBack(uris[0], uris[0]);
-            else decks.addCards(deck.id, uris, undefined, uris);
+            else addNewCards(uris, uris);
           });
         }}
         onCancel={() => setSpriteSheet(null)}

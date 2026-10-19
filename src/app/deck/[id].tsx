@@ -15,7 +15,7 @@ import { CropModal } from '../../components/CropModal';
 import { ReorderableGrid } from '../../components/ReorderableGrid';
 import { SpriteSheetModal } from '../../components/SpriteSheetModal';
 import { useDecks } from '../../lib/DecksContext';
-import { askName, titleCase } from '../../lib/names';
+import { askName, MAX_NAME_LENGTH, titleCase } from '../../lib/names';
 import { appleScannerAvailable, fitScan, scanCards } from '../../lib/appleScanner';
 import { shareDecks } from '../../lib/deckExport';
 import { deleteDeckWarning } from '../../lib/deckInUse';
@@ -459,6 +459,7 @@ export default function DeckEditorScreen() {
                     maxFontSizeMultiplier={MAX_TEXT_SCALE}
                     value={nameDraft ?? deck.name}
                     onChangeText={(t) => setNameDraft(titleCase(t))}
+                    maxLength={MAX_NAME_LENGTH}
                     onEndEditing={(e) => {
                       const name = e.nativeEvent.text.trim();
                       if (name && name !== deck.name) decks.renameDeck(deck.id, name);
@@ -608,7 +609,7 @@ export default function DeckEditorScreen() {
                   onBlur={resetCopiesDraft}
                   keyboardType="number-pad"
                   returnKeyType="done"
-                  maxLength={3}
+                  maxLength={2}
                   selectTextOnFocus
                   style={styles.copiesInput}
                   accessibilityLabel="Copies in deck"

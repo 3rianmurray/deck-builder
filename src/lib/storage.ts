@@ -1,6 +1,7 @@
 // On-device persistence. Images are copied into the app's document directory and referenced by
 // relative path, because iOS can change the absolute container path between app updates.
 import { Directory, File, Paths } from 'expo-file-system';
+import { Alert } from 'react-native';
 
 import { newId } from './id';
 import type { DeckGroup } from './groups';
@@ -14,21 +15,74 @@ const GROUPS_FILE = 'groups.json';
 const SETTINGS_FILE = 'settings.json';
 const SANDBOXES_FILE = 'sandboxes.json';
 
-function readJson<T>(name: string, fallback: T): T {
+/** A file's contents, parsed, or undefined if it's missing or can't be read. */
+function parseFile<T>(file: File): T | undefined {
+  if (!file.exists) return undefined;
   try {
-    const file = new File(Paths.document, name);
-    if (!file.exists) return fallback;
     return JSON.parse(file.textSync()) as T;
-  } catch (e) {
-    console.warn(`Could not read ${name}`, e);
-    return fallback;
+  } catch {
+    return undefined;
   }
 }
 
-function writeJson(name: string, value: unknown) {
+/**
+ * Reads a saved file. If it's damaged (e.g. the phone died mid-save in an older version), the last whole copy
+ * waiting to be swapped in is used instead, and the damaged file is put aside (never overwritten), so a player's
+ * decks are never silently replaced by nothing.
+ */
+function readJson<T>(name: string, fallback: T): T {
   const file = new File(Paths.document, name);
-  if (!file.exists) file.create();
-  file.write(JSON.stringify(value));
+  const value = parseFile<T>(file);
+  if (value !== undefined) return value;
+  if (file.exists) {
+    console.warn(`Could not read ${name}; keeping it aside`);
+    try {
+      file.moveSync(new File(Paths.document, `${name}.damaged-${Date.now()}`));
+    } catch (e) {
+      console.warn(`Could not put ${name} aside`, e);
+    }
+  }
+  return parseFile<T>(new File(Paths.document, `${name}.tmp`)) ?? fallback;
+}
+
+/**
+ * Saves a file safely: written whole to a temporary file first, then swapped in, so the saved copy is never left
+ * half-written (if the app's closed, or the phone dies or runs out of room, mid-save). A save that fails is reported
+ * (see `saveFailed`) instead of crashing the app; the last good copy stays.
+ */
+function writeJson(name: string, value: unknown) {
+  try {
+    const tmp = new File(Paths.document, `${name}.tmp`);
+    tmp.create({ overwrite: true });
+    tmp.write(JSON.stringify(value));
+    tmp.moveSync(new File(Paths.document, name), { overwrite: true });
+  } catch (e) {
+    saveFailed(name, e);
+  }
+}
+
+/** Below this much free room, a failed save is put down to the phone being full. */
+const LOW_SPACE_BYTES = 50 * 1024 * 1024;
+/** A failed save is told once in this long, not on every change. */
+const FAILURE_NOTICE_MS = 60_000;
+let lastNotice = 0;
+
+/** Tells the player a save failed (once a minute at most): their changes since may not be kept. */
+function saveFailed(name: string, e: unknown) {
+  console.warn(`Could not save ${name}`, e);
+  const now = Date.now();
+  if (now - lastNotice < FAILURE_NOTICE_MS) return;
+  lastNotice = now;
+  let full = false;
+  try {
+    full = Paths.availableDiskSpace < LOW_SPACE_BYTES;
+  } catch {}
+  Alert.alert(
+    full ? 'Your iPhone is out of storage' : 'Couldn’t save your changes',
+    full
+      ? 'Shufflevale can’t save your latest changes. Free up some space in Settings › General › iPhone Storage, then try again. Everything saved before this is safe.'
+      : 'Something stopped Shufflevale saving your latest changes. Everything saved before this is safe.',
+  );
 }
 
 export const loadDecks = () => readJson<Deck[]>(DECKS_FILE, []);

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
-import { answerName, titleCase, useNameRequest } from '../lib/names';
+import { answerName, MAX_NAME_LENGTH, titleCase, useNameRequest } from '../lib/names';
 import { colors } from '../theme';
 import { Button } from './Button';
 import { MAX_TEXT_SCALE, Text } from './Text';
@@ -32,6 +32,7 @@ export function NamePrompt() {
             selectTextOnFocus
             maxFontSizeMultiplier={MAX_TEXT_SCALE}
             value={draft}
+            maxLength={MAX_NAME_LENGTH}
             onChangeText={(t) => setDraft(titleCase(t))}
             autoCapitalize="words"
             returnKeyType="done"

@@ -16,8 +16,13 @@ export interface Card {
   backOriginal?: string;
 }
 
-export function copiesOf(card: Card): number {
-  return card.copies ?? 1;
+/** The most copies of one card a deck can have: plenty for any game, and a table stays quick. */
+export const MAX_COPIES = 99;
+
+/** How many copies of a card there are: 1 to `MAX_COPIES` (whatever a file or an older version saved). */
+export function copiesOf(card: Pick<Card, 'copies'>): number {
+  const n = card.copies;
+  return typeof n === 'number' && Number.isFinite(n) ? Math.min(MAX_COPIES, Math.max(1, Math.floor(n))) : 1;
 }
 
 /** Total number of physical cards in a deck, counting copies. */

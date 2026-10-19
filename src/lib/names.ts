@@ -2,6 +2,12 @@
 // and the app's own prompt for asking for one (iOS's system prompt can't change the text as it's typed).
 import { useSyncExternalStore } from 'react';
 
+/** The longest a name can be (decks, cards, groups, tables, hands, sessions): plenty, and it still fits on screen. */
+export const MAX_NAME_LENGTH = 60;
+
+/** A name kept to `MAX_NAME_LENGTH`, trimmed. */
+export const clampName = (name: string) => name.trim().slice(0, MAX_NAME_LENGTH).trim();
+
 /**
  * Text in title case: the first letter of every word made a capital, as it's typed. The rest is left as typed,
  * so capitals inside words (e.g. "McDonald", "UNO") stay.
@@ -37,7 +43,7 @@ export function askName(title: string, current: string, done: (name: string) => 
 export function answerName(name: string | null) {
   const asked = request;
   set(null);
-  const trimmed = name?.trim();
+  const trimmed = name ? clampName(name) : undefined;
   if (asked && trimmed) asked.done(trimmed);
 }
 

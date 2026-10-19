@@ -601,6 +601,14 @@ export function addDeck(
   return { ...t, stacks: [...t.stacks, { id: ids(), x: at.x, y: at.y, angle: 0, cards: shuffled(cards, random) }] };
 }
 
+/** The most cards a table holds (on it, in hands and in its trash): more would make it slow to move around. */
+export const MAX_TABLE_CARDS = 1000;
+
+/** How many cards a table holds: on it, in its hands and in its trash. */
+export function tableCardCount(t: SandboxTable): number {
+  return t.stacks.reduce((n, s) => n + s.cards.length, 0) + t.hands.reduce((n, h) => n + h.length, 0) + (t.trash?.length ?? 0);
+}
+
 /** How far apart the decks a new table starts with are laid: room for a big card with a gap. */
 const START_SPACING = 4 * GRID_STEP;
 

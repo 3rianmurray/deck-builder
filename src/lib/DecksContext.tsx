@@ -22,6 +22,7 @@ import type { UnpackedDeck } from './deckFile';
 import type { DeckGroup } from './groups';
 import { moveItems } from './order';
 import { createTable, pruneTable } from './table';
+import { copiesOf } from './types';
 import type { Card, CardShape, Deck, PlayMode, Session, TableState } from './types';
 
 interface DecksApi {
@@ -290,7 +291,7 @@ export function DecksProvider({ children }: { children: ReactNode }) {
       setCopies(deckId, cardId, copies) {
         updateDeck(deckId, (d) => ({
           ...d,
-          cards: d.cards.map((c) => (c.id === cardId ? { ...c, copies: Math.max(1, Math.floor(copies)) } : c)),
+          cards: d.cards.map((c) => (c.id === cardId ? { ...c, copies: copiesOf({ copies }) } : c)),
         }));
       },
       renameCard(deckId, cardId, name) {

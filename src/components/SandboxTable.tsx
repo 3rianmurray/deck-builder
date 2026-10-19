@@ -70,12 +70,14 @@ import {
   setSolo,
   setStack,
   settleOnto,
+  MAX_TABLE_CARDS,
+  tableCardCount,
 } from '../lib/sandbox';
 import type { Camera, CardSize, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
 import { offerTipSoon } from '../lib/tips';
 import { tourEvent } from '../lib/tour';
-import { cardRatio, cardSizeMm, PRESET_SIZES_MM } from '../lib/types';
+import { cardRatio, cardSizeMm, copiesOf, deckSize, PRESET_SIZES_MM } from '../lib/types';
 import type { Deck } from '../lib/types';
 import { colors } from '../theme';
 import { ActionSheet } from './ActionSheet';
@@ -1555,13 +1557,24 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setArriving({ stackId: added.id, key: newId(), to, scale: cameraZoom(cam), angle: cameraAngle(cam) });
     haptics.lift();
   };
+  /** Whether this many more cards fit on the table (see `MAX_TABLE_CARDS`); if not, says so. */
+  const roomFor = (t: SandboxTable, more: number) => {
+    if (tableCardCount(t) + more <= MAX_TABLE_CARDS) return true;
+    haptics.warn();
+    Alert.alert(
+      'This table is full',
+      `A table holds up to ${MAX_TABLE_CARDS.toLocaleString('en-US')} cards, counting its hands and trash. Empty the trash, or start another table.`,
+    );
+    return false;
+  };
   const addDeckToTable = (deck: Deck) => {
-    if (!table) return;
+    if (!table || !roomFor(table, deckSize(deck))) return;
     arrive(addDeck(table, deck, viewMiddle(), newId));
   };
   /** Some of a deck's cards, chosen one by one: in one face-down stack. */
   const addCardsToTable = (deck: Deck, cardIds: string[]) => {
-    if (!table) return;
+    const more = deck.cards.filter((c) => cardIds.includes(c.id)).reduce((n, c) => n + copiesOf(c), 0);
+    if (!table || !roomFor(table, more)) return;
     arrive(addCards(table, deck, cardIds, viewMiddle(), newId));
   };
 

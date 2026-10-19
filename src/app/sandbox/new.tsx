@@ -1,14 +1,15 @@
 import { router, Stack } from 'expo-router';
 import { useState } from 'react';
-import { TextInput, View } from 'react-native';
+import { Alert, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../components/Button';
 import { DeckPicker, pickerStyles as styles } from '../../components/DeckPicker';
 import { useDecks } from '../../lib/DecksContext';
 import { newId } from '../../lib/id';
-import { titleCase } from '../../lib/names';
-import { layDecks } from '../../lib/sandbox';
+import { MAX_NAME_LENGTH, titleCase } from '../../lib/names';
+import { layDecks, MAX_TABLE_CARDS } from '../../lib/sandbox';
+import { deckSize } from '../../lib/types';
 import { createSandboxWith, useSandboxes } from '../../lib/sandboxStore';
 import { colors } from '../../theme';
 import { MAX_TEXT_SCALE, Text } from '../../components/Text';
@@ -23,6 +24,14 @@ export default function NewTableScreen() {
 
   const start = () => {
     const decks = picked.flatMap((id) => getDeck(id) ?? []);
+    const cards = decks.reduce((n, d) => n + deckSize(d), 0);
+    if (cards > MAX_TABLE_CARDS) {
+      Alert.alert(
+        'Too many cards for one table',
+        `These decks have ${cards.toLocaleString('en-US')} cards; a table holds up to ${MAX_TABLE_CARDS.toLocaleString('en-US')}. Pick fewer decks.`,
+      );
+      return;
+    }
     const table = createSandboxWith(name.trim() || 'Table', (empty) => layDecks(empty, decks, newId));
     router.replace({ pathname: '/sandbox/[id]', params: { id: table.id } });
   };
@@ -40,6 +49,7 @@ export default function NewTableScreen() {
               maxFontSizeMultiplier={MAX_TEXT_SCALE}
               value={name}
               onChangeText={(t) => setName(titleCase(t))}
+              maxLength={MAX_NAME_LENGTH}
               style={styles.input}
               placeholder="e.g. Game Night"
               placeholderTextColor={colors.textMuted}

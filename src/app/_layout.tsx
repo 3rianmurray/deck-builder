@@ -42,6 +42,7 @@ export default function RootLayout() {
           <Stack.Screen name="session/edit" options={{ title: 'Session' }} />
           <Stack.Screen name="sandbox/new" options={{ title: 'New Table' }} />
           <Stack.Screen name="help" options={{ title: 'Help' }} />
+          <Stack.Screen name="about" options={{ title: 'About' }} />
           {/* Its own top bar, and sideways swipes there move cards and the camera, not the screen. */}
           <Stack.Screen name="sandbox/[id]" options={{ headerShown: false, gestureEnabled: false }} />
         </Stack>

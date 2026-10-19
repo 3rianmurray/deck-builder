@@ -19,7 +19,7 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
     title: 'Home',
     tips: [
       ['Swipe a row', 'Right to duplicate it, left to delete it.'],
-      ['Hold and drag a deck', 'Reorder it, or drop it under a group to file it there.'],
+      ['Hold and drag a row', 'Reorder it within its section. Drop a deck under a group to file it there.'],
     ],
   },
   {

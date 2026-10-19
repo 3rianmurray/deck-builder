@@ -24,7 +24,6 @@ import { loadSettings, saveSettings } from '../lib/storage';
 import { offerTipSoon, resetTips, setTipsOn, tipsOn } from '../lib/tips';
 import { startTour, tourEvent, useTourStep } from '../lib/tour';
 import { deckSize } from '../lib/types';
-import { versionLabel } from '../lib/version';
 import { colors } from '../theme';
 import { Text } from '../components/Text';
 import { TourSpot } from '../components/TourSpot';
@@ -508,10 +507,6 @@ export default function HomeScreen() {
           <Button label="+ Session" onPress={() => router.push('/session/edit')} disabled={decks.length === 0} style={{ flex: 1 }} />
           <Button label="+ Table" onPress={() => router.push('/sandbox/new')} style={{ flex: 1 }} />
         </View>
-        {/* Which version is running, down to the update (to tell one TestFlight update from the next). */}
-        <Text style={styles.version} numberOfLines={1}>
-          {versionLabel()}
-        </Text>
       </View>
 
       <ActionSheet
@@ -520,6 +515,8 @@ export default function HomeScreen() {
         onClose={() => setAppMenuOpen(false)}
         actions={[
           { label: 'Help', onPress: () => router.push('/help') },
+          // The version running (down to the update), and where to get help.
+          { label: 'About Shufflevale', onPress: () => router.push('/about') },
           // Tips (now and then, the first times things are used): off, or on, and all of them again.
           tipsOn()
             ? { label: 'Turn Tips Off', onPress: () => setTipsOn(false) }
@@ -664,7 +661,6 @@ const styles = StyleSheet.create({
   emptyBody: { color: colors.textMuted, fontSize: 15, textAlign: 'center', lineHeight: 21 },
   section: { color: colors.textMuted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
   footerButtons: { flexDirection: 'row', gap: 10 },
-  version: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginTop: 8, opacity: 0.8 },
   footer: {
     paddingHorizontal: 16,
     paddingTop: 8,

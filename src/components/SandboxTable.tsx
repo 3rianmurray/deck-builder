@@ -92,6 +92,7 @@ import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
 import { WoodRail } from './Tabletop';
 import { TABLE_THEMES, THEME_KEYS, themeOf } from '../lib/tableThemes';
+import { isSeeThrough } from '../lib/storage';
 import { Text } from './Text';
 
 /** Steps of undo kept. */
@@ -2660,7 +2661,9 @@ const StackView = memo(function StackView({
   const top = shown[shown.length - 1];
   const topDeck = decks.get(top.deckId) ?? deck;
   const card = topDeck.cards.find((c) => c.id === top.cardId);
-  const edges = Math.min(2, shown.length - 1);
+  // No paper edges under a see-through card (a die-cut shape): they'd show round it.
+  const showing = top.faceUp ? card?.image : (card?.back ?? topDeck.backImage);
+  const edges = isSeeThrough(showing) ? 0 : Math.min(2, shown.length - 1);
   return (
     <View
       style={[

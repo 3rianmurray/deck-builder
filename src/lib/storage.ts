@@ -91,6 +91,12 @@ export function saveImageData(deckId: string, ext: string, base64: string): stri
 /** A saved picture's bytes, as base64 (for a deck file). */
 export const readImageData = (relativePath: string): string => new File(Paths.document, relativePath).base64Sync();
 
+/**
+ * Whether a saved picture has see-through parts: only those are kept as PNG (see lib/images), so it's drawn with
+ * nothing behind it, rather than on a card.
+ */
+export const isSeeThrough = (relativePath: string | null | undefined) => !!relativePath && /\.png$/i.test(relativePath);
+
 export function imageUri(relativePath: string): string {
   return new File(Paths.document, relativePath).uri;
 }

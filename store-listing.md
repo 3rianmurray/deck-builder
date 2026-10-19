@@ -69,6 +69,18 @@ No account or sign-in. On first launch a guided tour starts (it can be skipped).
 ## TestFlight: What to Test
 Try the guided tour (tap ? on the home screen, then Replay the Tutorial), build a deck from your own photos or a sprite sheet, and play the Solitaire table. Report anything confusing or any card that won't do what you expect.
 
+## Screenshots (in order; the first three show in search results)
+Final size 1320 × 2868 (6.9″). Headline at the top, a short line under it, the app below.
+1. A Table full of cards, charcoal theme, several stacks and a fanned row. "Your cards. Any table." / "Lay out every deck and play."
+2. Scanning a card (camera, edges found). "Capture your own cards" / "Scan, snap or import your art."
+3. Revealing a card from a deck (mid-flip or just landed on the discard pile). "Flip through any deck" / "Tap to draw. Shuffle with a riffle."
+4. A session with deck tabs at the top. "Swipe between decks" / "Every deck in your game, one swipe apart."
+5. A sprite sheet being cut into a grid. "A whole sheet in seconds" / "Cut a sprite sheet into cards."
+6. Edit Deck grid with a back, copies and rounded corners. "Make it yours" / "Card backs, sizes, copies and corners."
+7. A lasso selection or cards in a hand on a Table. "Deal, fan, stack and lasso" / "With four hands to pass around."
+8. Table theme menu, or a table in another theme. "Pick your table" / "Seven themes, each with its own tray."
+9. The home screen with decks, a session and tables. "Everything stays on your phone" / "No account. No ads. No tracking."
+
 ## URLs
 • Support URL: https://3rianmurray.github.io/shufflevale/
 • Privacy Policy URL: https://3rianmurray.github.io/shufflevale/privacy.html

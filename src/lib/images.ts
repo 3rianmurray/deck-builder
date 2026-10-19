@@ -2,6 +2,8 @@ import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { decode as decodeJpeg } from 'jpeg-js';
 
+import { pngHasTransparency } from './pngAlpha';
+
 /** Saved cards are scaled down to this height, which is plenty for any phone screen. */
 const MAX_OUTPUT_HEIGHT = 1400;
 
@@ -19,12 +21,40 @@ export interface CropRect {
 }
 
 /**
+ * Pictures with see-through parts (e.g. die-cut card shapes) are kept as PNG from the moment they're loaded, so
+ * every step after (cropping, turning, keeping the original) keeps them see-through; everything else is JPEG.
+ * A PNG with no see-through pixels is solid, so it's JPEG too (much smaller).
+ */
+const isPng = (uri: string) => /\.png(\?.*)?$/i.test(uri);
+const formatOf = (uri: string) => (isPng(uri) ? SaveFormat.PNG : SaveFormat.JPEG);
+
+/** How small a copy is looked at to tell whether a PNG has see-through parts: plenty to see clear corners. */
+const ALPHA_CHECK_WIDTH = 160;
+
+/** Whether a picture has see-through pixels (only a PNG can). */
+async function hasTransparency(uri: string): Promise<boolean> {
+  if (!isPng(uri)) return false;
+  try {
+    const ref = await ImageManipulator.manipulate(uri).resize({ width: ALPHA_CHECK_WIDTH }).renderAsync();
+    const small = await ref.saveAsync({ format: SaveFormat.PNG });
+    const file = new File(small.uri);
+    try {
+      return pngHasTransparency(await file.bytes());
+    } finally {
+      if (file.exists) file.delete();
+    }
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Re-encodes an image so its pixels are in display orientation (camera photos often rely on EXIF rotation),
- * which keeps what the user sees and crop coordinates in agreement.
+ * which keeps what the user sees and crop coordinates in agreement. See-through pictures stay PNG.
  */
 export async function loadUpright(uri: string): Promise<LoadedImage> {
   const ref = await ImageManipulator.manipulate(uri).renderAsync();
-  const img = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 1 });
+  const img = await ref.saveAsync({ format: (await hasTransparency(uri)) ? SaveFormat.PNG : SaveFormat.JPEG, compress: 1 });
   return { uri: img.uri, width: img.width, height: img.height };
 }
 
@@ -41,7 +71,7 @@ export async function saveCrop(uri: string, rect: CropRect, turn: QuarterTurn = 
   const outHeight = turn ? rect.width : rect.height;
   if (outHeight > MAX_OUTPUT_HEIGHT) ctx = ctx.resize({ height: MAX_OUTPUT_HEIGHT });
   const ref = await ctx.renderAsync();
-  const out = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 0.85 });
+  const out = await ref.saveAsync({ format: formatOf(uri), compress: 0.85 });
   return out.uri;
 }
 
@@ -58,7 +88,8 @@ export async function keepOriginal(uri: string): Promise<string> {
   if (Math.max(size.width, size.height) > ORIGINAL_MAX_SIDE) {
     ctx = ctx.resize(size.width >= size.height ? { width: ORIGINAL_MAX_SIDE } : { height: ORIGINAL_MAX_SIDE });
   }
-  const out = await (await ctx.renderAsync()).saveAsync({ format: SaveFormat.JPEG, compress: 0.85 });
+  const format = (await hasTransparency(uri)) ? SaveFormat.PNG : SaveFormat.JPEG;
+  const out = await (await ctx.renderAsync()).saveAsync({ format, compress: 0.85 });
   return out.uri;
 }
 
@@ -97,6 +128,6 @@ export async function smallPixels(uri: string, width: number): Promise<{ width: 
 /** Turns a whole image a quarter turn and returns the new file, keeping full quality for further editing. */
 export async function rotateImage(uri: string, turn: -90 | 90): Promise<LoadedImage> {
   const ref = await ImageManipulator.manipulate(uri).rotate(turn).renderAsync();
-  const img = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 1 });
+  const img = await ref.saveAsync({ format: formatOf(uri), compress: 1 });
   return { uri: img.uri, width: img.width, height: img.height };
 }

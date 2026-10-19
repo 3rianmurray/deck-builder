@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 
-import { imageUri } from '../lib/storage';
+import { imageUri, isSeeThrough } from '../lib/storage';
 import { cardRadius, cardRatio } from '../lib/types';
 import type { Card, Deck } from '../lib/types';
 import { colors } from '../theme';
@@ -136,6 +136,8 @@ export const CardView = memo(function CardView({
   // A card with its own back (a two-sided card) shows that; others, the deck's.
   const backImage = (card ?? cardProp)?.back ?? deck.backImage;
   const hasPicture = !!showFace || !!backImage;
+  // A picture with see-through parts (a die-cut shape, say) is drawn on its own: no card under it, no sheen.
+  const seeThrough = isSeeThrough(showFace ? card?.image : backImage);
   useEffect(() => {
     if (!hasPicture) onReady?.();
     // Only on mount: the built-in back is there as soon as the card is.
@@ -158,7 +160,10 @@ export const CardView = memo(function CardView({
       style={[
         { transform },
         // Sized to the card exactly: unsized, it can stretch wider than the card and show as a gray card behind.
-        tabletop && !flat && [tabletopShadow.resting, { width, height, borderRadius: radius, backgroundColor: colors.surfaceRaised }],
+        tabletop && !flat && [
+          tabletopShadow.resting,
+          { width, height, borderRadius: radius, backgroundColor: seeThrough ? 'transparent' : colors.surfaceRaised },
+        ],
         style,
       ]}>
       <Pressable
@@ -169,6 +174,7 @@ export const CardView = memo(function CardView({
         accessibilityLabel={faceUp && cardProp ? cardProp.name : 'Face-down card'}
         style={({ pressed }) => [
           styles.card,
+          seeThrough && styles.seeThrough,
           flat && styles.noShadow,
           { width, height, borderRadius: radius },
           selected && styles.selected,
@@ -201,7 +207,7 @@ export const CardView = memo(function CardView({
           </View>
         ) : null}
         {/* A faint sheen on the card's edge, where the light catches it. */}
-        {tabletop ? <View style={[StyleSheet.absoluteFill, styles.sheen, { borderRadius: radius }]} /> : null}
+        {tabletop && !seeThrough ? <View style={[StyleSheet.absoluteFill, styles.sheen, { borderRadius: radius }]} /> : null}
       </Pressable>
     </Animated.View>
     </View>
@@ -271,7 +277,8 @@ export function PileDepth({
   height?: Animated.Value;
   children: ReactNode;
 }) {
-  const rise = pileRise(width, count);
+  // See-through cards (die-cut shapes) have no paper edges to show, so they lie flat.
+  const rise = isSeeThrough(deck.backImage) ? 0 : pileRise(width, count);
   // Enough edges to look solid however far the pile leans.
   const edges = Math.round((rise * MAX_LEAN) / EDGE_STEP);
   const height = width / cardRatio(deck);
@@ -347,6 +354,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   selected: { borderWidth: 2, borderColor: colors.accent },
+  seeThrough: { backgroundColor: 'transparent' },
   // The side not showing, loaded and ready underneath while the card turns.
   hiddenSide: { opacity: 0 },
   noShadow: { shadowOpacity: 0, elevation: 0 },

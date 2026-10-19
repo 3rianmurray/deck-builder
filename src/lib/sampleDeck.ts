@@ -3,20 +3,20 @@
 import { Asset } from 'expo-asset';
 
 const CARDS = [
-  { name: 'One of Suns', art: require('../../assets/sample/sun-1.png') },
-  { name: 'Two of Suns', art: require('../../assets/sample/sun-2.png') },
-  { name: 'Three of Suns', art: require('../../assets/sample/sun-3.png') },
-  { name: 'One of Moons', art: require('../../assets/sample/moon-1.png') },
-  { name: 'Two of Moons', art: require('../../assets/sample/moon-2.png') },
-  { name: 'Three of Moons', art: require('../../assets/sample/moon-3.png') },
-  { name: 'One of Stars', art: require('../../assets/sample/star-1.png') },
-  { name: 'Two of Stars', art: require('../../assets/sample/star-2.png') },
-  { name: 'Three of Stars', art: require('../../assets/sample/star-3.png') },
-  { name: 'One of Leaves', art: require('../../assets/sample/leaf-1.png') },
-  { name: 'Two of Leaves', art: require('../../assets/sample/leaf-2.png') },
-  { name: 'Three of Leaves', art: require('../../assets/sample/leaf-3.png') },
+  { name: 'One of Suns', art: require('../../assets/sample/sun-1.jpg') },
+  { name: 'Two of Suns', art: require('../../assets/sample/sun-2.jpg') },
+  { name: 'Three of Suns', art: require('../../assets/sample/sun-3.jpg') },
+  { name: 'One of Moons', art: require('../../assets/sample/moon-1.jpg') },
+  { name: 'Two of Moons', art: require('../../assets/sample/moon-2.jpg') },
+  { name: 'Three of Moons', art: require('../../assets/sample/moon-3.jpg') },
+  { name: 'One of Stars', art: require('../../assets/sample/star-1.jpg') },
+  { name: 'Two of Stars', art: require('../../assets/sample/star-2.jpg') },
+  { name: 'Three of Stars', art: require('../../assets/sample/star-3.jpg') },
+  { name: 'One of Leaves', art: require('../../assets/sample/leaf-1.jpg') },
+  { name: 'Two of Leaves', art: require('../../assets/sample/leaf-2.jpg') },
+  { name: 'Three of Leaves', art: require('../../assets/sample/leaf-3.jpg') },
 ];
-const BACK = require('../../assets/sample/back.png');
+const BACK = require('../../assets/sample/back.jpg');
 
 /** A bundled picture as a file on the phone, ready to be copied into a deck. */
 export async function fileOf(art: number): Promise<string> {

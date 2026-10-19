@@ -47,6 +47,8 @@ async function pickImages(multiple: boolean): Promise<string[]> {
     selectionLimit: multiple ? 0 : 1,
     // Full quality here; the cropper compresses once when it saves.
     quality: 1,
+    // The picture as it is, not converted: a PNG stays a PNG, so its see-through parts can be kept.
+    preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
   });
   return result.canceled ? [] : result.assets.map((a) => a.uri);
 }

@@ -91,6 +91,7 @@ import { CardView } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
 import { WoodRail } from './Tabletop';
+import { TABLE_THEMES, THEME_KEYS, themeOf } from '../lib/tableThemes';
 import { Text } from './Text';
 
 /** Steps of undo kept. */
@@ -119,15 +120,6 @@ const TAP_SLOP = 8;
 const EXTRA_TAP_MS = 350;
 /** Roughly the hand tray's height, for placing the camera at the start (the tray sizes itself to its cards). */
 const HAND_H = 160;
-/** Cloth colors a table can have (beside the classic felt, its default), by key: name and color. */
-const CLOTHS: Record<string, { name: string; color: string }> = {
-  blue: { name: 'Blue', color: '#1d3a5c' },
-  green: { name: 'Green', color: '#1f4d33' },
-  red: { name: 'Red', color: '#6b1e24' },
-  purple: { name: 'Purple', color: '#43295f' },
-  charcoal: { name: 'Charcoal', color: '#2a2d33' },
-  tan: { name: 'Tan', color: '#8a6d47' },
-};
 /** How far down the screen the top bar's buttons reach, below the safe area (see TableTopBar). */
 const TOP_BAR_H = 56;
 /** Room left round the cards when the view is fitted to them. */
@@ -1808,7 +1800,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Add a deck…', onPress: () => setTimeout(() => setMenu({ kind: 'addDeck' }), 250) },
           // Its own screen, which iOS can only show once this menu has gone.
           { label: 'Add cards…', opensModal: true, onPress: () => setAddingCards(true) },
-          { label: 'Table color…', onPress: () => setTimeout(() => setMenu({ kind: 'color' }), 250) },
+          { label: 'Table theme…', onPress: () => setTimeout(() => setMenu({ kind: 'color' }), 250) },
           {
             label: 'Reset the view',
             onPress: () => fitView(table),
@@ -1827,18 +1819,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       };
     }
     if (menu.kind === 'color') {
-      const pick = (background: string | undefined) => {
-        const { background: _old, ...rest } = table;
-        updateSandbox(background ? { ...rest, background } : rest);
+      const pick = (background: string) => {
+        updateSandbox({ ...table, background });
         haptics.tick();
       };
+      const current = TABLE_THEMES[table.background ?? 'classic'] ? (table.background ?? 'classic') : 'classic';
       return {
-        title: 'Table color',
+        title: 'Table theme',
         tiles: [],
-        actions: [
-          { label: `Classic felt${table.background ? '' : '  ✓'}`, onPress: () => pick(undefined) },
-          ...Object.entries(CLOTHS).map(([key, c]) => ({ label: `${c.name}${table.background === key ? '  ✓' : ''}`, onPress: () => pick(key) })),
-        ],
+        // Each cloth with a tray to match.
+        actions: THEME_KEYS.map((key) => ({ label: `${TABLE_THEMES[key].name}${current === key ? '  ✓' : ''}`, onPress: () => pick(key) })),
       };
     }
     if (menu.kind === 'selection') {
@@ -1908,7 +1898,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   }
 
   const chosenIds = new Set(chosen);
-  const cloth = table.background ? CLOTHS[table.background] : undefined;
+  const theme = themeOf(table.background);
+  const ink = (alpha: number) => `rgba(${theme.ink},${alpha})`;
   const arrivingStack = arriving ? table.stacks.find((s) => s.id === arriving.stackId) : undefined;
   const arrivingTop = arrivingStack?.cards[arrivingStack.cards.length - 1];
   const riffleStack = riffling ? table.stacks.find((s) => s.id === riffling.stackId) : undefined;
@@ -1920,15 +1911,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const zoomCard = zoomed ? cardOf(zoomed) : undefined;
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: theme.outside }]}>
       <GestureDetector gesture={gesture}>
         <View style={StyleSheet.absoluteFill} onLayout={layOut}>
           {/* The table, seen through the camera. */}
           <Animated.View style={[styles.world, worldStyle]} pointerEvents="none">
-            <View style={styles.tableEdge} />
-            {/* The cloth's color, if one's been chosen: under a lighter weave. */}
-            {cloth ? <View style={[styles.cloth, { backgroundColor: cloth.color }]} /> : null}
-            <Image source={require('../../assets/textures/felt.png')} resizeMode="repeat" style={[styles.felt, cloth && styles.feltOverCloth]} />
+            <View style={[styles.tableEdge, { backgroundColor: theme.rim }]} />
+            {/* The theme's cloth, under a lighter weave (or, classic, the felt itself). */}
+            {theme.cloth ? <View style={[styles.cloth, { backgroundColor: theme.cloth }]} /> : null}
+            <Image source={require('../../assets/textures/felt.png')} resizeMode="repeat" style={[styles.felt, theme.cloth && styles.feltOverCloth]} />
             {table.showGrid ? <GridLines step={gridStep} /> : null}
             {!table.showGrid && gridPeek ? (
               <Animated.View style={[StyleSheet.absoluteFill, gridFadeStyle]}>
@@ -2056,8 +2047,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                     accessibilityState={{ selected: on }}
                     accessibilityLabel={`${table.handNames[i]}, ${table.hands[i].length} cards`}
                     accessibilityHint={on ? (folded ? 'Opens the hand' : 'Folds the hand away') : 'Shows this hand. Hold to rename it.'}
-                    style={({ pressed }) => [styles.tab, on && styles.tabOn, pressed && styles.tabPressed]}>
-                    <Text style={[styles.tabText, on && styles.tabTextOn]} numberOfLines={1}>
+                    style={({ pressed }) => [
+                      styles.tab,
+                      { backgroundColor: pressed ? theme.tabPressed : on ? theme.tabOn : theme.tab, borderColor: theme.shine },
+                    ]}>
+                    <Text style={[styles.tabText, { color: ink(on ? 0.95 : 0.6) }]} numberOfLines={1}>
                       {table.handNames[i]} · {table.hands[i].length}
                     </Text>
                     {on ? (
@@ -2073,10 +2067,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               })}
             </View>
             <View style={{ height: trayH }} pointerEvents="box-none">
-              <WoodRail />
+              <WoodRail colors={theme.rail} shine={theme.shine} />
               <View style={[styles.groove, { top: HAND_TOP_PAD, height: handCardH + HAND_ROW_PAD * 2 }]} />
               {hand.length === 0 && handGap === null ? (
-                <Text style={[styles.trayEmpty, { top: rowTop + handCardH / 2 - 10 }]}>Drag cards here to put them in {table.handNames[handIndex]}</Text>
+                <Text style={[styles.trayEmpty, { top: rowTop + handCardH / 2 - 10, color: ink(0.45) }]}>Drag cards here to put them in {table.handNames[handIndex]}</Text>
               ) : null}
               {/*
                 The row: table mode's scroll view, card for card, so it scrolls, stretches and bounces just the same.
@@ -2844,9 +2838,6 @@ const styles = StyleSheet.create({
     borderRightWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,220,180,0.25)',
   },
-  // The chosen hand's tab: lighter wood, like table mode's one tab.
-  tabOn: { backgroundColor: '#6b4528', borderColor: 'rgba(255,220,180,0.35)' },
   tabPressed: { backgroundColor: '#3a2212' },
   tabText: { color: 'rgba(255,240,220,0.6)', fontSize: 12, fontWeight: '700' },
-  tabTextOn: { color: 'rgba(255,240,220,0.95)' },
 });

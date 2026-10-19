@@ -48,12 +48,19 @@ export function TabletopSurface() {
  * The wooden rail along the bottom of the table, where the hand rests. A background layer: put it first
  * inside the hand's own view, so the hand keeps its layout.
  */
-export function WoodRail() {
+export function WoodRail({
+  colors: shades = ['#6b4528', '#4a2d18', '#2e1b0e'],
+  shine,
+}: {
+  /** Another finish (a table's theme): light to dark, top to bottom. Walnut by default. */
+  colors?: readonly [string, string, string];
+  shine?: string;
+} = {}) {
   return (
     <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
-      <LinearGradient colors={['#6b4528', '#4a2d18', '#2e1b0e']} locations={[0, 0.35, 1]} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={shades} locations={[0, 0.35, 1]} style={StyleSheet.absoluteFill} />
       {/* A highlight along the rail's top edge, where the light catches it. */}
-      <View style={styles.railHighlight} />
+      <View style={[styles.railHighlight, shine ? { backgroundColor: shine } : null]} />
     </View>
   );
 }

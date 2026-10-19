@@ -58,7 +58,7 @@ export interface SandboxTable {
   snapToGrid?: boolean;
   /** The camera stays put: sliding, zooming and turning the table do nothing (cards still move). */
   lockCamera?: boolean;
-  /** The table's cloth color (a key of the app's colors), or none for green felt. */
+  /** The table's theme (a key of TABLE_THEMES in tableThemes.ts): its cloth, and a tray to go with it. None is the classic felt. */
   background?: string;
   /** The grid's lines are drawn (snapping is separate: see snapToGrid). */
   showGrid?: boolean;
@@ -92,6 +92,8 @@ export function newSandbox(id: string, name: string, now: number): SandboxTable 
     stacks: [],
     hands: Array.from({ length: HAND_COUNT }, () => []),
     handNames: Array.from({ length: HAND_COUNT }, (_, i) => `Hand ${i + 1}`),
+    // Charcoal, the default theme (see tableThemes.ts).
+    background: 'charcoal',
     createdAt: now,
     updatedAt: now,
   };

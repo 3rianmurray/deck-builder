@@ -69,7 +69,7 @@ No account or sign-in. On first launch a guided tour starts (it can be skipped).
 ## TestFlight: What to Test
 Try the guided tour (tap ? on the home screen, then Replay the Tutorial), build a deck from your own photos or a sprite sheet, and play the Solitaire table. Report anything confusing or any card that won't do what you expect.
 
-## Still needed from you
-• Support URL (required): a page or contact link for help.
-• Privacy Policy URL (required): it can be short, saying no data is collected.
-• Marketing URL (optional).
+## URLs
+• Support URL: https://3rianmurray.github.io/deck-builder/
+• Privacy Policy URL: https://3rianmurray.github.io/deck-builder/privacy.html
+• Marketing URL (optional): https://3rianmurray.github.io/deck-builder/

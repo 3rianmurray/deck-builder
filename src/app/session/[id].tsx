@@ -128,7 +128,8 @@ export default function SessionScreen() {
     <View style={styles.felt}>
       {/* The cloth runs under the top bar and the tabs too, as one surface. */}
       <TabletopSurface />
-      <TableTopBar controls={controls} />
+      {/* The session's name on top (the tabs below name the decks); tapping it opens the deck on screen's menu. */}
+      <TableTopBar controls={controls && { ...controls, title: session.name }} />
       {/* The deck tabs step away while the deck on screen is being searched (the search is full screen). */}
       <View style={controls?.hidden && styles.gone}>
         {/* Sized from the text size setting, so changing it (even while the app is open) re-fits the row: the pills

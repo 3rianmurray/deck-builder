@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
@@ -2326,7 +2325,6 @@ function Table({
             ...(table.trash.length
               ? [{ label: `Look in the trash (${table.trash.length})`, onPress: () => setSearchZone('trash' as const) }]
               : []),
-            { label: 'Edit deck', onPress: () => router.push({ pathname: '/deck/[id]', params: { id: deck.id } }) },
             { label: 'Reset table', destructive: true, opensModal: true, onPress: confirmReset },
           ],
         };
@@ -2335,6 +2333,12 @@ function Table({
         return { actions: [] };
     }
   })();
+
+  const newCardsText = (
+    <Text style={styles.bannerText}>
+      {missing} new {missing === 1 ? 'card' : 'cards'} in this deck · Tap to shuffle in
+    </Text>
+  );
 
   const deckTop = table.deck[0];
   const topDiscard = table.discard[0];
@@ -2672,16 +2676,8 @@ function Table({
       */}
       <View style={[StyleSheet.absoluteFill, styles.stage]}>
       <View ref={stageRef} style={[StyleSheet.absoluteFill, tilt.angle ? { transform: tiltTransform(tilt) } : null]}>
-      {missing > 0 ? (
-        <Pressable style={styles.banner} accessibilityRole="button" onPress={() => {
-            shuffleDeck((t) => T.addMissingCards(t, deck));
-            flash('Added to deck');
-          }}>
-          <Text style={styles.bannerText}>
-            {missing} new {missing === 1 ? 'card' : 'cards'} in this deck · Tap to shuffle in
-          </Text>
-        </Pressable>
-      ) : null}
+      {/* Room for the new-cards banner (drawn flat, over the table, below), so the table lays out below it. */}
+      {missing > 0 ? <View style={[styles.banner, styles.bannerRoom]}>{newCardsText}</View> : null}
 
       {reveal ? (
         <View style={[styles.reveal, { paddingBottom: insets.bottom + 12 }]} onLayout={measure('reveal')}>
@@ -3011,6 +3007,16 @@ function Table({
 
       </View>
       </View>
+
+      {/* New cards in the deck since this game began: a flat banner across the top, not tilted with the table. */}
+      {missing > 0 ? (
+        <Pressable style={[styles.banner, styles.bannerFlat]} accessibilityRole="button" onPress={() => {
+            shuffleDeck((t) => T.addMissingCards(t, deck));
+            flash('Added to deck');
+          }}>
+          {newCardsText}
+        </Pressable>
+      ) : null}
 
       {searchMounted ? (
         <SearchPanel
@@ -3641,6 +3647,8 @@ const styles = StyleSheet.create({
   headerButton: { color: colors.accent, fontSize: 17, fontWeight: '600' },
   headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 22 },
   banner: { backgroundColor: colors.accent, paddingVertical: 8, paddingHorizontal: 12 },
+  bannerFlat: { position: 'absolute', left: 0, right: 0, top: 0 },
+  bannerRoom: { opacity: 0 },
   bannerText: { color: colors.accentText, textAlign: 'center', fontWeight: '600' },
   piles: {
     flexDirection: 'row',

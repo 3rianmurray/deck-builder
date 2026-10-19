@@ -10,6 +10,8 @@ import {
   reorderStack,
   addCards,
   addDeck,
+  layDecks,
+  TABLE_W,
   cameraAngle,
   cameraZoom,
   flipStack,
@@ -549,4 +551,13 @@ test('gathering up: cards brought on one by one come back as singles, fanned fac
   const g2 = gatherDecks(onlySingles, [deck], { x: 100, y: 100 }, () => `h${n++}`);
   assert.equal(g2.stacks.length, 1);
   assert.equal(g2.stacks[0].cards.length, 1);
+});
+test('a new table: its decks in a row across the middle, in order, on the grid', () => {
+  const deck = (id: string) => ({ id, name: id, backImage: null, cards: [{ id: 'x', name: 'X', image: '' }], createdAt: 0, updatedAt: 0 }) as Deck;
+  let n = 0;
+  const t = layDecks(newSandbox('t', 'T', 0), [deck('a'), deck('b'), deck('c')], () => `id${n++}`);
+  assert.deepEqual(t.stacks.map((s) => s.cards[0].deckId), ['a', 'b', 'c']);
+  assert.equal(t.stacks[1].x, TABLE_W / 2);
+  assert.ok(t.stacks[0].x < t.stacks[1].x && t.stacks[1].x < t.stacks[2].x);
+  assert.ok(t.stacks.every((s) => s.x % 40 === 0 && s.y === t.stacks[0].y));
 });

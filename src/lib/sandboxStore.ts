@@ -72,6 +72,13 @@ export function updateSandbox(table: SandboxTable) {
   set(all().map((t) => (t.id === table.id ? { ...table, updatedAt: Date.now() } : t)));
 }
 
+/** Moves a table to another place in the list: `to` is its index once moved. */
+export function moveSandbox(id: string, to: number) {
+  const rest = all().filter((t) => t.id !== id);
+  const table = all().find((t) => t.id === id);
+  if (table) set([...rest.slice(0, to), table, ...rest.slice(to)]);
+}
+
 export function deleteSandbox(id: string) {
   set(all().filter((t) => t.id !== id));
 }

@@ -599,6 +599,21 @@ export function addDeck(
   return { ...t, stacks: [...t.stacks, { id: ids(), x: at.x, y: at.y, angle: 0, cards: shuffled(cards, random) }] };
 }
 
+/** How far apart the decks a new table starts with are laid: room for a big card with a gap. */
+const START_SPACING = 4 * GRID_STEP;
+
+/**
+ * A new table's decks, each in a shuffled, face-down stack, in a row across the middle of the table (where a new
+ * table's camera looks) in the order given, on the grid.
+ */
+export function layDecks(t: SandboxTable, decks: Deck[], ids: () => string, random: () => number = Math.random): SandboxTable {
+  const left = TABLE_W / 2 - ((decks.length - 1) * START_SPACING) / 2;
+  return decks.reduce((tb, deck, i) => {
+    const x = Math.round((left + i * START_SPACING) / GRID_STEP) * GRID_STEP;
+    return addDeck(tb, deck, { x, y: TABLE_H / 2 }, ids, random);
+  }, t);
+}
+
 /** Where the Solitaire example's columns start (the first's middle), and how far apart they are, on the grid. */
 const SOLITAIRE_LEFT = 1440;
 const SOLITAIRE_TOP = 1000;

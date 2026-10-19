@@ -19,7 +19,7 @@ import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
 import { useExamples } from '../lib/examples';
-import { createSandbox, deleteSandbox, duplicateSandbox, updateSandbox, useSandboxes } from '../lib/sandboxStore';
+import { deleteSandbox, duplicateSandbox, moveSandbox, updateSandbox, useSandboxes } from '../lib/sandboxStore';
 import { loadSettings, saveSettings } from '../lib/storage';
 import { offerTipSoon, resetTips, setTipsOn, tipsOn } from '../lib/tips';
 import { startTour, tourEvent, useTourStep } from '../lib/tour';
@@ -46,6 +46,7 @@ export default function HomeScreen() {
     sessions,
     createSession,
     deleteSession,
+    moveSession,
     getDeck,
     groups,
     createGroup,
@@ -288,10 +289,6 @@ export default function HomeScreen() {
   };
 
   // Tables (sandboxes in the code, once called Free Play): big open tables to bring decks onto, Tabletop Simulator style.
-  const newSandboxTable = () => {
-    const table = createSandbox(`Table ${sandboxes.length + 1}`);
-    router.push({ pathname: '/sandbox/[id]', params: { id: table.id } });
-  };
   const confirmDeleteSandbox = (id: string, name: string) => {
     haptics.warn();
     Alert.alert(`Delete "${name}"?`, 'Its decks are kept; just this table goes.', [
@@ -307,22 +304,18 @@ export default function HomeScreen() {
     // Only as the step comes up.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantsTable]);
-  const sandboxSection = sandboxes.length ? (
-    <View style={{ gap: 10, marginBottom: 16 }}>
-      <Text style={styles.section}>Tables</Text>
-      {sandboxes.map((t) => {
-        const open = () => router.push({ pathname: '/sandbox/[id]', params: { id: t.id } });
-        return (
-          <SwipeRow
-            key={t.id}
-            {...swipe(`sandbox:${t.id}`, () => confirmDeleteSandbox(t.id, t.name), () => {
-              closeRows();
-              if (duplicateSandbox(t.id)) haptics.success();
-            })}>
+  const renderTable = (id: string, lifted: boolean) => {
+    const t = sandboxes.find((s) => s.id === id);
+    if (!t) return null;
+    const open = () => router.push({ pathname: '/sandbox/[id]', params: { id: t.id } });
+    const tableRow = (
             <Pressable
-              style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
+              style={({ pressed }) => [styles.row, lifted && styles.liftedRow, pressed && { opacity: 0.75 }]}
               // As every row: tapping it shows its options (a table has no settings screen); Play goes straight in.
               onPress={() => setTableMenu(t.id)}
+              // Matches the list's hold-to-lift, so letting go after lifting doesn't also show the options.
+              onLongPress={() => {}}
+              delayLongPress={LIFT_HOLD_MS}
               accessibilityRole="button"
               accessibilityLabel={`${t.name}, table`}
               accessibilityHint="Shows the table's options."
@@ -345,28 +338,31 @@ export default function HomeScreen() {
                 <Button label="Play" variant="primary" onPress={open} />
               )}
             </Pressable>
-          </SwipeRow>
-        );
-      })}
-    </View>
-  ) : null;
+    );
+    return lifted ? (
+      tableRow
+    ) : (
+      <SwipeRow
+        {...swipe(`table:${t.id}`, () => confirmDeleteSandbox(t.id, t.name), () => {
+          closeRows();
+          if (duplicateSandbox(t.id)) haptics.success();
+        })}>
+        {tableRow}
+      </SwipeRow>
+    );
+  };
 
-  const sessionsSection = sessions.length ? (
-    <View style={{ gap: 10, marginBottom: 16 }}>
-      <Text style={styles.section}>Sessions</Text>
-      {sessions.map((s) => {
-        const names = s.deckIds.flatMap((d) => getDeck(d)?.name ?? []);
-        return (
-          <SwipeRow
-            key={s.id}
-            {...swipe(`session:${s.id}`, () => confirmDeleteSession(s.id, s.name), () => {
-              closeRows();
-              createSession(`${s.name} Copy`, s.deckIds);
-              haptics.success();
-            })}>
+  const renderSession = (id: string, lifted: boolean) => {
+    const s = sessions.find((x) => x.id === id);
+    if (!s) return null;
+    const names = s.deckIds.flatMap((d) => getDeck(d)?.name ?? []);
+    const sessionRow = (
             <Pressable
-              style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
+              style={({ pressed }) => [styles.row, lifted && styles.liftedRow, pressed && { opacity: 0.75 }]}
               onPress={() => router.push({ pathname: '/session/edit', params: { id: s.id } })}
+              // Matches the list's hold-to-lift, so letting go after lifting doesn't also open the session.
+              onLongPress={() => {}}
+              delayLongPress={LIFT_HOLD_MS}
               accessibilityRole="button"
               accessibilityLabel={`${s.name}, session: ${names.length ? names.join(', ') : 'no decks'}`}
               accessibilityHint="Opens the session to choose its decks."
@@ -392,11 +388,80 @@ export default function HomeScreen() {
                 onPress={() => router.push({ pathname: '/session/[id]', params: { id: s.id } })}
               />
             </Pressable>
-          </SwipeRow>
-        );
-      })}
-    </View>
-  ) : null;
+    );
+    return lifted ? (
+      sessionRow
+    ) : (
+      <SwipeRow
+        {...swipe(`session:${s.id}`, () => confirmDeleteSession(s.id, s.name), () => {
+          closeRows();
+          createSession(`${s.name} Copy`, s.deckIds);
+          haptics.success();
+        })}>
+        {sessionRow}
+      </SwipeRow>
+    );
+  };
+
+  /**
+   * Everything on the home screen is one list, so tables and sessions can be held and dragged too: each section's
+   * heading, then its rows. A row stays in its own section (see `dropRange`).
+   */
+  type HomeRow = Row | { kind: 'heading'; id: 'tables' | 'sessions' | 'decks' } | { kind: 'table'; id: string } | { kind: 'session'; id: string };
+  const tablesStart = sandboxes.length ? 1 : 0;
+  const sessionsStart = tablesStart + sandboxes.length + (sessions.length ? 1 : 0);
+  const decksStart = sessionsStart + sessions.length + 1;
+  const homeRows: HomeRow[] = [
+    ...(sandboxes.length ? [{ kind: 'heading' as const, id: 'tables' as const }] : []),
+    ...sandboxes.map((t) => ({ kind: 'table' as const, id: t.id })),
+    ...(sessions.length ? [{ kind: 'heading' as const, id: 'sessions' as const }] : []),
+    ...sessions.map((s) => ({ kind: 'session' as const, id: s.id })),
+    { kind: 'heading', id: 'decks' },
+    ...rows,
+  ];
+  const dropRange = (r: HomeRow): [number, number] =>
+    r.kind === 'table'
+      ? [tablesStart, tablesStart + sandboxes.length]
+      : r.kind === 'session'
+        ? [sessionsStart, sessionsStart + sessions.length]
+        : [decksStart, homeRows.length];
+  const dropHome = (r: HomeRow, at: number) => {
+    if (r.kind === 'table') {
+      const from = sandboxes.findIndex((t) => t.id === r.id);
+      const to = at - tablesStart;
+      moveSandbox(r.id, to > from ? to - 1 : to);
+    } else if (r.kind === 'session') {
+      const from = sessions.findIndex((s) => s.id === r.id);
+      const to = at - sessionsStart;
+      moveSession(r.id, to > from ? to - 1 : to);
+    } else if (r.kind === 'deck' || r.kind === 'group') {
+      drop(r, at - decksStart);
+    }
+  };
+
+  const renderHeading = (id: 'tables' | 'sessions' | 'decks') =>
+    id === 'decks' ? (
+      <View style={[styles.sectionRow, decksStart > 1 && styles.laterSection]}>
+        <Text style={styles.section}>Decks</Text>
+        {/* Grouping is only about decks, so it's here (making decks is in the bar at the bottom). */}
+        <Pressable onPress={newGroup} hitSlop={10} accessibilityRole="button" style={({ pressed }) => pressed && { opacity: 0.6 }}>
+          <Text style={styles.sectionLink}>New Group</Text>
+        </Pressable>
+      </View>
+    ) : (
+      <View style={[styles.sectionRow, id === 'sessions' && sandboxes.length > 0 && styles.laterSection]}>
+        <Text style={styles.section}>{id === 'tables' ? 'Tables' : 'Sessions'}</Text>
+      </View>
+    );
+
+  const renderHome = (r: HomeRow, lifted = false) =>
+    r.kind === 'heading'
+      ? renderHeading(r.id)
+      : r.kind === 'table'
+        ? renderTable(r.id, lifted)
+        : r.kind === 'session'
+          ? renderSession(r.id, lifted)
+          : renderRow(r, lifted);
 
   return (
     <View style={styles.screen}>
@@ -411,40 +476,27 @@ export default function HomeScreen() {
         />
       </Stack.Toolbar>
       <ReorderableList
-        rows={rows}
+        rows={homeRows}
         keyOf={(r) => `${r.kind}:${r.id}`}
-        renderRow={(r) => <View style={styles.rowWrap}>{renderRow(r)}</View>}
-        renderLifted={(r) => <View style={styles.liftedWrap}>{renderRow(r, true)}</View>}
-        // A row swiped open can't be picked up: a press on it closes it instead.
-        canLift={(r, x, width) => openRow?.key !== `${r.kind}:${r.id}` && x < width - BUTTON_ZONE}
-        onDrop={drop}
+        renderRow={(r) => <View style={r.kind === 'heading' ? undefined : styles.rowWrap}>{renderHome(r)}</View>}
+        renderLifted={(r) => <View style={styles.liftedWrap}>{renderHome(r, true)}</View>}
+        // Headings stay put, and a row swiped open can't be picked up: a press on it closes it instead.
+        canLift={(r, x, width) => r.kind !== 'heading' && openRow?.key !== `${r.kind}:${r.id}` && x < width - BUTTON_ZONE}
+        dropRange={dropRange}
+        onDrop={dropHome}
         bottomInset={insets.bottom + 92}
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 120 }]}
-        header={
-          <>
-            {sandboxSection}
-            {sessionsSection}
-            <View style={styles.sectionRow}>
-              <Text style={styles.section}>Decks</Text>
-              {/* Grouping is only about decks, so it's here (making decks is in the bar at the bottom). */}
-              <Pressable onPress={newGroup} hitSlop={10} accessibilityRole="button" style={({ pressed }) => pressed && { opacity: 0.6 }}>
-                <Text style={styles.sectionLink}>New Group</Text>
-              </Pressable>
-            </View>
-            {decks.length || groups.length ? null : (
-              <View style={styles.empty}>
-                <Text style={styles.emptyTitle}>No decks yet</Text>
-                <Text style={styles.emptyBody}>
-                  Create a deck and add your own card art. Then play it, turning its cards over one by one, or lay it out on a table.
-                </Text>
-              </View>
-            )}
-          </>
-        }
         footer={
-          decks.length > 1 || groups.length ? (
-            <Text style={styles.hint}>Hold a deck or group to drag it. Drop a deck under a group to file it there.</Text>
-          ) : null
+          decks.length || groups.length ? (
+            <Text style={styles.hint}>Hold any row to drag it. Drop a deck under a group to file it there.</Text>
+          ) : (
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>No decks yet</Text>
+              <Text style={styles.emptyBody}>
+                Create a deck and add your own card art. Then play it, turning its cards over one by one, or lay it out on a table.
+              </Text>
+            </View>
+          )
         }
       />
       <View style={[styles.footer, { paddingBottom: insets.bottom + 4 }]}>
@@ -454,7 +506,7 @@ export default function HomeScreen() {
             <Button label="+ Deck" variant="primary" onPress={newDeck} />
           </TourSpot>
           <Button label="+ Session" onPress={() => router.push('/session/edit')} disabled={decks.length === 0} style={{ flex: 1 }} />
-          <Button label="+ Table" onPress={newSandboxTable} style={{ flex: 1 }} />
+          <Button label="+ Table" onPress={() => router.push('/sandbox/new')} style={{ flex: 1 }} />
         </View>
         {/* Which version is running, down to the update (to tell one TestFlight update from the next). */}
         <Text style={styles.version} numberOfLines={1}>
@@ -572,6 +624,8 @@ const styles = StyleSheet.create({
   list: { padding: 16 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   sectionLink: { color: colors.accent, fontSize: 15, fontWeight: '600' },
+  // A section after another: a little more room above it than between rows.
+  laterSection: { marginTop: 6 },
   rowWrap: { paddingBottom: 10 },
   liftedWrap: { paddingHorizontal: 16 },
   row: {

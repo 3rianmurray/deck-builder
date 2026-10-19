@@ -78,6 +78,8 @@ interface DecksApi {
   createSession: (name: string, deckIds: string[]) => Session;
   updateSession: (id: string, changes: Pick<Session, 'name' | 'deckIds'>) => void;
   deleteSession: (id: string) => void;
+  /** Moves a session to another place in the list: `to` is its index once moved. */
+  moveSession: (id: string, to: number) => void;
   /** Home-screen groups, in display order (see lib/groups.ts). */
   groups: DeckGroup[];
   createGroup: (name: string) => DeckGroup;
@@ -404,6 +406,14 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         setSessions((all) => all.map((s) => (s.id === id ? { ...s, ...changes, updatedAt: Date.now() } : s)));
         // A deck taken out of the session keeps its game there, so taking one out by mistake loses nothing:
         // adding it back picks up where it left off. (Reset table starts it fresh; deleting the session clears it.)
+      },
+      moveSession(id, to) {
+        setSessions((all) => {
+          const session = all.find((s) => s.id === id);
+          if (!session) return all;
+          const rest = all.filter((s) => s.id !== id);
+          return [...rest.slice(0, to), session, ...rest.slice(to)];
+        });
       },
       groups,
       createGroup(name) {

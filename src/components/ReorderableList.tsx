@@ -38,6 +38,8 @@ interface Props<R> {
   canLift?: (row: R, x: number, width: number) => boolean;
   /** `at` is the insertion point among the rows: 0 is before the first, `rows.length` after the last. */
   onDrop: (row: R, at: number) => void;
+  /** The insertion points a row can be dropped at (first and last), e.g. to keep it within its own section. */
+  dropRange?: (row: R) => [number, number];
   header?: ReactNode;
   footer?: ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
@@ -58,6 +60,7 @@ export function ReorderableList<R>({
   renderLifted,
   canLift,
   onDrop,
+  dropRange,
   header,
   footer,
   contentContainerStyle,
@@ -104,10 +107,12 @@ export function ReorderableList<R>({
   /** The insertion point under the finger: after every row whose middle is above it. */
   const insertionAt = (pageY: number) => {
     const y = rowsY(pageY);
-    return rows.filter((r) => {
+    const at = rows.filter((r) => {
       const l = layouts[keyOf(r)];
       return l && l.y + l.h / 2 < y;
     }).length;
+    const range = press && dropRange?.(rows[press.index]);
+    return range ? Math.min(range[1], Math.max(range[0], at)) : at;
   };
 
   const track = () => {

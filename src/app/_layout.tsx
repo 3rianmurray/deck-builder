@@ -17,7 +17,8 @@ export default function RootLayout() {
   }, []);
   return (
     // For swipeable rows (see SwipeRow).
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    // The app's dark background right at the root, so nothing light shows round a screen's corners as it slides.
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <DecksProvider>
         <StatusBar style="light" />
         <Stack

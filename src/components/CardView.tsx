@@ -187,6 +187,9 @@ export const CardView = memo(function CardView({
                 source={{ uri: imageUri(backImage) }}
                 style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
                 contentFit="cover"
+                // Kept in memory as well as on disk: a card redrawn (picked up, put down, flipped) shows at once,
+                // not after a moment's gray while its picture is read from disk again.
+                cachePolicy="memory-disk"
                 onDisplay={faceVisible ? undefined : onReady}
                 allowDownscaling={!sharp}
               />
@@ -201,6 +204,7 @@ export const CardView = memo(function CardView({
               source={{ uri: imageUri(faceCard.image) }}
               style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
               contentFit="cover"
+              cachePolicy="memory-disk"
               onDisplay={faceVisible ? onReady : undefined}
               allowDownscaling={!sharp}
             />

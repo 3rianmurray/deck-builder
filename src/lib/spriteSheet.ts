@@ -25,12 +25,26 @@ export function cellNumber(row: number, column: number, grid: Grid): number | nu
   return n < grid.count ? n : null;
 }
 
-/** Pixel rectangles of the cards to cut out, in card order. Cells share edges, so none overlap or leave gaps. */
-export function cellRects(width: number, height: number, grid: Grid): CropRect[] {
-  const xs = (c: number) => Math.round((c * width) / grid.columns);
-  const ys = (r: number) => Math.round((r * height) / grid.rows);
+/** Where each column's and row's cards lie, as shares of the sheet's width and height (see sheetEdges.ts). */
+export interface CardSpans {
+  columns: [number, number][];
+  rows: [number, number][];
+}
+
+/** A column's (or row's) span as shares of the sheet: its card's own, if found, else its share of an even grid. */
+export function span(spans: [number, number][] | undefined, i: number, n: number): [number, number] {
+  return spans?.[i] ?? [i / n, (i + 1) / n];
+}
+
+/**
+ * Pixel rectangles of the cards to cut out, in card order. On an even grid, cells share edges, so none overlap or
+ * leave gaps; with `spans` (the cards' own edges, found inside the space between them), each is cut to its card.
+ */
+export function cellRects(width: number, height: number, grid: Grid, spans?: CardSpans | null): CropRect[] {
   return Array.from({ length: grid.count }, (_, n) => {
     const [r, c] = cellPosition(n, grid);
-    return { originX: xs(c), originY: ys(r), width: xs(c + 1) - xs(c), height: ys(r + 1) - ys(r) };
+    const [x0, x1] = span(spans?.columns, c, grid.columns).map((f) => Math.round(f * width));
+    const [y0, y1] = span(spans?.rows, r, grid.rows).map((f) => Math.round(f * height));
+    return { originX: x0, originY: y0, width: x1 - x0, height: y1 - y0 };
   });
 }

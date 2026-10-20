@@ -112,9 +112,14 @@ const ANALYSIS_WIDTH = 480;
  * A small copy of an image, decoded to raw pixels (4 bytes per pixel: red, green, blue, alpha), for working
  * things out from what's in it, like a sprite sheet's grid.
  */
-export async function smallPixels(uri: string, width: number): Promise<{ width: number; height: number; data: Uint8Array }> {
+export async function smallPixels(
+  uri: string,
+  width: number,
+  /** Wider, for finding things to the pixel (like the space between a sheet's cards). */
+  maxWidth = ANALYSIS_WIDTH,
+): Promise<{ width: number; height: number; data: Uint8Array }> {
   let ctx = ImageManipulator.manipulate(uri);
-  if (width > ANALYSIS_WIDTH) ctx = ctx.resize({ width: ANALYSIS_WIDTH });
+  if (width > maxWidth) ctx = ctx.resize({ width: maxWidth });
   const ref = await ctx.renderAsync();
   const small = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 0.9 });
   const file = new File(small.uri);

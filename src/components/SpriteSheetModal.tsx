@@ -21,15 +21,18 @@ import { offerTipSoon } from '../lib/tips';
 import { loadUpright, saveCrop, smallPixels } from '../lib/images';
 import { guessSheet } from '../lib/sheetGuess';
 import type { LoadedImage, QuarterTurn } from '../lib/images';
-import { cellNumber, cellRects } from '../lib/spriteSheet';
+import { cellNumber, cellRects, span } from '../lib/spriteSheet';
+import { findEdges } from '../lib/sheetEdges';
 import type { Grid, SheetOrder } from '../lib/spriteSheet';
-import type { SheetGuess } from '../lib/sheetGuess';
+import type { Pixels, SheetGuess } from '../lib/sheetGuess';
 import { colors } from '../theme';
 import { Button } from './Button';
 import { TipToast } from './TipToast';
 import { MAX_TEXT_SCALE, Text } from './Text';
 
 const MAX_CELLS_PER_SIDE = 20;
+/** How wide the sheet is looked at to find the space between its cards: fine enough to land within a pixel or two. */
+const EDGE_ANALYSIS_WIDTH = 960;
 const PADDING = 16;
 
 /** Parses a typed whole number, falling back when the field is empty or not a number. */
@@ -74,6 +77,13 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
   const [skipped, setSkipped] = useState<{ source: string | null; cards: number[] }>({ source: null, cards: [] });
   /** A finger is choosing cards on the sheet (so the screen doesn't scroll under it). */
   const [painting, setPainting] = useState(false);
+  /**
+   * Cutting the cards: inside any plain space between them and round them (`auto`), or on an even grid (`off`), for
+   * a sheet whose "space" is really part of the art. Kept between imports, like the grid.
+   */
+  const [edgesMode, setEdgesMode] = useState<'auto' | 'off'>('auto');
+  /** The sheet's pixels, a little bigger than for the grid guess, for finding the space between cards. */
+  const [edgePixels, setEdgePixels] = useState<{ source: string; px: Pixels } | null>(null);
 
   const image = loaded && loaded.source === uri ? loaded : null;
   // A tip, the first time: the numbers slide.
@@ -102,6 +112,8 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
             setCountText(found.count < found.rows * found.columns ? String(found.count) : '');
           }
           setGuess({ ...found, source: uri });
+          const px = await smallPixels(img.uri, img.width, EDGE_ANALYSIS_WIDTH);
+          if (!canceled) setEdgePixels({ source: uri, px });
         } catch {
           // Not worth bothering the player about: they set the grid by hand, as before.
         } finally {
@@ -124,6 +136,9 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
     ? { rows, columns, count: cells, order: 'rows' }
     : { rows, columns, count: parseCount(countText, cells, cells), order };
   const left = new Set(skipped.source === uri ? skipped.cards.filter((n) => n < grid.count) : []);
+  // Where the cards themselves lie, inside any space between them (none found: the even grid).
+  const sheetPx = edgePixels && edgePixels.source === uri ? edgePixels.px : null;
+  const edges = edgesMode === 'auto' && sheetPx ? findEdges(sheetPx, rows, columns) : null;
   const taking = grid.count - left.size;
   /** Leaves cards out of the import, or puts them back. */
   const mark = (cards: number[], out: boolean) =>
@@ -203,7 +218,7 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
   });
   const importCards = async () => {
     if (!image) return;
-    const all = cellRects(image.width, image.height, grid);
+    const all = cellRects(image.width, image.height, grid, edges);
     const rects = pickOne ? [all[pick.r * columns + pick.c]] : all.filter((_, n) => !left.has(n));
     const out: string[] = [];
     try {
@@ -238,11 +253,14 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
                 {Array.from({ length: rows }, (_, r) =>
                   Array.from({ length: columns }, (_, c) => {
                     const n = cellNumber(r, c, grid);
+                    // Outlining what's cut: the card itself, inside any space round it.
+                    const [x0, x1] = span(edges?.columns, c, columns);
+                    const [y0, y1] = span(edges?.rows, r, rows);
                     const box = {
-                      left: (c * preview.w) / columns,
-                      top: (r * preview.h) / rows,
-                      width: preview.w / columns,
-                      height: preview.h / rows,
+                      left: x0 * preview.w,
+                      top: y0 * preview.h,
+                      width: (x1 - x0) * preview.w,
+                      height: (y1 - y0) * preview.h,
                     };
                     if (pickOne) {
                       // Picking one: every cell can be tapped; the chosen one is outlined, the rest dimmed.
@@ -333,6 +351,26 @@ export function SpriteSheetModal({ uri, pickOne = false, cardRatio, onDone, onCa
               />
             </>
           )}
+
+          {/* Space between (and round) the cards: cut away, or kept as part of each card. */}
+          <Segment
+            label="Space between cards"
+            value={edgesMode}
+            onChange={setEdgesMode}
+            options={[
+              ['auto', 'Trim it'],
+              ['off', 'Keep it'],
+            ]}
+          />
+          <Text style={styles.help}>
+            {edgesMode === 'off'
+              ? 'Cut on an even grid, space and all.'
+              : edges
+                ? 'The plain space between and round the cards is trimmed off: the outlines show what’s cut.'
+                : sheetPx
+                  ? 'No space between these cards: they’re cut where they meet.'
+                  : 'Plain space between and round the cards is trimmed off.'}
+          </Text>
 
           <Segment
             label="Rotate cards"

@@ -365,7 +365,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (placed.done() || !table) return;
     writeCamera(table.camera ?? startCamera({ w: space.w, h: space.h - HAND_H }, table.focus));
     placed.mark();
+    // Never looked at before (a new table, or Solitaire the first time): every card fitted in view, once laid out.
+    if (!table.camera) setFitFirst(true);
   };
+  const [fitFirst, setFitFirst] = useState(false);
 
   // ---- Changes ----
   /** A change to the table, which can be undone. */
@@ -1764,7 +1767,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const rename = askName;
 
   /** Every card in sight: below the top bar's buttons, above the hand, upright (for this table, as it'll be). */
-  const fitView = (t: SandboxTable) => {
+  const fitView = (t: SandboxTable, quiet = false) => {
     if (!view) return;
     const bounds = tableBounds(t, size);
     // Between the top bar's buttons and the hand: the top of its tabs (as it is now: open, or folded away).
@@ -1774,8 +1777,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     writeCamera(bounds ? fitCamera(bounds, space) : startCamera({ w: view.w, h: bottom }, t.focus));
     // Saved with the table as it is by then (this render's may be a change behind).
     setTimeout(() => latest.get().saveCamera(), 50);
-    haptics.tick();
+    if (!quiet) haptics.tick();
   };
+  useEffect(() => {
+    if (!fitFirst || !view || !table) return;
+    setFitFirst(false);
+    fitView(table, true);
+    // Just once, when the table's first laid out.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitFirst, view]);
   /** The tools' Clean Up: every card straight and on the grid, none sharing a spot. */
   const cleanUp = () => {
     if (!table) return;

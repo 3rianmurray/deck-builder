@@ -177,6 +177,8 @@ const SPRING_OVERSHOOT = 60;
 const LASSO_TIP_AFTER = 5;
 /** The tools panel's rounded corners (squared off where the tab meets one). */
 const TOOLS_PANEL_RADIUS = 14;
+/** The tools tab, let go this near the top or bottom of its edge, goes right up against it. */
+const TOOLS_END_SNAP = TOOLS_PANEL_RADIUS + 16;
 /** How long the tools tab is held before it lifts to be moved. */
 const TOOLS_HOLD_MS = 400;
 /** Moving further than this before the hold is up is a slip: neither a tap nor a drag. */
@@ -580,7 +582,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           return;
         }
         box.showDragging(false);
-        const y = Math.min(Math.max(box.tabY + g.dy, box.min), box.max);
+        // Let go near the top or bottom: right up against it, never just short (where the panel's corner, squared
+        // off for the tab, would be left with a point beside it).
+        const dropped = Math.min(Math.max(box.tabY + g.dy, box.min), box.max);
+        const y = dropped - box.min < TOOLS_END_SNAP ? box.min : box.max - dropped < TOOLS_END_SNAP ? box.max : dropped;
         const side = box.loose ? (g.moveX < box.width / 2 ? 'left' : 'right') : box.side;
         box.set({ side, at: box.max > box.min ? (y - box.min) / (box.max - box.min) : 0 });
         haptics.drop();

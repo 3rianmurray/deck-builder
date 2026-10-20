@@ -173,18 +173,21 @@ export default function DeckEditorScreen() {
   // the cropper, except sprite sheets, which have their own screen.
   const fromCamera = (target: ArtTarget) =>
     withBusy(async () => {
-      // New cards: Apple's scanner, where the app has it. It finds and straightens each card itself, several in a
-      // row, and they're fitted to the deck's card size.
-      if (target === 'cards' && appleScannerAvailable()) {
+      // Apple's scanner, where the app has it: it finds and straightens each card itself, several in a row,
+      // and they're fitted to the deck's card size. (Just the first, for the back.)
+      if (appleScannerAvailable()) {
         const scans = await scanCards();
         if (!scans.length) return;
         const ratio = await settleAuto(scans[0]);
-        const cards = await Promise.all(scans.map((s) => fitScan(s, ratio)));
-        addNewCards(cards, cards);
+        if (target === 'back') {
+          const back = await fitScan(scans[0], ratio);
+          setBack(back, back);
+        } else {
+          const cards = await Promise.all(scans.map((s) => fitScan(s, ratio)));
+          addNewCards(cards, cards);
+        }
         return;
       }
-      // A back (just one), or without Apple's scanner: one photo, and the app's own finder. (Apple's scanner can't be
-      // told to stop after one: it keeps going until Save.)
       const uri = await takePhoto();
       // The card is found in the photo and straightened (or cropped by hand, if the player prefers).
       if (uri) setScan({ uri, target });

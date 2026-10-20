@@ -396,7 +396,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [toolsSpot, setToolsSpot] = useState<ToolsSpot>(() => loadSettings().toolsSpot ?? DEFAULT_TOOLS_SPOT);
   const toolsClosedX = toolsSpot.side === 'left' ? -TOOLS_W : TOOLS_W;
   const toolsX = useSharedValue(toolsClosedX);
-  /** The tab being dragged: how far, so far (the whole drawer follows it until it's let go). */
+  /** The tab's being dragged: just the tab shows, not the (tucked away) panel it pulls out. */
+  const [toolsDragging, setToolsDragging] = useState(false);
+  /** The tab being dragged: how far, so far (the drawer follows it until it's let go). */
   const toolsDragX = useSharedValue(0);
   const toolsDragY = useSharedValue(0);
   const toolsStyle = useAnimatedStyle(() => ({
@@ -489,7 +491,17 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const tabInDrawer = tabY - toolsTop;
   // The tab: a tap opens or closes the drawer; a drag (while it's closed) carries it up or down, or to the other edge.
   const toolsDrag = useMemo(() => {
-    const box = { dragging: false, open: false, tabY: 0, min: 0, max: 0, width: 0, set: (_s: ToolsSpot) => {}, toggle: () => {} };
+    const box = {
+      dragging: false,
+      open: false,
+      tabY: 0,
+      min: 0,
+      max: 0,
+      width: 0,
+      set: (_s: ToolsSpot) => {},
+      toggle: () => {},
+      showDragging: (_on: boolean) => {},
+    };
     const responder = PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderTerminationRequest: () => false,
@@ -500,6 +512,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         if (box.open) return;
         if (!box.dragging && Math.hypot(g.dx, g.dy) > TOOLS_DRAG_SLOP) {
           box.dragging = true;
+          box.showDragging(true);
           haptics.lift();
         }
         if (!box.dragging) return;
@@ -508,11 +521,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       },
       onPanResponderRelease: (_, g) => {
         if (!box.dragging) return box.toggle();
+        box.showDragging(false);
         const y = Math.min(Math.max(box.tabY + g.dy, box.min), box.max);
         box.set({ side: g.moveX < box.width / 2 ? 'left' : 'right', at: box.max > box.min ? (y - box.min) / (box.max - box.min) : 0 });
         haptics.drop();
       },
       onPanResponderTerminate: () => {
+        box.showDragging(false);
         toolsDragX.set(withSpring(0));
         toolsDragY.set(withSpring(0));
       },
@@ -530,6 +545,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       saveSettings({ ...loadSettings(), toolsSpot: spot });
     },
     toggle: () => showTools(!toolsOpen),
+    showDragging: setToolsDragging,
   });
   /** The flip button, in the bottom-left corner above the tray, while cards are carried. */
   const flipButton = { x: FLIP_MARGIN, y: handTop - HAND_TAB_H - FLIP_MARGIN - FLIP_SIZE, size: FLIP_SIZE };
@@ -2261,7 +2277,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ]}
             pointerEvents={searching ? 'none' : 'box-none'}>
             <ScrollView
-              style={[styles.toolsPanel, { height: toolsH }, toolsSpot.side === 'left' ? styles.toolsPanelLeft : styles.toolsPanelRight]}
+              style={[styles.toolsPanel, { height: toolsH }, toolsSpot.side === 'left' ? styles.toolsPanelLeft : styles.toolsPanelRight, toolsDragging && styles.hidden]}
               contentContainerStyle={{ gap: 10 }}
               showsVerticalScrollIndicator={false}>
               <Text style={styles.toolsTitle}>Tools</Text>

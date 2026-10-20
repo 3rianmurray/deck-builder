@@ -17,7 +17,7 @@ import { SpriteSheetModal } from '../../components/SpriteSheetModal';
 import { useDecks } from '../../lib/DecksContext';
 import { askName, MAX_NAME_LENGTH, titleCase } from '../../lib/names';
 import { appleScannerAvailable, fitScan, scanCards } from '../../lib/appleScanner';
-import { shareDecks } from '../../lib/deckExport';
+import { backUpWithNotice, shareWithNotice } from '../../lib/fileActions';
 import { deleteDeckWarning } from '../../lib/deckInUse';
 import { cardRoom, FREE_CARD_LIMIT } from '../../lib/limits';
 import { exampleAllowances, usePro } from '../../lib/pro';
@@ -346,7 +346,6 @@ export default function DeckEditorScreen() {
     else addNewCards(uris, originals);
     setCrop(null);
   };
-  const shareDeck = () => withBusy(() => shareDecks([deck]));
 
   const confirmDelete = () =>
     Alert.alert(`Delete "${deck.name}"?`, deleteDeckWarning(deck.id, decks.sessions, sandboxes()), [
@@ -622,7 +621,10 @@ export default function DeckEditorScreen() {
           // To keep a copy somewhere safe, move it to another phone, or give it to a friend.
           // Deck files are part of Pro: shown for everyone, opening Pro without it.
           ...(deck.cards.length
-            ? [{ label: 'Share or back up this deck', section: { title: 'Deck files', pro: !pro }, dim: !pro, opensModal: pro, onPress: pro ? shareDeck : () => openPro('files') }]
+            ? [
+                { label: 'Share deck', pro: !pro, opensModal: pro, onPress: pro ? () => shareWithNotice({ name: deck.name, decks: [deck] }) : () => openPro('files') },
+                { label: 'Back up deck', pro: !pro, opensModal: pro, onPress: pro ? () => backUpWithNotice({ name: deck.name, decks: [deck] }) : () => openPro('files') },
+              ]
             : []),
           // Apart from the deck files section above it.
           { label: 'Delete deck', destructive: true, opensModal: true, groupStart: true, onPress: confirmDelete },

@@ -13,8 +13,12 @@ import { SwipeRow } from '../components/SwipeRow';
 import type { SwipeSide } from '../components/SwipeRow';
 import { useDecks } from '../lib/DecksContext';
 import { askName } from '../lib/names';
-import { DeckFileError } from '../lib/deckFile';
-import { pickDeckFile, shareDecks } from '../lib/deckExport';
+import { DeckFileError, remapTable } from '../lib/deckFile';
+import { everythingFile, pickDeckFile, tableFile } from '../lib/deckExport';
+import type { FileContents } from '../lib/deckExport';
+import type { DeckIdMap } from '../lib/deckFile';
+import { backUpWithNotice, shareWithNotice } from '../lib/fileActions';
+import { newId } from '../lib/id';
 import { deleteDeckWarning } from '../lib/deckInUse';
 import { cardRoom, cardsUsed, FREE_CARD_LIMIT } from '../lib/limits';
 import { exampleAllowances, usePro } from '../lib/pro';
@@ -22,7 +26,7 @@ import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
 import { useExamples } from '../lib/examples';
-import { deleteSandbox, duplicateSandbox, moveSandbox, updateSandbox, useSandboxes } from '../lib/sandboxStore';
+import { createSandboxWith, deleteSandbox, duplicateSandbox, moveSandbox, updateSandbox, useSandboxes } from '../lib/sandboxStore';
 import { loadSettings, saveSettings } from '../lib/storage';
 import { offerTipSoon, resetTips, setTipsOn, tipsOn } from '../lib/tips';
 import { startTour, tourEvent, useTourStep } from '../lib/tour';
@@ -164,31 +168,39 @@ export default function HomeScreen() {
   };
 
 
-  // Decks to and from files: a backup of them all to keep somewhere safe, and adding the decks in a file.
-  const backUpAll = async () => {
-    try {
-      await shareDecks(decks);
-    } catch (e) {
-      Alert.alert('Couldn’t back up your decks', e instanceof Error ? e.message : String(e));
-    }
-  };
-  const shareGroup = async (groupId: string) => {
-    try {
-      await shareDecks(decks.filter((d) => d.groupId === groupId));
-    } catch (e) {
-      Alert.alert('Couldn’t share this group', e instanceof Error ? e.message : String(e));
-    }
-  };
+  // Shufflevale files (part of Pro): sharing or backing up a deck, a group, a table or everything, and opening one.
+  // Without Pro, these open the Pro screen instead. (The share sheet and the Files pickers are system screens,
+  // which iOS can only show once a menu has gone: hence `opensModal`.)
+  /** A Share and a Back up action for a file of `what`, each marked PRO (opening Pro) until Pro is unlocked. */
+  const fileActions = (label: string, what: () => FileContents, first?: boolean) => [
+    { label: `Share ${label}`, pro: !pro, opensModal: pro, groupStart: first, onPress: pro ? () => shareWithNotice(what()) : () => openPro('files') },
+    { label: `Back up ${label}`, pro: !pro, opensModal: pro, onPress: pro ? () => backUpWithNotice(what()) : () => openPro('files') },
+  ];
+  const groupFile = (groupId: string): FileContents => ({
+    name: groups.find((g) => g.id === groupId)?.name ?? 'Group',
+    decks: decks.filter((d) => d.groupId === groupId),
+  });
+  /** Opens a Shufflevale file: its decks go at the top of the list, and its tables (pointed at them) with the rest. */
   const importFromFile = async () => {
     try {
       const found = await pickDeckFile();
       if (!found) return;
-      const added = importDecks(found);
+      const added = importDecks(found.decks);
+      // Where each of the file's decks (and its cards) went, for its tables' cards to point at.
+      const map: DeckIdMap = new Map();
+      found.decks.forEach((d, i) => {
+        if (!d.fileId) return;
+        const cards = new Map<string, string>();
+        d.cards.forEach((c, j) => {
+          if (c.fileId && added[i]?.cards[j]) cards.set(c.fileId, added[i].cards[j].id);
+        });
+        map.set(d.fileId, { id: added[i].id, cards });
+      });
+      for (const t of found.tables) createSandboxWith(t.name, (empty) => ({ ...empty, ...remapTable(t, map, newId) }));
       haptics.success();
-      Alert.alert(
-        added.length === 1 ? `Added "${added[0].name}"` : `Added ${added.length} decks`,
-        added.length === 1 ? 'It’s at the top of your decks.' : 'They’re at the top of your decks.',
-      );
+      const decksText = added.length === 1 ? `“${added[0].name}”` : `${added.length} decks`;
+      const tablesText = found.tables.length ? ` and ${found.tables.length === 1 ? `the table “${found.tables[0].name}”` : `${found.tables.length} tables`}` : '';
+      Alert.alert(`Added ${decksText}${tablesText}`, 'New decks are at the top of your decks.');
     } catch (e) {
       haptics.warn();
       Alert.alert('Couldn’t open that file', e instanceof DeckFileError ? e.message : 'Something went wrong reading it.');
@@ -553,7 +565,7 @@ export default function HomeScreen() {
           </Pressable>
         }
         actions={[
-          // Learning the app, then its examples; deck files (part of Pro) in their own section; about the app.
+          // Learning the app (and its examples); files (part of Pro, tagged until it's unlocked); about the app.
           { label: 'Help', onPress: () => router.push('/help') },
           // Tips (now and then, the first times things are used): all of them again, or off (or on).
           { label: 'Show tips again', onPress: () => {
@@ -580,17 +592,16 @@ export default function HomeScreen() {
                 (e) => Alert.alert('Couldn’t restore the examples', e instanceof Error ? e.message : String(e)),
               ),
           },
-          // Deck files: part of Pro. Without it they're shown quieter, under a PRO tag, and open Pro. (The file picker
-          // and share sheet are system screens, which iOS can only show once this menu has gone.)
-          {
-            label: 'Import decks',
-            section: { title: 'Deck files', pro: !pro },
-            dim: !pro,
-            opensModal: pro,
-            onPress: pro ? importFromFile : () => openPro('files'),
-          },
+          { label: 'Import decks or tables', pro: !pro, opensModal: pro, groupStart: true, onPress: pro ? importFromFile : () => openPro('files') },
           ...(decks.length
-            ? [{ label: 'Back up all decks', dim: !pro, opensModal: pro, onPress: pro ? backUpAll : () => openPro('files') }]
+            ? [
+                {
+                  label: 'Back up everything',
+                  pro: !pro,
+                  opensModal: pro,
+                  onPress: pro ? () => backUpWithNotice(everythingFile(decks, sandboxes)) : () => openPro('files'),
+                },
+              ]
             : []),
           // The version running (down to the update), and where to get help.
           { label: 'About Shufflevale', groupStart: true, onPress: () => router.push('/about') },
@@ -613,22 +624,11 @@ export default function HomeScreen() {
                       },
                     ]
                   : []),
-                // The group's decks in one file, to keep somewhere safe or give to a friend.
-                ...(decks.some((d) => d.groupId === menuGroup.id)
-                  ? [
-                      {
-                        label: 'Share or back up this group',
-                        section: { title: 'Deck files', pro: !pro },
-                        dim: !pro,
-                        opensModal: pro,
-                        onPress: () => (pro ? shareGroup(menuGroup.id) : openPro('files')),
-                      },
-                    ]
-                  : []),
+                // The group's decks in one file, to give to a friend or keep somewhere safe.
+                ...(decks.some((d) => d.groupId === menuGroup.id) ? fileActions('group', () => groupFile(menuGroup.id), true) : []),
                 {
                   label: 'Delete group (keeps its decks)',
                   destructive: true,
-                  // Apart from the deck files section above it.
                   groupStart: true,
                   onPress: () => deleteGroup(menuGroup.id),
                 },
@@ -655,10 +655,13 @@ export default function HomeScreen() {
                     ]
                   : []),
                 { label: 'Duplicate', onPress: () => duplicateSandbox(menuTable.id) },
+                // The table as it lies, with the decks its cards come from.
+                ...fileActions('table', () => tableFile(menuTable, decks), true),
                 {
                   label: 'Delete',
                   destructive: true,
                   opensModal: true,
+                  groupStart: true,
                   onPress: () => confirmDeleteSandbox(menuTable.id, menuTable.name),
                 },
               ]

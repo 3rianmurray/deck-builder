@@ -1,6 +1,8 @@
-// Deck files: one or more decks, pictures and all, in a single file to back up, move to another phone, or give
-// to a friend. Plain JSON with the pictures inside (as base64), so it survives being mailed, AirDropped or kept
-// in Files. Only the packing and unpacking is here; reading and writing the files is in deckExport.ts.
+// Deck files: one or more decks, pictures and all, and any tables laid out with them, in a single file to back up,
+// move to another phone, or give to a friend. Plain JSON with the pictures inside (as base64), so it survives being
+// mailed, AirDropped or kept in Files. Only the packing and unpacking is here; reading and writing the files is in
+// deckExport.ts.
+import type { SandboxCard, SandboxStack, SandboxTable } from './sandbox';
 import type { CardShape, Deck, PlayMode } from './types';
 
 /** Marks a file as ours, and which version of the format it's in. */
@@ -14,6 +16,8 @@ interface FileImage {
 }
 
 interface FileCard {
+  /** The card's id, for a table's cards to point at (files from before tables had none). */
+  id?: string;
   name: string;
   copies?: number;
   /** Key into the file's `images`. */
@@ -23,6 +27,8 @@ interface FileCard {
 }
 
 interface FileDeck {
+  /** The deck's id, for a table's cards to point at (files from before tables had none). */
+  id?: string;
   name: string;
   cardShape?: CardShape;
   roundness?: number;
@@ -38,16 +44,29 @@ export interface DeckFile {
   decks: FileDeck[];
   /** Each picture once, even if several cards (or decks) use it. */
   images: Record<string, FileImage>;
+  /** Tables, as they lie, their cards pointing at the file's decks and cards by id (older files have none). */
+  tables?: FileTable[];
+}
+
+/** A table in a file: everything but its own id and dates. Its cards point at the file's decks and cards. */
+export type FileTable = Omit<SandboxTable, 'id' | 'createdAt' | 'updatedAt'>;
+
+/** A file's contents, read back: its decks, and its tables (their cards still pointing at the file's ids). */
+export interface UnpackedFile {
+  decks: UnpackedDeck[];
+  tables: FileTable[];
 }
 
 /** A deck read back from a file, ready to be added: its pictures still as base64, to be written out. */
 export interface UnpackedDeck {
+  /** Its id in the file, which a table's cards point at. */
+  fileId?: string;
   name: string;
   cardShape?: CardShape;
   roundness?: number;
   playMode?: PlayMode;
   back: FileImage | null;
-  cards: { name: string; copies?: number; image: FileImage; back?: FileImage }[];
+  cards: { fileId?: string; name: string; copies?: number; image: FileImage; back?: FileImage }[];
 }
 
 /** The type of a picture, from its saved path (e.g. `decks/abc/123.png` is png). */
@@ -55,8 +74,11 @@ export function extOf(path: string): string {
   return path.match(/\.(\w{2,5})$/)?.[1]?.toLowerCase() ?? 'jpg';
 }
 
-/** Packs decks into a file's contents. `read` gives a saved picture's bytes as base64, by its path. */
-export function packDecks(decks: Deck[], read: (path: string) => string): DeckFile {
+/**
+ * Packs decks, and any tables, into a file's contents. `read` gives a saved picture's bytes as base64, by its path.
+ * A table's decks must be among `decks` (see `decksOnTable`).
+ */
+export function packDecks(decks: Deck[], read: (path: string) => string, tables: SandboxTable[] = []): DeckFile {
   const images: Record<string, FileImage> = {};
   const keys = new Map<string, string>();
   const keyOf = (path: string) => {
@@ -71,12 +93,14 @@ export function packDecks(decks: Deck[], read: (path: string) => string): DeckFi
     kind: KIND,
     version: VERSION,
     decks: decks.map((d) => ({
+      id: d.id,
       name: d.name,
       ...(d.cardShape ? { cardShape: d.cardShape } : {}),
       ...(d.roundness !== undefined ? { roundness: d.roundness } : {}),
       ...(d.playMode ? { playMode: d.playMode } : {}),
       back: d.backImage ? keyOf(d.backImage) : null,
       cards: d.cards.map((c) => ({
+        id: c.id,
         name: c.name,
         ...(c.copies ? { copies: c.copies } : {}),
         image: keyOf(c.image),
@@ -84,7 +108,14 @@ export function packDecks(decks: Deck[], read: (path: string) => string): DeckFi
       })),
     })),
     images,
+    ...(tables.length ? { tables: tables.map(({ id: _id, createdAt: _c, updatedAt: _u, ...t }) => t) } : {}),
   };
+}
+
+/** The decks a table's cards come from (on it, in its hands and its trash), in the order given. */
+export function decksOnTable(table: SandboxTable, decks: Deck[]): Deck[] {
+  const used = new Set([...table.stacks.flatMap((s) => s.cards), ...table.hands.flat(), ...(table.trash ?? [])].map((c) => c.deckId));
+  return decks.filter((d) => used.has(d.id));
 }
 
 /** Thrown for a file that isn't a deck file, or is damaged; its message is fit to show the player. */
@@ -157,8 +188,13 @@ function shapeFrom(v: unknown, nested = false): CardShape | undefined {
   return undefined;
 }
 
-/** Reads a deck file's contents back into decks. Throws a DeckFileError if it isn't one, or can't be read. */
-export function unpackDecks(text: string): UnpackedDeck[] {
+/** Reads a deck file's contents back into decks (see `unpackFile` for its tables too). */
+export const unpackDecks = (text: string): UnpackedDeck[] => unpackFile(text).decks;
+
+/**
+ * Reads a deck file's contents back into decks and tables. Throws a DeckFileError if it isn't one, or can't be read.
+ */
+export function unpackFile(text: string): UnpackedFile {
   let file: unknown;
   try {
     file = JSON.parse(text);
@@ -184,9 +220,10 @@ export function unpackDecks(text: string): UnpackedDeck[] {
     return { ext, data: found.data };
   };
   if (!Array.isArray(file.decks) || !file.decks.length) throw new DeckFileError('This file has no decks in it.');
-  return file.decks.map((d: unknown) => {
+  const decks: UnpackedDeck[] = file.decks.map((d: unknown) => {
     if (!isObject(d) || !Array.isArray(d.cards)) throw new DeckFileError('This deck file is damaged.');
     return {
+      ...(idFrom(d.id) ? { fileId: idFrom(d.id) } : {}),
       name: nameFrom(d.name, 'Imported deck'),
       ...(shapeFrom(d.cardShape) ? { cardShape: shapeFrom(d.cardShape) } : {}),
       ...(typeof d.roundness === 'number' && Number.isFinite(d.roundness)
@@ -198,6 +235,7 @@ export function unpackDecks(text: string): UnpackedDeck[] {
         if (!isObject(c)) throw new DeckFileError('This deck file is damaged.');
         const copies = typeof c.copies === 'number' && c.copies >= 2 ? Math.min(MAX_COPIES, Math.floor(c.copies)) : undefined;
         return {
+          ...(idFrom(c.id) ? { fileId: idFrom(c.id) } : {}),
           name: nameFrom(c.name, `Card ${i + 1}`),
           ...(copies ? { copies } : {}),
           image: image(c.image),
@@ -206,11 +244,103 @@ export function unpackDecks(text: string): UnpackedDeck[] {
       }),
     };
   });
+  // Tables: only cards from the file's own decks are kept.
+  const known = new Map<string, Set<string>>();
+  for (const d of decks) {
+    if (d.fileId) known.set(d.fileId, new Set(d.cards.flatMap((c) => (c.fileId ? [c.fileId] : []))));
+  }
+  const tables = Array.isArray(file.tables) ? file.tables.slice(0, MAX_TABLES).flatMap((t: unknown) => tableFrom(t, known)) : [];
+  return { decks, tables };
+}
+
+/** The most tables a file is opened with, and the most cards each can hold (as `MAX_TABLE_CARDS` in sandbox.ts). */
+const MAX_TABLES = 50;
+const MAX_TABLE_CARDS = 1000;
+/** Hands a table has (as `HAND_COUNT` in sandbox.ts), and the grid sizes it can have (as `GRID_SIZES`). */
+const HANDS = 4;
+const GRID_STEPS = [20, 40, 60];
+
+const idFrom = (v: unknown) => (typeof v === 'string' && v.length > 0 && v.length <= 64 ? v : undefined);
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * A table from a file, checked: only its cards from the file's own decks, up to the most a table holds; positions
+ * and settings only where they make sense. Its cards still point at the file's ids (see `remapTable`).
+ */
+function tableFrom(v: unknown, known: Map<string, Set<string>>): FileTable[] {
+  if (!isObject(v) || !Array.isArray(v.stacks)) return [];
+  let count = 0;
+  const card = (c: unknown): SandboxCard[] => {
+    if (count >= MAX_TABLE_CARDS || !isObject(c) || typeof c.deckId !== 'string' || typeof c.cardId !== 'string') return [];
+    if (!known.get(c.deckId)?.has(c.cardId)) return [];
+    count++;
+    return [{ iid: '', deckId: c.deckId, cardId: c.cardId, faceUp: c.faceUp === true, ...(c.solo === true ? { solo: true } : {}), ...(c.single === true ? { single: true } : {}) }];
+  };
+  const cards = (list: unknown) => (Array.isArray(list) ? list.flatMap(card) : []);
+  const stacks: SandboxStack[] = v.stacks.flatMap((s: unknown) => {
+    if (!isObject(s) || !finite(s.x) || !finite(s.y)) return [];
+    const inStack = cards(s.cards);
+    if (!inStack.length) return [];
+    return [{ id: '', x: s.x, y: s.y, angle: finite(s.angle) ? s.angle : 0, cards: inStack, ...(s.locked === true ? { locked: true } : {}) }];
+  });
+  const hands = Array.from({ length: HANDS }, (_, i) => cards(Array.isArray(v.hands) ? v.hands[i] : undefined));
+  const handNames = Array.from({ length: HANDS }, (_, i) => nameFrom(Array.isArray(v.handNames) ? v.handNames[i] : undefined, `Hand ${i + 1}`));
+  const trash = cards(v.trash);
+  const flag = (key: string) => (v[key] === true ? { [key]: true } : {});
+  const cam = isObject(v.camera) ? v.camera : {};
+  const camera = finite(cam.a) && finite(cam.b) && finite(cam.tx) && finite(cam.ty) ? { camera: { a: cam.a, b: cam.b, tx: cam.tx, ty: cam.ty } } : {};
+  const area = isObject(v.focus) ? v.focus : {};
+  const focus = finite(area.x) && finite(area.y) && finite(area.w) && finite(area.h) ? { focus: { x: area.x, y: area.y, w: area.w, h: area.h } } : {};
+  return [
+    {
+      name: nameFrom(v.name, 'Imported table'),
+      stacks,
+      hands,
+      handNames,
+      ...(trash.length ? { trash } : {}),
+      ...(typeof v.background === 'string' && v.background.length <= 20 ? { background: v.background } : {}),
+      ...(typeof v.gridStep === 'number' && GRID_STEPS.includes(v.gridStep) ? { gridStep: v.gridStep } : {}),
+      ...flag('snapToGrid'),
+      ...flag('lockCamera'),
+      ...flag('showGrid'),
+      ...flag('hideCounts'),
+      ...camera,
+      ...focus,
+    },
+  ];
+}
+
+/** Where a file's decks went once added: each deck's new id, and its cards' new ids, by their ids in the file. */
+export type DeckIdMap = Map<string, { id: string; cards: Map<string, string> }>;
+
+/**
+ * A table from a file pointed at its decks as they were added (see `DeckIdMap`), with fresh ids for its stacks and
+ * cards from `ids`. Cards whose deck or card didn't come through are left out.
+ */
+export function remapTable(t: FileTable, map: DeckIdMap, ids: () => string): FileTable {
+  const card = (c: SandboxCard): SandboxCard[] => {
+    const deck = map.get(c.deckId);
+    const cardId = deck?.cards.get(c.cardId);
+    return deck && cardId ? [{ ...c, iid: ids(), deckId: deck.id, cardId }] : [];
+  };
+  return {
+    ...t,
+    stacks: t.stacks.flatMap((s) => {
+      const cards = s.cards.flatMap(card);
+      return cards.length ? [{ ...s, id: ids(), cards }] : [];
+    }),
+    hands: t.hands.map((h) => h.flatMap(card)),
+    ...(t.trash ? { trash: t.trash.flatMap(card) } : {}),
+  };
 }
 
 /** A file name for a deck file: the deck's name (or "Shufflevale decks" for several), made safe for any disk. */
 export function deckFileName(decks: Pick<Deck, 'name'>[]): string {
-  const base = decks.length === 1 ? decks[0].name : 'Shufflevale decks';
-  const safe = base.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Deck';
+  return fileNameFor(decks.length === 1 ? decks[0].name : 'Shufflevale decks');
+}
+
+/** A file name for a Shufflevale file called `name`, made safe for any disk. */
+export function fileNameFor(name: string): string {
+  const safe = name.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Shufflevale';
   return `${safe}.shufflevale.json`;
 }

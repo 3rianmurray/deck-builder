@@ -14,13 +14,13 @@ type Reason = 'cards' | 'files';
 
 const REASONS: Record<Reason, string> = {
   cards: `The free version holds ${FREE_CARD_LIMIT} cards, and you’ve used them all. Pro removes the limit.`,
-  files: 'Sharing, backing up and importing deck files are part of Pro.',
+  files: 'Sharing, backing up and importing decks and tables are part of Pro.',
 };
 
 const PERKS: [string, string][] = [
   ['Unlimited cards', `No ${FREE_CARD_LIMIT}-card limit: every deck for every game.`],
-  ['Share decks', 'Send a deck or a whole group to a friend as one file.'],
-  ['Back up and import', 'Keep your decks safe in Files, and bring them to a new phone.'],
+  ['Share decks and tables', 'Send a deck, a group or a whole table to a friend as one file.'],
+  ['Back up and import', 'Keep everything safe in Files, and bring it to a new phone.'],
   ['Support Shufflevale', 'Made by one person. Every Pro keeps it growing.'],
 ];
 

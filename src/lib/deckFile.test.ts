@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { DeckFileError, deckFileName, extOf, imagePixels, packDecks, unpackDecks } from './deckFile.ts';
+import { DeckFileError, deckFileName, extOf, imagePixels, packDecks, remapTable, unpackDecks, unpackFile } from './deckFile.ts';
 import type { Deck } from './types.ts';
 
 const deck = (over: Partial<Deck> = {}): Deck => ({
@@ -100,4 +100,48 @@ test('a picture’s size is read from its header, and huge ones are turned away'
   assert.deepEqual(imagePixels(data), { w: 20000, h: 256 });
   const text = JSON.stringify({ kind: 'shufflevale-decks', version: 1, decks: [{ back: null, cards: [{ name: 'A', image: 'a' }] }], images: { a: { ext: 'png', data } } });
   assert.throws(() => unpackDecks(text), DeckFileError);
+});
+
+test('a table travels with its decks: packed, read back, and pointed at the decks as added', () => {
+  const d = deck();
+  const table = {
+    id: 't1', name: 'Game Night', createdAt: 0, updatedAt: 0,
+    stacks: [{ id: 's1', x: 100, y: 200, angle: 90, locked: true, cards: [{ iid: 'a', deckId: 'd1', cardId: 'c1', faceUp: true }, { iid: 'b', deckId: 'd1', cardId: 'c2', faceUp: false }] }],
+    hands: [[{ iid: 'h', deckId: 'd1', cardId: 'c3', faceUp: true }], [], [], []],
+    handNames: ['Ana', 'Hand 2', 'Hand 3', 'Hand 4'],
+    background: 'charcoal', snapToGrid: true, gridStep: 60,
+  };
+  const file = JSON.stringify(packDecks([d], (p) => `data-of-${p}`, [table]));
+  const read = unpackFile(file);
+  assert.equal(read.tables.length, 1);
+  assert.equal(read.decks[0].fileId, 'd1');
+  assert.deepEqual(read.decks[0].cards.map((c) => c.fileId), ['c1', 'c2', 'c3']);
+  // As the decks were added: new ids for the deck and its cards.
+  const map = new Map([['d1', { id: 'D', cards: new Map([['c1', 'X'], ['c2', 'Y'], ['c3', 'Z']]) }]]);
+  let n = 0;
+  const t = remapTable(read.tables[0], map, () => `n${n++}`);
+  assert.equal(t.name, 'Game Night');
+  assert.deepEqual(t.stacks[0].cards.map((c) => [c.deckId, c.cardId, c.faceUp]), [['D', 'X', true], ['D', 'Y', false]]);
+  assert.equal(t.stacks[0].locked, true);
+  assert.equal(t.stacks[0].angle, 90);
+  assert.deepEqual(t.hands[0].map((c) => c.cardId), ['Z']);
+  assert.equal(t.handNames[0], 'Ana');
+  assert.equal(t.background, 'charcoal');
+  assert.equal(t.gridStep, 60);
+  // Fresh ids for its stacks and cards.
+  assert.ok(t.stacks[0].id.startsWith('n') && t.stacks[0].cards.every((c) => c.iid.startsWith('n')));
+});
+
+test('a table’s cards from decks not in the file are left out; files from before tables still open', () => {
+  const d = deck();
+  const table = { id: 't', name: 'T', createdAt: 0, updatedAt: 0, handNames: [], hands: [[], [], [], []],
+    stacks: [{ id: 's', x: 0, y: 0, angle: 0, cards: [{ iid: 'a', deckId: 'elsewhere', cardId: 'q', faceUp: true }] }] };
+  const read = unpackFile(JSON.stringify(packDecks([d], (p) => `data-of-${p}`, [table])));
+  assert.equal(read.tables[0].stacks.length, 0);
+  // An older file: no ids, no tables.
+  const old = JSON.parse(JSON.stringify(packDecks([d], (p) => `data-of-${p}`)));
+  delete old.decks[0].id;
+  for (const c of old.decks[0].cards) delete c.id;
+  assert.deepEqual(unpackFile(JSON.stringify(old)).tables, []);
+  assert.equal(unpackDecks(JSON.stringify(old)).length, 1);
 });

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { SymbolView } from 'expo-symbols';
 import type { SymbolViewProps } from 'expo-symbols';
@@ -20,10 +20,8 @@ export interface SheetAction {
   keepsOpen?: boolean;
   /** Starts a new group of actions: a little space above it. */
   groupStart?: boolean;
-  /** Starts a new group under a small heading (e.g. "Deck files"), with a gold PRO tag if `pro`. */
-  section?: { title: string; pro?: boolean };
-  /** Drawn quieter, e.g. a choice that's part of Pro before Pro is unlocked (it still works: it opens Pro). */
-  dim?: boolean;
+  /** Part of Shufflevale Pro, not yet unlocked: a gold PRO tag on the right (it still works: it opens Pro). */
+  pro?: boolean;
 }
 
 /** An action shown as a small labeled icon tile, in a grid above the other actions. */
@@ -186,26 +184,22 @@ export function ActionSheet(props: Props) {
               </View>
             ) : null}
             {actions.map((a) => (
-              <Fragment key={a.label}>
-              {a.section ? (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>{a.section.title}</Text>
-                  {a.section.pro ? (
-                    <View style={styles.proTag}>
-                      <Text style={styles.proTagText}>PRO</Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
               <Pressable
+                key={a.label}
                 onPress={() => run(a)}
                 disabled={isOff(a)}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: isOff(a) }}
                 style={({ pressed }) => [styles.action, a.groupStart && styles.groupStart, isGuided(a) && styles.guided, pressed && styles.pressed, isOff(a) && styles.tileDisabled]}>
-                <Text style={[styles.actionText, a.dim && styles.dimText, a.destructive && { color: colors.danger }]}>{a.label}</Text>
+                <Text style={[styles.actionText, a.destructive && { color: colors.danger }]}>{a.label}</Text>
+                {a.pro ? (
+                  <View style={styles.proTagSpot}>
+                    <View style={styles.proTag}>
+                      <Text style={styles.proTagText}>PRO</Text>
+                    </View>
+                  </View>
+                ) : null}
               </Pressable>
-              </Fragment>
             ))}
             <Pressable
               onPress={onClose}
@@ -241,12 +235,10 @@ const styles = StyleSheet.create({
   },
   cancel: { marginTop: 6 },
   groupStart: { marginTop: 10 },
-  // A group's heading: small caps on the left, a PRO tag on the right.
-  section: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, marginBottom: 2, paddingHorizontal: 4 },
-  sectionTitle: { color: colors.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' },
+  // Part of Pro, not yet unlocked: a gold tag at the right end of the action.
+  proTagSpot: { position: 'absolute', right: 12, top: 0, bottom: 0, justifyContent: 'center' },
   proTag: { backgroundColor: colors.accent, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   proTagText: { color: colors.accentText, fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
-  dimText: { color: '#b7bcc6' },
   // Each tile sits in a cell with a little padding all round, so the gaps between them stay even.
   tiles: { flexDirection: 'row', flexWrap: 'wrap', margin: -3 },
   tileCell: { padding: 3 },

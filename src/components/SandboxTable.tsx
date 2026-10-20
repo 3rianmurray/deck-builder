@@ -75,7 +75,7 @@ import {
 } from '../lib/sandbox';
 import type { Camera, CardSize, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
-import { offerTipSoon } from '../lib/tips';
+import { offerTipAfterUses, offerTipSoon } from '../lib/tips';
 import { tourEvent } from '../lib/tour';
 import { cardRatio, cardSizeMm, copiesOf, deckSize, PRESET_SIZES_MM } from '../lib/types';
 import type { Deck } from '../lib/types';
@@ -413,8 +413,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setToolsOpen(open);
     toolsX.set(withSpring(open ? 0 : toolsClosedX, { damping: 18, stiffness: 180, mass: 0.9 }));
     haptics.tick();
-    // A tip, the first time: the tab can be moved.
-    if (open) offerTipSoon('tables-tools-drag', 700);
+    // After opening it a few times: the tab can be moved.
+    if (open) offerTipAfterUses('tables-tools-drag');
   };
   // Put down somewhere new: the drawer's laid out there now, so the drag's offset goes (and it's tucked on that side),
   // before the screen's drawn, so it doesn't jump.
@@ -1058,7 +1058,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const from = sources[0]?.kind === 'card' ? L.table.stacks.find((st) => st.id === (sources[0] as { stackId: string }).stackId) : undefined;
     if (sources.length === 1 && from && from.cards.length > 1) offerTipSoon('tables-hold-stack', 600);
     touch.drops += 1;
-    if (touch.drops === 2) offerTipSoon('tables-double-tap', 600);
     if (touch.drops === 4) offerTipSoon('tables-second-finger', 600);
     // For the walkthrough (a whole stack first, so one drop never counts for two of its steps).
     if (whole?.kind === 'stack') tourEvent('tables-lifted');
@@ -1153,7 +1152,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           const b = L.selectionButtonAt(t.x, t.y);
           if (b) {
             touch.mode = 'button';
-            if (b === 'flip') L.flipGroup();
+            if (b === 'flip') {
+              L.flipGroup();
+              // After a few times: double-tapping a card does this too.
+              offerTipAfterUses('tables-double-tap');
+            }
             else if (b === 'shuffle') L.shuffleSelection();
             else if (b === 'gather') L.gatherGroup(L.selected[L.selected.length - 1]);
             else L.setMenu({ kind: 'selection' });
@@ -1879,7 +1882,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       const n = menuStack.cards.length;
       // The four used most, as buttons; everything else in a quiet list under them.
       const tiles: SheetTile[] = [
-        { label: 'Flip over', icon: FLIP_ICON, onPress: () => commit(settleOnto(flipStack(table, menuStack.id), menuStack.id)) },
+        {
+          label: 'Flip over',
+          icon: FLIP_ICON,
+          onPress: () => {
+            commit(settleOnto(flipStack(table, menuStack.id), menuStack.id));
+            offerTipAfterUses('tables-double-tap');
+          },
+        },
         // Into the open hand: the top card.
         {
           label: 'Draw',
@@ -1887,6 +1897,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           onPress: () => {
             commit(dealToHand(table, menuStack.id, 1, handIndex));
             haptics.drop();
+            // After a few times: dragging a card into the hand does this too.
+            offerTipAfterUses('tables-drag-to-hand');
           },
         },
         ...(n > 1
@@ -1988,7 +2000,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Table theme…', onPress: () => setTimeout(() => setMenu({ kind: 'color' }), 250) },
           {
             label: 'Reset the view',
-            onPress: () => fitView(table),
+            onPress: () => {
+              fitView(table);
+              offerTipAfterUses('tables-quick-pinch', undefined, 900);
+            },
 
           },
           ...(Platform.OS === 'ios'
@@ -2380,8 +2395,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                     'Fit All Cards',
                     () => {
                       fitView(table);
-                      // A tip, the first time: the quick pinch does this too.
-                      offerTipSoon('tables-quick-pinch', 900);
+                      // After a few times: the quick pinch does this too.
+                      offerTipAfterUses('tables-quick-pinch', undefined, 900);
                     },
                   ],
                   ['wand.and.stars', 'auto_fix_high', 'Clean Up', cleanUp],

@@ -111,6 +111,8 @@ export interface Settings {
   tipsOff?: boolean;
   /** The tips already shown (each shows once). */
   seenTips?: string[];
+  /** Uses of buttons that have a quicker gesture, toward offering that gesture's tip (see lib/tips). */
+  tipUses?: Record<string, number>;
   /** Table themes chosen for sessions and decks played on their own (see lib/playThemes). */
   playThemes?: Record<string, string>;
   /** Shufflevale Pro has been bought on this phone's Apple Account (see lib/pro), remembered for offline use. */

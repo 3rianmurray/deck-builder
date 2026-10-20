@@ -27,7 +27,7 @@ import { sampleBack, sampleCards } from '../../lib/sampleDeck';
 import { cropToShape, loadUpright, smallPixels } from '../../lib/images';
 import { guessSheet } from '../../lib/sheetGuess';
 import { imageUri } from '../../lib/storage';
-import { offerTipSoon } from '../../lib/tips';
+import { offerTipAfterUses, offerTipSoon } from '../../lib/tips';
 import { tourEvent, useTourStep } from '../../lib/tour';
 import { cardRatio, copiesOf, deckSize, detectShape } from '../../lib/types';
 import type { Card, CardShape } from '../../lib/types';
@@ -627,7 +627,17 @@ export default function DeckEditorScreen() {
               ]
             : []),
           // Apart from the deck files section above it.
-          { label: 'Delete deck', destructive: true, opensModal: true, groupStart: true, onPress: confirmDelete },
+          {
+            label: 'Delete deck',
+            destructive: true,
+            opensModal: true,
+            groupStart: true,
+            onPress: () => {
+              confirmDelete();
+              // After a couple of times: swiping a deck's row on the home screen deletes it quicker.
+              offerTipAfterUses('home-swipe', 2, 1500);
+            },
+          },
         ]}
       />
 

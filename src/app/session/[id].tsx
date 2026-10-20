@@ -11,7 +11,7 @@ import type { TableControls } from '../../components/TableTopBar';
 import { TabletopSurface } from '../../components/Tabletop';
 import * as haptics from '../../lib/haptics';
 import { useDecks } from '../../lib/DecksContext';
-import { offerTipSoon } from '../../lib/tips';
+import { offerTipAfterUses } from '../../lib/tips';
 import { playThemeKey, usePlayTheme } from '../../lib/playThemes';
 import { themeOf } from '../../lib/tableThemes';
 import { colors } from '../../theme';
@@ -93,9 +93,7 @@ export default function SessionScreen() {
   const theme = themeOf(usePlayTheme(playThemeKey('', id)));
   const decks = (session?.deckIds ?? []).flatMap((deckId) => getDeck(deckId) ?? []);
   const current = Math.max(0, Math.min(index, decks.length - 1));
-  // A tip, the first time a session with several decks opens: swiping between them.
-  const several = decks.length > 1;
-  useEffect(() => (several ? offerTipSoon('session-swipe') : undefined), [several]);
+
 
   // Keep the current deck's tab centerd, so swiping to a deck far along the row doesn't leave its tab off screen.
   const currentTab = tabLayouts[current];
@@ -121,7 +119,11 @@ export default function SessionScreen() {
   }
 
   const goTo = (i: number) => {
-    if (i !== index) haptics.tick();
+    if (i !== index) {
+      haptics.tick();
+      // After tapping between decks a few times: swiping does it too.
+      offerTipAfterUses('session-swipe');
+    }
     setIndex(i);
     pager.scrollTo(i * width);
   };

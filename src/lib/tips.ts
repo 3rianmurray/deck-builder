@@ -11,16 +11,17 @@ export const TIPS = {
   'tables-hold-stack': 'Hold a stack a moment before dragging to pick up the whole thing.',
   'tables-second-finger': 'While carrying cards, tap others with a second finger to pick them up too.',
   'tables-fold-hand': 'Tap the hand’s tab to fold it away: its cards turn face down, so the phone can be passed round.',
-  'session-swipe': 'Swipe sideways to move between this session’s decks.',
-  'home-swipe': 'Swipe a row right to duplicate it, or left to delete it.',
+  'session-swipe': 'You can also swipe sideways to move between this session’s decks.',
+  'home-swipe': 'Quicker: swipe a row right to duplicate it, or left to delete it.',
   'deck-hold-reorder': 'Hold a card and drag it to reorder the deck.',
   'tables-tap-twice': 'Tap a card to pick it out; tap it again for all its options.',
-  'tables-double-tap': 'Double-tap a card to turn it over.',
+  'tables-double-tap': 'Quicker: double-tap a card to turn it over.',
   'reveal-hold': 'Hold a card to see it full size.',
   'search-take-out': 'Hold a card, then tap Close with another finger, to take it out onto the table.',
   'sprite-slide': 'Slide a finger across a number to change it.',
-  'tables-quick-pinch': 'Next time, pinch in quickly with two fingers to fit every card in view.',
+  'tables-quick-pinch': 'Quicker: pinch in fast with two fingers to fit every card in view.',
   'tables-tools-drag': 'Hold the tools tab to move it: up or down, or across to the other side.',
+  'tables-drag-to-hand': 'You can also drag a card straight down into the hand to draw it.',
 } as const;
 
 export type TipId = keyof typeof TIPS;
@@ -58,6 +59,22 @@ export function offerTip(id: TipId) {
   set(id);
 }
 
+/** How many times this many uses of a button go by before its gesture's tip is offered (see `offerTipAfterUses`). */
+export const USES_BEFORE_TIP = 3;
+
+/**
+ * Counts a use of a button that has a quicker hidden gesture (e.g. Fit All Cards, and the quick pinch). After a few
+ * uses (remembered across launches), that gesture's tip is offered: once someone's shown they want the thing, and
+ * not before.
+ */
+export function offerTipAfterUses(id: TipId, uses = USES_BEFORE_TIP, delayMs = 700) {
+  const settings = loadSettings();
+  if (settings.seenTips?.includes(id)) return;
+  const n = (settings.tipUses?.[id] ?? 0) + 1;
+  saveSettings({ ...settings, tipUses: { ...settings.tipUses, [id]: n } });
+  if (n >= uses) offerTipSoon(id, delayMs);
+}
+
 /** Offers a tip after a moment (once the screen has settled); returns a way to call it off. */
 export function offerTipSoon(id: TipId, delayMs = 1800) {
   const timer = setTimeout(() => offerTip(id), delayMs);
@@ -74,7 +91,7 @@ export function setTipsOn(on: boolean) {
 
 /** Every tip can show again. */
 export function resetTips() {
-  saveSettings({ ...loadSettings(), seenTips: [], tipsOff: false });
+  saveSettings({ ...loadSettings(), seenTips: [], tipUses: {}, tipsOff: false });
 }
 
 /** The tip showing now, if any. */

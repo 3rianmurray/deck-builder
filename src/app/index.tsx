@@ -28,7 +28,7 @@ import type { Row } from '../lib/groups';
 import { useExamples } from '../lib/examples';
 import { createSandboxWith, deleteSandbox, duplicateSandbox, moveSandbox, updateSandbox, useSandboxes } from '../lib/sandboxStore';
 import { loadSettings, saveSettings } from '../lib/storage';
-import { offerTipSoon, resetTips, setTipsOn, tipsOn } from '../lib/tips';
+import { offerTipAfterUses, resetTips, setTipsOn, tipsOn } from '../lib/tips';
 import { startTour, tourEvent, useTourStep } from '../lib/tour';
 import { deckSize } from '../lib/types';
 import { colors } from '../theme';
@@ -88,9 +88,8 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // A tip, once there are a few rows to swipe (and the walkthrough's been): swiping them.
-  const swipeable = decks.length + sessions.length + sandboxes.length > 2;
-  useEffect(() => (swipeable ? offerTipSoon('home-swipe', 2500) : undefined), [swipeable]);
+  /** Duplicating or deleting from a menu: after a couple of times, the tip that swiping a row does it quicker. */
+  const swipeTipSoon = () => offerTipAfterUses('home-swipe', 2, 1200);
 
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
   /** The Table (Free Play, sandbox in the code) whose options are showing. */
@@ -630,7 +629,10 @@ export default function HomeScreen() {
                   label: 'Delete group (keeps its decks)',
                   destructive: true,
                   groupStart: true,
-                  onPress: () => deleteGroup(menuGroup.id),
+                  onPress: () => {
+                    deleteGroup(menuGroup.id);
+                    swipeTipSoon();
+                  },
                 },
               ]
             : []
@@ -654,7 +656,13 @@ export default function HomeScreen() {
                       },
                     ]
                   : []),
-                { label: 'Duplicate', onPress: () => duplicateSandbox(menuTable.id) },
+                {
+                  label: 'Duplicate',
+                  onPress: () => {
+                    duplicateSandbox(menuTable.id);
+                    swipeTipSoon();
+                  },
+                },
                 // The table as it lies, with the decks its cards come from.
                 ...fileActions('table', () => tableFile(menuTable, decks), true),
                 {
@@ -662,7 +670,10 @@ export default function HomeScreen() {
                   destructive: true,
                   opensModal: true,
                   groupStart: true,
-                  onPress: () => confirmDeleteSandbox(menuTable.id, menuTable.name),
+                  onPress: () => {
+                    confirmDeleteSandbox(menuTable.id, menuTable.name);
+                    swipeTipSoon();
+                  },
                 },
               ]
             : []

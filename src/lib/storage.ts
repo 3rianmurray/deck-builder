@@ -117,6 +117,8 @@ export interface Settings {
   proOwned?: boolean;
   /** The tester switch, in TestFlight builds: act as free or as Pro. */
   proOverride?: 'free' | 'pro';
+  /** Where the player's put the tools drawer on tables: which edge, and how far down it (0 top, 1 bottom). */
+  toolsSpot?: { side: 'left' | 'right'; at: number };
 }
 export const loadSettings = () => readJson<Settings>(SETTINGS_FILE, {});
 export const saveSettings = (settings: Settings) => writeJson(SETTINGS_FILE, settings);

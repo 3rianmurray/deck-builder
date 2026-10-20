@@ -1,8 +1,8 @@
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { memo, useEffect, useMemo, useState } from 'react';
-import { Alert, Animated as RNAnimated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
+import { memo, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { Alert, Animated as RNAnimated, Easing, Image, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing as ReEasing, LinearTransition, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
@@ -94,7 +94,7 @@ import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
 import { WoodRail } from './Tabletop';
 import { TABLE_THEMES, THEME_KEYS, themeOf } from '../lib/tableThemes';
-import { isSeeThrough } from '../lib/storage';
+import { isSeeThrough, loadSettings, saveSettings } from '../lib/storage';
 import { Text } from './Text';
 
 /** Steps of undo kept. */
@@ -157,8 +157,12 @@ const TOOLS_TAB_TOP = 42;
 const GRID_PEEK_MS = 1500;
 /** And how long it takes to fade away after that. */
 const GRID_FADE_MS = 1000;
-/** How far below the top of the screen's safe area the tools drawer sits (clear of the top bar). */
-const TOOLS_FROM_TOP = 64;
+/** Where the tools tab is: which edge, and how far down (0 just below the top bar, 1 just above the hand's tabs). */
+type ToolsSpot = { side: 'left' | 'right'; at: number };
+/** Where it starts: on the left, near the top. */
+const DEFAULT_TOOLS_SPOT: ToolsSpot = { side: 'left', at: 0.08 };
+/** How far the tools tab must be dragged before it moves (less is a tap). */
+const TOOLS_DRAG_SLOP = 8;
 
 const FLIP_ICON = { ios: 'arrow.trianglehead.2.clockwise.rotate.90', android: 'flip', web: 'flip' } as const;
 
@@ -383,15 +387,30 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const gridOn = !!table?.snapToGrid;
   /** The grid's spacing (its size, chosen in the tools). */
   const gridStep = table ? gridStepOf(table) : GRID_STEP;
-  // The tools drawer on the left edge: pulled out to show the tools, tucked away again to hide them.
+  // The tools drawer, on the left or right edge: pulled out to show the tools, tucked away again to hide them. Its
+  // tab can be dragged up and down the edge, or across to the other one (the player's choice, kept for every table).
   const [toolsOpen, setToolsOpen] = useState(false);
-  const toolsX = useSharedValue(-TOOLS_W);
-  const toolsStyle = useAnimatedStyle(() => ({ transform: [{ translateX: toolsX.value }] }));
+  const [toolsSpot, setToolsSpot] = useState<ToolsSpot>(() => loadSettings().toolsSpot ?? DEFAULT_TOOLS_SPOT);
+  const toolsClosedX = toolsSpot.side === 'left' ? -TOOLS_W : TOOLS_W;
+  const toolsX = useSharedValue(toolsClosedX);
+  /** The tab being dragged: how far, so far (the whole drawer follows it until it's let go). */
+  const toolsDragX = useSharedValue(0);
+  const toolsDragY = useSharedValue(0);
+  const toolsStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: toolsX.value + toolsDragX.value }, { translateY: toolsDragY.value }],
+  }));
   const showTools = (open: boolean) => {
     setToolsOpen(open);
-    toolsX.set(withSpring(open ? 0 : -TOOLS_W, { damping: 18, stiffness: 180, mass: 0.9 }));
+    toolsX.set(withSpring(open ? 0 : toolsClosedX, { damping: 18, stiffness: 180, mass: 0.9 }));
     haptics.tick();
   };
+  // Put down somewhere new: the drawer's laid out there now, so the drag's offset goes (and it's tucked on that side),
+  // before the screen's drawn, so it doesn't jump.
+  useLayoutEffect(() => {
+    toolsDragX.set(0);
+    toolsDragY.set(0);
+    toolsX.set(toolsSpot.side === 'left' ? -TOOLS_W : TOOLS_W);
+  }, [toolsSpot, toolsDragX, toolsDragY, toolsX]);
 
   // ---- The hand tray, as in table mode: the hand's cards side by side in a row that scrolls sideways. ----
   const area = view ?? { w: screenW, h: 0 };
@@ -454,8 +473,59 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (folded) foldTray(false);
     else haptics.tick();
   };
-  /** The tools drawer: near the top, just below the top bar. */
-  const toolsTop = insets.top + TOOLS_FROM_TOP;
+  // The tools drawer's place: its tab anywhere from just below the top bar to just above the hand's tabs (as a share
+  // of that, so it fits any screen), and the panel beside it, as near level with the tab as fits in the same space.
+  const toolsMinY = insets.top + TOP_BAR_H + 8;
+  const toolsMaxY = Math.max(toolsMinY, trayOpenTop - HAND_TAB_H - TOOLS_TAB_H - 8);
+  const tabY = toolsMinY + toolsSpot.at * (toolsMaxY - toolsMinY);
+  const toolsH = Math.min(TOOLS_H, toolsMaxY + TOOLS_TAB_H - toolsMinY);
+  const toolsTop = Math.min(Math.max(tabY - TOOLS_TAB_TOP, toolsMinY), toolsMaxY + TOOLS_TAB_H - toolsH);
+  /** Where the tab sits in the drawer. */
+  const tabInDrawer = tabY - toolsTop;
+  // The tab: a tap opens or closes the drawer; a drag (while it's closed) carries it up or down, or to the other edge.
+  const toolsDrag = useMemo(() => {
+    const box = { dragging: false, open: false, tabY: 0, min: 0, max: 0, width: 0, set: (_s: ToolsSpot) => {}, toggle: () => {} };
+    const responder = PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        box.dragging = false;
+      },
+      onPanResponderMove: (_, g) => {
+        if (box.open) return;
+        if (!box.dragging && Math.hypot(g.dx, g.dy) > TOOLS_DRAG_SLOP) {
+          box.dragging = true;
+          haptics.lift();
+        }
+        if (!box.dragging) return;
+        toolsDragX.set(g.dx);
+        toolsDragY.set(Math.min(Math.max(box.tabY + g.dy, box.min), box.max) - box.tabY);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (!box.dragging) return box.toggle();
+        const y = Math.min(Math.max(box.tabY + g.dy, box.min), box.max);
+        box.set({ side: g.moveX < box.width / 2 ? 'left' : 'right', at: box.max > box.min ? (y - box.min) / (box.max - box.min) : 0 });
+        haptics.drop();
+      },
+      onPanResponderTerminate: () => {
+        toolsDragX.set(withSpring(0));
+        toolsDragY.set(withSpring(0));
+      },
+    });
+    return { box, responder };
+  }, [toolsDragX, toolsDragY]);
+  Object.assign(toolsDrag.box, {
+    open: toolsOpen,
+    tabY,
+    min: toolsMinY,
+    max: toolsMaxY,
+    width: area.w || screenW,
+    set: (spot: ToolsSpot) => {
+      setToolsSpot(spot);
+      saveSettings({ ...loadSettings(), toolsSpot: spot });
+    },
+    toggle: () => showTools(!toolsOpen),
+  });
   /** The flip button, in the bottom-left corner above the tray, while cards are carried. */
   const flipButton = { x: FLIP_MARGIN, y: handTop - HAND_TAB_H - FLIP_MARGIN - FLIP_SIZE, size: FLIP_SIZE };
   /** A double tap: the card (or the whole stack) turned over where it lies. */
@@ -942,21 +1012,24 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   // Where the hand tabs and the open tray are on screen: touches starting there are left to them (the tabs are
   // buttons; the tray has table mode's scroll view and card handling). Read by the gesture, on the UI thread.
-  const tabBand = useSharedValue({ top: 0, bottom: 0, tray: 0, toolsRight: 0, toolsTop: 0, toolsBottom: 0, panel: false });
+  const tabBand = useSharedValue({ top: 0, bottom: 0, tray: 0, toolsLeft: 0, toolsRight: 0, toolsTop: 0, toolsBottom: 0, panel: false });
   useEffect(() => {
-    const tabTop = toolsTop + TOOLS_TAB_TOP;
+    const reach = toolsOpen ? TOOLS_W + TOOLS_TAB_W : TOOLS_TAB_W;
+    const right = toolsSpot.side === 'right';
+    const w = area.w || screenW;
     tabBand.set({
       top: handTop - HAND_TAB_H,
       bottom: handTop,
       tray: folded ? Number.MAX_VALUE : handTop,
-      // The tools drawer: just its tab while it's tucked away, the whole panel when it's out.
-      toolsRight: toolsOpen ? TOOLS_W + TOOLS_TAB_W : TOOLS_TAB_W,
-      toolsTop: toolsOpen ? toolsTop : tabTop,
-      toolsBottom: toolsOpen ? toolsTop + TOOLS_H : tabTop + TOOLS_TAB_H,
+      // The tools drawer, on its edge: just its tab while it's tucked away, the whole panel when it's out.
+      toolsLeft: right ? w - reach : 0,
+      toolsRight: right ? w : reach,
+      toolsTop: toolsOpen ? toolsTop : tabY,
+      toolsBottom: toolsOpen ? toolsTop + toolsH : tabY + TOOLS_TAB_H,
       // The search, over everything while it's open (and not on its way out): its touches are its own.
       panel: !!searching && !searchLeaving,
     });
-  }, [handTop, folded, toolsOpen, toolsTop, tabBand, searching, searchLeaving]);
+  }, [handTop, folded, toolsOpen, toolsTop, toolsH, tabY, toolsSpot, area.w, screenW, tabBand, searching, searchLeaving]);
   /** A touch that landed in the open tray, watched (but not yet claimed) to see if it lifts a card out. */
   const trayTouch = useSharedValue({ id: -1, x: 0, y: 0, t: 0, watching: false, panel: false });
   /** Cards taken out of the search: the next move, the finger nearest this point (on screen) carries them on the table. */
@@ -1448,7 +1521,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           trayTouch.set({ id: t0.id, x: t0.x, y: t0.y, t: Date.now(), watching: true, panel: true });
           return;
         }
-        const onTools = !!t0 && t0.x < band.toolsRight && t0.y >= band.toolsTop && t0.y < band.toolsBottom;
+        const onTools = !!t0 && t0.x >= band.toolsLeft && t0.x < band.toolsRight && t0.y >= band.toolsTop && t0.y < band.toolsBottom;
         if (firstFinger && t0 && ((t0.y >= band.top && t0.y < band.bottom) || onTools)) {
           manager.fail();
           return;
@@ -2149,10 +2222,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
           </Animated.View>
 
-          {/* The tools drawer, on the left edge: its tab pulls it out, and tucks it away again. */}
+          {/* The tools drawer, on its edge: its tab pulls it out, and tucks it away again (and can be dragged). */}
           {/* Not while searching: the search is all there is. */}
-          <Animated.View style={[styles.tools, { top: toolsTop, zIndex: 10 }, toolsStyle, !!searching && styles.hidden]} pointerEvents={searching ? 'none' : 'box-none'}>
-            <ScrollView style={styles.toolsPanel} contentContainerStyle={{ gap: 10 }} showsVerticalScrollIndicator={false}>
+          <Animated.View
+            style={[
+              styles.tools,
+              toolsSpot.side === 'left' ? { left: 0 } : { right: 0 },
+              { top: toolsTop, height: toolsH, zIndex: 10 },
+              toolsStyle,
+              !!searching && styles.hidden,
+            ]}
+            pointerEvents={searching ? 'none' : 'box-none'}>
+            <ScrollView
+              style={[styles.toolsPanel, { height: toolsH }, toolsSpot.side === 'left' ? styles.toolsPanelLeft : styles.toolsPanelRight]}
+              contentContainerStyle={{ gap: 10 }}
+              showsVerticalScrollIndicator={false}>
               <Text style={styles.toolsTitle}>Tools</Text>
               {(
                 [
@@ -2231,19 +2315,29 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 </Pressable>
               ))}
             </ScrollView>
-            <Pressable
-              onPress={() => showTools(!toolsOpen)}
-              hitSlop={{ right: 10, top: 6, bottom: 6 }}
+            {/* The tab: tap to open or close; drag (closed) up or down the edge, or across to the other edge. */}
+            <View
+              {...toolsDrag.responder.panHandlers}
+              hitSlop={toolsSpot.side === 'left' ? { right: 10, top: 6, bottom: 6 } : { left: 10, top: 6, bottom: 6 }}
+              accessible
               accessibilityRole="button"
               accessibilityLabel={toolsOpen ? 'Hide tools' : 'Show tools'}
-              style={({ pressed }) => [styles.toolsTab, pressed && styles.tabPressed]}>
+              accessibilityHint="Drag to move it up or down, or to the other side."
+              onAccessibilityTap={() => showTools(!toolsOpen)}
+              style={[styles.toolsTab, { top: tabInDrawer }, toolsSpot.side === 'left' ? styles.toolsTabLeft : styles.toolsTabRight]}>
               <SymbolView
-                name={toolsOpen ? { ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' } : { ios: 'wrench.and.screwdriver', android: 'build', web: 'build' }}
+                name={
+                  toolsOpen
+                    ? toolsSpot.side === 'left'
+                      ? { ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }
+                      : { ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }
+                    : { ios: 'wrench.and.screwdriver', android: 'build', web: 'build' }
+                }
                 size={14}
                 weight="semibold"
                 tintColor={colors.accent}
               />
-            </Pressable>
+            </View>
           </Animated.View>
 
           {/*
@@ -2772,20 +2866,20 @@ const styles = StyleSheet.create({
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
   // The grid's lines, shown for now (for trying the grid out).
   gridLine: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.13)' },
-  // The tools drawer: a panel off the left edge, with a tab on its right edge to pull it out by.
-  tools: { position: 'absolute', left: 0, width: TOOLS_W + TOOLS_TAB_W, height: TOOLS_H },
+  // The tools drawer: a panel off the left (or right) edge, with a tab on its inner edge to pull it out by.
+  tools: { position: 'absolute', width: TOOLS_W + TOOLS_TAB_W },
   toolsPanel: {
+    position: 'absolute',
+    top: 0,
     width: TOOLS_W,
-    height: TOOLS_H,
     padding: 14,
     gap: 12,
     backgroundColor: 'rgba(8,18,26,0.9)',
-    borderTopRightRadius: 14,
-    borderBottomRightRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: 0,
     borderColor: 'rgba(255,255,255,0.22)',
   },
+  toolsPanelLeft: { left: 0, borderTopRightRadius: 14, borderBottomRightRadius: 14, borderLeftWidth: 0 },
+  toolsPanelRight: { left: TOOLS_TAB_W, borderTopLeftRadius: 14, borderBottomLeftRadius: 14, borderRightWidth: 0 },
   toolsTitle: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   toolText: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '600' },
@@ -2799,19 +2893,16 @@ const styles = StyleSheet.create({
   toolButtonText: { color: colors.text, fontSize: 15, fontWeight: '600' },
   toolsTab: {
     position: 'absolute',
-    left: TOOLS_W,
-    top: TOOLS_TAB_TOP,
     width: TOOLS_TAB_W,
     height: TOOLS_TAB_H,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(8,18,26,0.9)',
-    borderTopRightRadius: 12,
-    borderBottomRightRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: 0,
     borderColor: 'rgba(255,255,255,0.22)',
   },
+  toolsTabLeft: { left: TOOLS_W, borderTopRightRadius: 12, borderBottomRightRadius: 12, borderLeftWidth: 0 },
+  toolsTabRight: { left: 0, borderTopLeftRadius: 12, borderBottomLeftRadius: 12, borderRightWidth: 0 },
   // The whole table's size (a sizeless layer at the table's corner can be skipped as off screen, cards and all),
   // turning about that corner, as its transform expects.
   groupLayer: { position: 'absolute', left: 0, top: 0, width: TABLE_W, height: TABLE_H, transformOrigin: [0, 0, 0] },

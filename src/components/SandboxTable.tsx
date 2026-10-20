@@ -3005,8 +3005,19 @@ const styles = StyleSheet.create({
   },
   toolsTabLeft: { left: TOOLS_W, borderTopRightRadius: 12, borderBottomRightRadius: 12, borderLeftWidth: 0 },
   toolsTabRight: { left: 0, borderTopLeftRadius: 12, borderBottomLeftRadius: 12, borderRightWidth: 0 },
-  // Lifted to be moved: outlined in gold all round, rounded all round (it's off its edge).
-  toolsTabLifted: { borderWidth: 2, borderColor: colors.accent, borderRadius: 12 },
+  // Lifted to be moved: outlined in gold all round, rounded all round (it's off its edge). Each side and corner is
+  // set, since the edge styles above set them one by one, which would win over the all-round ones.
+  toolsTabLifted: {
+    borderColor: colors.accent,
+    borderTopWidth: 2,
+    borderBottomWidth: 2,
+    borderLeftWidth: 2,
+    borderRightWidth: 2,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
   // The whole table's size (a sizeless layer at the table's corner can be skipped as off screen, cards and all),
   // turning about that corner, as its transform expects.
   groupLayer: { position: 'absolute', left: 0, top: 0, width: TABLE_W, height: TABLE_H, transformOrigin: [0, 0, 0] },

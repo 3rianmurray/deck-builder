@@ -35,6 +35,7 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
     tips: [
       ['Drag the top card', 'Onto the discard pile to turn it over, or onto the trash can to take it out of the game.'],
       ['Swipe sideways', 'In a session, move between its decks.'],
+      ['Hold a card', 'See it full size: the top of the discard pile, or the deck’s back.'],
     ],
   },
   {
@@ -52,6 +53,7 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
       ['Searching a stack', 'Hold a card, then tap Close with another finger to take it out onto the table.'],
       ['Fold the hand away', 'Its cards turn face down while it’s folded, so the phone can be passed round.'],
       ['Hold a hand’s tab', 'Rename that hand.'],
+      ['Drag the tools tab', 'Up or down its edge, or across to the other side.'],
     ],
   },
 ];

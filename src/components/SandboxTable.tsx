@@ -406,6 +406,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setToolsOpen(open);
     toolsX.set(withSpring(open ? 0 : toolsClosedX, { damping: 18, stiffness: 180, mass: 0.9 }));
     haptics.tick();
+    // A tip, the first time: the tab can be moved.
+    if (open) offerTipSoon('tables-tools-drag', 700);
   };
   // Put down somewhere new: the drawer's laid out there now, so the drag's offset goes (and it's tucked on that side),
   // before the screen's drawn, so it doesn't jump.
@@ -2321,7 +2323,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               <View style={styles.toolDivider} />
               {(
                 [
-                  ['arrow.up.left.and.arrow.down.right', 'fit_screen', 'Fit All Cards', () => fitView(table)],
+                  [
+                    'arrow.up.left.and.arrow.down.right',
+                    'fit_screen',
+                    'Fit All Cards',
+                    () => {
+                      fitView(table);
+                      // A tip, the first time: the quick pinch does this too.
+                      offerTipSoon('tables-quick-pinch', 900);
+                    },
+                  ],
                   ['wand.and.stars', 'auto_fix_high', 'Clean Up', cleanUp],
                   ['rectangle.stack', 'layers', 'Gather by Deck', gatherUp],
                   ['trash', 'delete', `Trash${table.trash?.length ? ` (${table.trash.length})` : ''}`, () => setTrashOpen(true)],

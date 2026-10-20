@@ -19,6 +19,8 @@ export const TIPS = {
   'reveal-hold': 'Hold a card to see it full size.',
   'search-take-out': 'Hold a card, then tap Close with another finger, to take it out onto the table.',
   'sprite-slide': 'Slide a finger across a number to change it.',
+  'tables-quick-pinch': 'Next time, pinch in quickly with two fingers to fit every card in view.',
+  'tables-tools-drag': 'Drag the tools tab up or down, or across to the other side, to move it.',
 } as const;
 
 export type TipId = keyof typeof TIPS;

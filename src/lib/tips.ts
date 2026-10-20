@@ -20,7 +20,7 @@ export const TIPS = {
   'search-take-out': 'Hold a card, then tap Close with another finger, to take it out onto the table.',
   'sprite-slide': 'Slide a finger across a number to change it.',
   'tables-quick-pinch': 'Next time, pinch in quickly with two fingers to fit every card in view.',
-  'tables-tools-drag': 'Drag the tools tab up or down, or across to the other side, to move it.',
+  'tables-tools-drag': 'Hold the tools tab to move it: up or down, or across to the other side.',
 } as const;
 
 export type TipId = keyof typeof TIPS;

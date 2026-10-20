@@ -53,7 +53,7 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
       ['Searching a stack', 'Hold a card, then tap Close with another finger to take it out onto the table.'],
       ['Fold the hand away', 'Its cards turn face down while it’s folded, so the phone can be passed round.'],
       ['Hold a hand’s tab', 'Rename that hand.'],
-      ['Drag the tools tab', 'Up or down its edge, or across to the other side.'],
+      ['Hold the tools tab', 'Then drag it up or down its edge, or across to the other side.'],
     ],
   },
 ];

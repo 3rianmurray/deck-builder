@@ -164,6 +164,9 @@ const DEFAULT_TOOLS_SPOT: ToolsSpot = { side: 'left', at: 0.08 };
 /** A pinch inward this quick, to this share of its fingers' first distance apart or less, fits all cards in view. */
 const QUICK_PINCH_MS = 350;
 const QUICK_PINCH_SHRINK = 0.6;
+/** How far sideways the tools tab must be dragged to come away from its edge, and how much it gives before then. */
+const TOOLS_DETACH = 70;
+const TOOLS_EDGE_GIVE = 0.15;
 /** How far the tools tab must be dragged before it moves (less is a tap). */
 const TOOLS_DRAG_SLOP = 8;
 
@@ -493,6 +496,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const toolsDrag = useMemo(() => {
     const box = {
       dragging: false,
+      /** Pulled away from its edge (dragged far enough sideways): it follows the finger across, and may change sides. */
+      loose: false,
+      side: 'left' as ToolsSpot['side'],
       open: false,
       tabY: 0,
       min: 0,
@@ -507,6 +513,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
         box.dragging = false;
+        box.loose = false;
       },
       onPanResponderMove: (_, g) => {
         if (box.open) return;
@@ -516,14 +523,20 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           haptics.lift();
         }
         if (!box.dragging) return;
-        toolsDragX.set(g.dx);
+        // Held to its edge, giving a little, until the finger's gone a way sideways: then it comes away and follows.
+        if (!box.loose && Math.abs(g.dx) > TOOLS_DETACH) {
+          box.loose = true;
+          haptics.tick();
+        }
+        toolsDragX.set(box.loose ? g.dx : g.dx * TOOLS_EDGE_GIVE);
         toolsDragY.set(Math.min(Math.max(box.tabY + g.dy, box.min), box.max) - box.tabY);
       },
       onPanResponderRelease: (_, g) => {
         if (!box.dragging) return box.toggle();
         box.showDragging(false);
         const y = Math.min(Math.max(box.tabY + g.dy, box.min), box.max);
-        box.set({ side: g.moveX < box.width / 2 ? 'left' : 'right', at: box.max > box.min ? (y - box.min) / (box.max - box.min) : 0 });
+        const side = box.loose ? (g.moveX < box.width / 2 ? 'left' : 'right') : box.side;
+        box.set({ side, at: box.max > box.min ? (y - box.min) / (box.max - box.min) : 0 });
         haptics.drop();
       },
       onPanResponderTerminate: () => {
@@ -536,6 +549,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   }, [toolsDragX, toolsDragY]);
   Object.assign(toolsDrag.box, {
     open: toolsOpen,
+    side: toolsSpot.side,
     tabY,
     min: toolsMinY,
     max: toolsMaxY,

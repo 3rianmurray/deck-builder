@@ -106,6 +106,9 @@ const LASSO_TAP_MS = 400;
 const LASSO_TAP_REACH = 40;
 /** How far the finger moves (on screen) before the lasso takes another point. */
 const LASSO_STEP = 6;
+/** A lasso traced back over rubs out: how near its line the finger must come back (points), and how far back along it. */
+const LASSO_RETRACE_REACH = 18;
+const LASSO_RETRACE_LENGTH = 220;
 /** A touch on empty table lifted within this long (and without moving) is a tap. */
 const TAP_MS = 300;
 /** How far round a stack's count badge (in screen points) a touch takes the whole stack. */
@@ -1332,8 +1335,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         if (!f || !L.table) return;
         const last = touch.lassoScreen[touch.lassoScreen.length - 1];
         if (last && Math.hypot(f.now.x - last.x, f.now.y - last.y) < LASSO_STEP) return;
-        touch.lasso = [...touch.lasso, toTable(readCamera(), f.now.x, f.now.y)];
-        touch.lassoScreen = [...touch.lassoScreen, f.now];
+        // Gone too far and come back the way it came: the line rubs out back to there, letting go of what it caught
+        // on the way out (as a pencil line traced back over would be erased).
+        const back = lassoRetrace(touch.lassoScreen, f.now);
+        const keep = back < 0 ? touch.lasso.length : back + 1;
+        touch.lasso = [...touch.lasso.slice(0, keep), toTable(readCamera(), f.now.x, f.now.y)];
+        touch.lassoScreen = [...touch.lassoScreen.slice(0, keep), f.now];
         L.setLassoPath(touch.lassoScreen);
         const caught = stacksInShape(L.table, touch.lasso, L.size);
         const picked = [...touch.lassoBase, ...caught.filter((id) => !touch.lassoBase.includes(id))];
@@ -2930,6 +2937,32 @@ function LassoLine({ points }: { points: { x: number; y: number }[] }) {
       <Path path={path} color={colors.accent} style="stroke" strokeWidth={2} strokeJoin="round" />
     </Canvas>
   );
+}
+
+/**
+ * Where a lasso's finger has come back along its own line, if it has: the earliest of the line's recent points
+ * (its last LASSO_RETRACE_LENGTH or so) it's back beside, heading back the way the line went there. Coming round to
+ * close the loop doesn't count: that's far back along the line, and heading on, not back. -1 if not.
+ */
+function lassoRetrace(line: { x: number; y: number }[], to: { x: number; y: number }): number {
+  const last = line[line.length - 1];
+  if (!last || line.length < 3) return -1;
+  const move = { x: to.x - last.x, y: to.y - last.y };
+  const moved = Math.hypot(move.x, move.y);
+  if (!moved) return -1;
+  let found = -1;
+  let along = 0;
+  // From the newest back, skipping the last point (always right beside the finger).
+  for (let i = line.length - 2; i >= 0; i--) {
+    along += Math.hypot(line[i + 1].x - line[i].x, line[i + 1].y - line[i].y);
+    if (along > LASSO_RETRACE_LENGTH) break;
+    if (Math.hypot(to.x - line[i].x, to.y - line[i].y) > LASSO_RETRACE_REACH) continue;
+    // Heading back: against the way the line went from this point.
+    const d = { x: line[i + 1].x - line[i].x, y: line[i + 1].y - line[i].y };
+    const dLen = Math.hypot(d.x, d.y);
+    if (dLen && (move.x * d.x + move.y * d.y) / (moved * dLen) < -0.5) found = i;
+  }
+  return found;
 }
 
 /** A stack on the table: its top card (and edges below it, for more than one), turned as it lies. */

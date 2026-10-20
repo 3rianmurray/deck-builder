@@ -47,6 +47,8 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
       ['Tap a card', 'Picks it out. Tap it again for its options.'],
       ['Double-tap a card', 'Flips it. Flipped onto a stack facing the same way, it joins it.'],
       ['Double-tap, then hold the table', 'Draw a loop round cards to pick them all out. Do it again to add more.'],
+      ['Gone too far with the lasso', 'Trace back over the line: it rubs out, and lets go of what it caught.'],
+      ['Start the selection over', 'Tap an empty spot on the table to let go of every picked-out card.'],
       ['Drag a picked-out card', 'Moves all of them together.'],
       ['Second finger, while carrying', 'Tap other cards to pick them up too, tap the flip button to turn them over, or twist to turn them.'],
       ['Drag into a hand', 'Cards gather into a pile and slip into the hand when you let go.'],

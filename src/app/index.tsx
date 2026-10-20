@@ -553,7 +553,7 @@ export default function HomeScreen() {
           </Pressable>
         }
         actions={[
-          // In three groups: learning the app, your decks and files, and about the app.
+          // Learning the app, then its examples; deck files (part of Pro) in their own section; about the app.
           { label: 'Help', onPress: () => router.push('/help') },
           // Tips (now and then, the first times things are used): all of them again, or off (or on).
           { label: 'Show tips again', onPress: () => {
@@ -563,14 +563,6 @@ export default function HomeScreen() {
           tipsOn()
             ? { label: 'Turn tips off', onPress: () => setTipsOn(false) }
             : { label: 'Turn tips on', onPress: () => setTipsOn(true) },
-          // The file picker and share sheet are system screens, which iOS can only show once this menu has gone.
-          // Deck files are part of Pro: shown for everyone, opening Pro without it.
-          pro
-            ? { label: 'Import decks from a file…', opensModal: true, groupStart: true, onPress: importFromFile }
-            : { label: 'Import decks from a file… · Pro', groupStart: true, onPress: () => openPro('files') },
-          ...(decks.length
-            ? [pro ? { label: 'Back up all decks…', opensModal: true, onPress: backUpAll } : { label: 'Back up all decks… · Pro', onPress: () => openPro('files') }]
-            : []),
           {
             label: 'Restore examples',
             opensModal: true,
@@ -588,6 +580,18 @@ export default function HomeScreen() {
                 (e) => Alert.alert('Couldn’t restore the examples', e instanceof Error ? e.message : String(e)),
               ),
           },
+          // Deck files: part of Pro. Without it they're shown quieter, under a PRO tag, and open Pro. (The file picker
+          // and share sheet are system screens, which iOS can only show once this menu has gone.)
+          {
+            label: 'Import decks',
+            section: { title: 'Deck files', pro: !pro },
+            dim: !pro,
+            opensModal: pro,
+            onPress: pro ? importFromFile : () => openPro('files'),
+          },
+          ...(decks.length
+            ? [{ label: 'Back up all decks', dim: !pro, opensModal: pro, onPress: pro ? backUpAll : () => openPro('files') }]
+            : []),
           // The version running (down to the update), and where to get help.
           { label: 'About Shufflevale', groupStart: true, onPress: () => router.push('/about') },
         ]}
@@ -613,7 +617,9 @@ export default function HomeScreen() {
                 ...(decks.some((d) => d.groupId === menuGroup.id)
                   ? [
                       {
-                        label: pro ? 'Share or back up this group…' : 'Share or back up this group… · Pro',
+                        label: 'Share or back up this group',
+                        section: { title: 'Deck files', pro: !pro },
+                        dim: !pro,
                         opensModal: pro,
                         onPress: () => (pro ? shareGroup(menuGroup.id) : openPro('files')),
                       },
@@ -622,6 +628,8 @@ export default function HomeScreen() {
                 {
                   label: 'Delete group (keeps its decks)',
                   destructive: true,
+                  // Apart from the deck files section above it.
+                  groupStart: true,
                   onPress: () => deleteGroup(menuGroup.id),
                 },
               ]

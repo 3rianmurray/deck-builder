@@ -622,9 +622,10 @@ export default function DeckEditorScreen() {
           // To keep a copy somewhere safe, move it to another phone, or give it to a friend.
           // Deck files are part of Pro: shown for everyone, opening Pro without it.
           ...(deck.cards.length
-            ? [{ label: pro ? 'Share or back up this deck…' : 'Share or back up this deck… · Pro', opensModal: !!pro, onPress: pro ? shareDeck : () => openPro('files') }]
+            ? [{ label: 'Share or back up this deck', section: { title: 'Deck files', pro: !pro }, dim: !pro, opensModal: pro, onPress: pro ? shareDeck : () => openPro('files') }]
             : []),
-          { label: 'Delete deck', destructive: true, opensModal: true, onPress: confirmDelete },
+          // Apart from the deck files section above it.
+          { label: 'Delete deck', destructive: true, opensModal: true, groupStart: true, onPress: confirmDelete },
         ]}
       />
 

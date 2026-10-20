@@ -9,6 +9,7 @@
     "userInterfaceStyle": "dark",
     "backgroundColor": "#14161a",
     "ios": {
+      "backgroundColor": "#14161a",
       "bundleIdentifier": "com.3rianmurray.shufflevale",
       "supportsTablet": false,
       "infoPlist": {
@@ -46,7 +47,8 @@
           "cameraPermission": "Shufflevale uses your camera so you can photograph your own artwork and turn it into cards."
         }
       ],
-      "expo-iap"
+      "expo-iap",
+      "expo-system-ui"
     ],
     "extra": {
       "router": {},

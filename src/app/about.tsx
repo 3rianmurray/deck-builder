@@ -1,11 +1,13 @@
 import { reloadAppAsync } from 'expo';
+import { useRef, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon } from '../components/AppIcon';
 import { Text } from '../components/Text';
 import { isPro, setProOverride, useProState } from '../lib/pro';
-import { eraseEverything } from '../lib/storage';
+import * as haptics from '../lib/haptics';
+import { eraseEverything, loadSettings, saveSettings } from '../lib/storage';
 import type { ProOverride } from '../lib/pro';
 import { versionLabel } from '../lib/version';
 import { colors } from '../theme';
@@ -13,8 +15,10 @@ import { colors } from '../theme';
 const SUPPORT = 'https://3rianmurray.github.io/shufflevale/';
 const PRIVACY = 'https://3rianmurray.github.io/shufflevale/privacy.html';
 const EMAIL = 'shufflevale@gmail.com';
+/** Taps on the version, each within this long of the last, that show (or hide) the tester controls. */
+const TAPS_TO_SHOW = 7;
+const TAP_GAP_MS = 600;
 
-/** The app's name and icon, which version is running (down to the update), and where to get help. */
 /** The tester switch's choices: as the real purchase says, or acting as free or as Pro. */
 const TESTER: [ProOverride | null, string][] = [
   [null, 'Real purchase'],
@@ -22,9 +26,27 @@ const TESTER: [ProOverride | null, string][] = [
   ['pro', 'Act as Pro'],
 ];
 
+/** The app's name and icon, which version is running (down to the update), and where to get help. */
 export default function AboutScreen() {
   const insets = useSafeAreaInsets();
   const proState = useProState();
+
+  // The tester controls, shown by tapping the version 7 times quickly (remembered on this phone).
+  const [testerShown, setTesterShown] = useState(() => !!loadSettings().testerShown);
+  const taps = useRef({ count: 0, last: 0 });
+  const tapVersion = () => {
+    if (!proState.testing) return;
+    const now = Date.now();
+    const t = taps.current;
+    t.count = now - t.last < TAP_GAP_MS ? t.count + 1 : 1;
+    t.last = now;
+    if (t.count < TAPS_TO_SHOW) return;
+    t.count = 0;
+    const shown = !testerShown;
+    setTesterShown(shown);
+    saveSettings({ ...loadSettings(), testerShown: shown });
+    haptics.success();
+  };
 
   const confirmReset = () =>
     Alert.alert(
@@ -52,9 +74,10 @@ export default function AboutScreen() {
       <AppIcon size={112} />
       <Text style={styles.name}>Shufflevale</Text>
       <Text style={styles.tagline}>Your own cards, ready to play</Text>
-      <Text style={styles.version} selectable>
-        {versionLabel()}
-      </Text>
+      {/* Tapped 7 times quickly (in TestFlight): shows or hides the tester controls. Nothing to see otherwise. */}
+      <Pressable onPress={tapVersion} accessible={false}>
+        <Text style={styles.version}>{versionLabel()}</Text>
+      </Pressable>
       <View style={styles.links}>
         {links.map(([label, url], i) => (
           <Pressable
@@ -67,8 +90,11 @@ export default function AboutScreen() {
           </Pressable>
         ))}
       </View>
-      {/* TestFlight and development builds only (never the App Store): try the free version and Pro without buying. */}
-      {proState.testing ? (
+      {/*
+        TestFlight and development builds only (never the App Store): try the free version and Pro without buying, or
+        start over. Hidden until the version is tapped 7 times, since App Review runs in Apple's test store too.
+      */}
+      {proState.testing && testerShown ? (
         <View style={styles.tester}>
           <Text style={styles.testerTitle}>Tester · Pro is {isPro(proState) ? 'on' : 'off'}</Text>
           <View style={styles.testerRow}>

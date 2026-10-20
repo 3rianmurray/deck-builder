@@ -149,6 +149,8 @@ export interface Settings {
   proOwned?: boolean;
   /** The tester switch, in TestFlight builds: act as free or as Pro. */
   proOverride?: 'free' | 'pro';
+  /** The tester controls in About are showing (shown by tapping the version 7 times, in TestFlight). */
+  testerShown?: boolean;
   /** Where the player's put the tools drawer on tables: which edge, and how far down it (0 top, 1 bottom). */
   toolsSpot?: { side: 'left' | 'right'; at: number };
 }

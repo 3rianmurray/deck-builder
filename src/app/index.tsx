@@ -2,6 +2,7 @@ import { Stack, router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import type { AccessibilityActionEvent } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '../components/ActionSheet';
@@ -527,6 +528,30 @@ export default function HomeScreen() {
         visible={appMenuOpen}
         title="Shufflevale"
         onClose={() => setAppMenuOpen(false)}
+        // Shufflevale Pro, set apart at the top: gold-edged, with what's left of the free version's cards.
+        banner={
+          <Pressable
+            onPress={() => {
+              setAppMenuOpen(false);
+              // Once the menu has slid away (iOS shows one modal at a time).
+              setTimeout(() => openPro(), 260);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={pro ? 'Shufflevale Pro, unlocked' : `Shufflevale Pro, ${used} of ${FREE_CARD_LIMIT} free cards used`}
+            style={({ pressed }) => [styles.proBanner, pressed && { opacity: 0.8 }]}>
+            <LinearGradient colors={['#3a2f17', colors.surfaceRaised]} start={{ x: 0, y: 0 }} end={{ x: 0.75, y: 0.75 }} style={StyleSheet.absoluteFill} />
+            <View style={styles.proStar}>
+              <Text style={styles.proStarText}>✦</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.proTitle}>Shufflevale Pro</Text>
+              <Text style={styles.proSub} numberOfLines={1}>
+                {pro ? 'Unlocked · thank you!' : `Unlimited cards · ${Math.min(used, FREE_CARD_LIMIT)} of ${FREE_CARD_LIMIT} used`}
+              </Text>
+            </View>
+            <Text style={styles.proChevron}>›</Text>
+          </Pressable>
+        }
         actions={[
           // In three groups: learning the app, your decks and files, and about the app.
           { label: 'Help', onPress: () => router.push('/help') },
@@ -563,14 +588,8 @@ export default function HomeScreen() {
                 (e) => Alert.alert('Couldn’t restore the examples', e instanceof Error ? e.message : String(e)),
               ),
           },
-          // Pro: owned, or what's left of the free version's cards.
-          {
-            label: pro ? 'Shufflevale Pro ✓' : `Shufflevale Pro · ${Math.min(used, FREE_CARD_LIMIT)} of ${FREE_CARD_LIMIT} free cards used`,
-            groupStart: true,
-            onPress: () => openPro(),
-          },
           // The version running (down to the update), and where to get help.
-          { label: 'About Shufflevale', onPress: () => router.push('/about') },
+          { label: 'About Shufflevale', groupStart: true, onPress: () => router.push('/about') },
         ]}
       />
 
@@ -647,6 +666,23 @@ const styles = StyleSheet.create({
   list: { padding: 16 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   sectionLink: { color: colors.accent, fontSize: 15, fontWeight: '600' },
+  // Shufflevale Pro's banner at the top of the app's menu (see the menu).
+  proBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 6,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: colors.accent,
+  },
+  proStar: { width: 36, height: 36, borderRadius: 9, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  proStarText: { color: colors.accentText, fontSize: 18, fontWeight: '900' },
+  proTitle: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  proSub: { color: '#c9b68a', fontSize: 13, marginTop: 2 },
+  proChevron: { color: colors.accent, fontSize: 24, fontWeight: '600' },
   // A section after another: a little more room above it than between rows.
   laterSection: { marginTop: 6 },
   rowWrap: { paddingBottom: 10 },

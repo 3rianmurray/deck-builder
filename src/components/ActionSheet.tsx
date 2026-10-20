@@ -35,6 +35,8 @@ interface Props {
   title?: string;
   /** Optional content shown above the actions, e.g. a large card preview. */
   header?: ReactNode;
+  /** Optional content under the title, above the actions: e.g. a featured choice drawn its own way. */
+  banner?: ReactNode;
   /** Shown over the sheet, filling the screen, e.g. a card full size; the sheet stays open underneath. */
   overlay?: ReactNode;
   /** Actions shown as a grid of icon tiles, three to a row, above `actions`. */
@@ -68,7 +70,7 @@ export function ActionSheet(props: Props) {
     return { keep: (p: Props) => Object.assign(box, { last: p }), get: () => box.last };
   }, []);
   if (visible) shown.keep(props);
-  const { title, header, tiles, actions, overlay } = visible ? props : (shown.get() ?? props);
+  const { title, header, banner, tiles, actions, overlay } = visible ? props : (shown.get() ?? props);
   // The modal stays up after `visible` goes false until the sheet has slid away.
   const [mounted, setMounted] = useState(visible);
   if (visible && !mounted) setMounted(true);
@@ -152,6 +154,7 @@ export function ActionSheet(props: Props) {
             {guided ? <TourTip index={guided.index} step={guided.step} /> : null}
             {header}
             {title ? <Text style={styles.title}>{title}</Text> : null}
+            {banner}
             {tiles?.length ? (
               <View style={styles.tiles}>
                 {tiles.map((t) => (

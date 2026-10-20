@@ -546,17 +546,35 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setSelected([]);
     haptics.drop();
   };
-  /** With cards picked out (and nothing carried): the selection's ••• button (its other options, taking it off the table among them), above the gather one (or in its place). */
-  const moreButton = { x: flipButton.x, y: chosen.length > 1 ? stackButton.y - FLIP_SIZE - 12 : stackButton.y, size: FLIP_SIZE };
+  // With cards picked out (and nothing carried), their buttons stand in a column up from the flip one: shuffle (when
+  // a picked-out stack has cards to shuffle), gather (two or more picked out), then ••• (everything else).
+  /** The button `n` places above the flip one. */
+  const slot = (n: number) => ({ x: flipButton.x, y: flipButton.y - n * (FLIP_SIZE + 12), size: FLIP_SIZE });
+  /** A picked-out stack has two or more cards: the shuffle button shows. */
+  const canShuffle = chosen.some((id) => (table?.stacks.find((s) => s.id === id)?.cards.length ?? 0) > 1);
+  const shuffleButton = slot(1);
+  /** The gather button, as it stands while the cards are just picked out (while they're dragged, see `stackButton`). */
+  const gatherButton = slot(canShuffle ? 2 : 1);
+  const moreButton = slot(1 + (canShuffle ? 1 : 0) + (chosen.length > 1 ? 1 : 0));
   /** Which of the selection's buttons is at a point on screen, if any (while nothing's carried). */
-  const selectionButtonAt = (x: number, y: number): 'flip' | 'gather' | 'more' | null => {
+  const selectionButtonAt = (x: number, y: number): 'flip' | 'shuffle' | 'gather' | 'more' | null => {
     const on = (b: { x: number; y: number; size: number }) => Math.hypot(x - (b.x + b.size / 2), y - (b.y + b.size / 2)) <= b.size / 2 + 8;
     // Not while the tools are out: they lie over the buttons, which wait, dimmed.
     if (!chosen.length || held || groupMoving || toolsOpen) return null;
     if (on(flipButton)) return 'flip';
-    if (chosen.length > 1 && on(stackButton)) return 'gather';
+    if (canShuffle && on(shuffleButton)) return 'shuffle';
+    if (chosen.length > 1 && on(gatherButton)) return 'gather';
     if (on(moreButton)) return 'more';
     return null;
+  };
+  /** The shuffle button: each picked-out stack shuffled where it lies (one undo), with the riffle played on one. */
+  const shuffleSelection = () => {
+    if (!table) return;
+    const stacks = chosen.filter((id) => (table.stacks.find((s) => s.id === id)?.cards.length ?? 0) > 1);
+    if (!stacks.length) return;
+    commit(stacks.reduce((t, id) => shuffleStack(t, id), table));
+    const shown = stacks[stacks.length - 1];
+    setRiffling((r) => ({ stackId: shown, key: (r?.key ?? 0) + 1, started: false }));
   };
   /**
    * The stack button, while a group is dragged: all of it gathered into one stack where the grabbed one lies, every
@@ -628,7 +646,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       dropGroup: (by: { x: number; y: number }) => void;
       flipGroup: () => void;
       trashSelection: () => void;
-      selectionButtonAt: (x: number, y: number) => 'flip' | 'gather' | 'more' | null;
+      selectionButtonAt: (x: number, y: number) => 'flip' | 'shuffle' | 'gather' | 'more' | null;
+      shuffleSelection: () => void;
       gatherGroup: (lead: string) => string | undefined;
       flipFromTap: (src: Source) => void;
       cameraLocked: boolean;
@@ -647,7 +666,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -1003,6 +1022,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           if (b) {
             touch.mode = 'button';
             if (b === 'flip') L.flipGroup();
+            else if (b === 'shuffle') L.shuffleSelection();
             else if (b === 'gather') L.gatherGroup(L.selected[L.selected.length - 1]);
             else L.setMenu({ kind: 'selection' });
             return;
@@ -2238,11 +2258,20 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
           ) : null}
 
-          {/* With two or more picked out: above the flip button, one to gather them all into a stack. */}
+          {/* With a stack of two or more picked out (not dragged): above the flip button, one to shuffle it. */}
+          {!held && !groupMoving && canShuffle ? (
+            <View
+              pointerEvents="none"
+              style={[styles.flipButton, { left: shuffleButton.x, top: shuffleButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && styles.waiting]}>
+              <SymbolView name={{ ios: 'shuffle', android: 'shuffle', web: 'shuffle' }} size={26} weight="semibold" tintColor={colors.accentText} />
+            </View>
+          ) : null}
+
+          {/* With two or more picked out: one to gather them all into a stack (just above the flip button while they're dragged). */}
           {!held && chosen.length > 1 ? (
             <View
               pointerEvents="none"
-              style={[styles.flipButton, { left: stackButton.x, top: stackButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && !held && !groupMoving && styles.waiting]}>
+              style={[styles.flipButton, { left: flipButton.x, top: groupMoving ? stackButton.y : gatherButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && !held && !groupMoving && styles.waiting]}>
               <SymbolView name={{ ios: 'square.stack.3d.down.right', android: 'layers', web: 'layers' }} size={26} weight="semibold" tintColor={colors.accentText} />
             </View>
           ) : null}

@@ -167,6 +167,8 @@ const QUICK_PINCH_SHRINK = 0.6;
 /** How far sideways the tools tab must be dragged to come away from its edge, and how much it gives before then. */
 const TOOLS_DETACH = 70;
 const TOOLS_EDGE_GIVE = 0.15;
+/** Cards moved about the table before the lasso's tip is offered. */
+const LASSO_TIP_AFTER = 5;
 /** The tools panel's rounded corners (squared off where the tab meets one). */
 const TOOLS_PANEL_RADIUS = 14;
 /** How long the tools tab is held before it lifts to be moved. */
@@ -277,8 +279,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const box = { iids: [] as string[] };
     return { get: () => box.iids, set: (iids: string[]) => Object.assign(box, { iids }) };
   });
-  // A tip, the first time a table opens (after a moment): the lasso, which nothing on screen shows.
-  useEffect(() => offerTipSoon('tables-lasso', 2500), []);
   /** Closes the search (it slides away). */
   const endSearch = () => {
     setSearching(null);
@@ -1050,6 +1050,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       offerTipSoon('tables-fold-hand', 700);
       return;
     }
+    // After moving a few cards about one at a time: the lasso picks out several at once (nothing on screen shows it).
+    offerTipAfterUses('tables-lasso', LASSO_TIP_AFTER, 900);
     const w = toTable(readCamera(), p.x, p.y);
     const whole = sources.find((src) => src.kind === 'stack');
     // Only onto a stack facing the same way.

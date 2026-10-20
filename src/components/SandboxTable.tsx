@@ -167,7 +167,9 @@ const QUICK_PINCH_SHRINK = 0.6;
 /** How far sideways the tools tab must be dragged to come away from its edge, and how much it gives before then. */
 const TOOLS_DETACH = 70;
 const TOOLS_EDGE_GIVE = 0.15;
-/** How far the tools tab must be dragged before it moves (less is a tap). */
+/** How long the tools tab is held before it lifts to be moved. */
+const TOOLS_HOLD_MS = 400;
+/** Moving further than this before the hold is up is a slip: neither a tap nor a drag. */
 const TOOLS_DRAG_SLOP = 8;
 
 const FLIP_ICON = { ios: 'arrow.trianglehead.2.clockwise.rotate.90', android: 'flip', web: 'flip' } as const;
@@ -496,6 +498,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const toolsDrag = useMemo(() => {
     const box = {
       dragging: false,
+      /** Moved before the hold was up: not a tap, and not a drag. */
+      slipped: false,
+      timer: null as ReturnType<typeof setTimeout> | null,
       /** Pulled away from its edge (dragged far enough sideways): it follows the finger across, and may change sides. */
       loose: false,
       side: 'left' as ToolsSpot['side'],
@@ -511,18 +516,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const responder = PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderTerminationRequest: () => false,
+      // A tap opens or closes it. Held a moment (closed, without moving), it lifts, with a buzz and a gold outline,
+      // and can then be dragged; moved before then, it's neither (a slip of the finger).
       onPanResponderGrant: () => {
         box.dragging = false;
         box.loose = false;
-      },
-      onPanResponderMove: (_, g) => {
-        if (box.open) return;
-        if (!box.dragging && Math.hypot(g.dx, g.dy) > TOOLS_DRAG_SLOP) {
+        box.slipped = false;
+        if (box.timer) clearTimeout(box.timer);
+        box.timer = setTimeout(() => {
+          box.timer = null;
+          if (box.open || box.slipped) return;
           box.dragging = true;
           box.showDragging(true);
           haptics.lift();
+        }, TOOLS_HOLD_MS);
+      },
+      onPanResponderMove: (_, g) => {
+        if (!box.dragging) {
+          if (Math.hypot(g.dx, g.dy) > TOOLS_DRAG_SLOP) box.slipped = true;
+          return;
         }
-        if (!box.dragging) return;
         // Held to its edge, giving a little, until the finger's gone a way sideways: then it comes away and follows.
         if (!box.loose && Math.abs(g.dx) > TOOLS_DETACH) {
           box.loose = true;
@@ -532,7 +545,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         toolsDragY.set(Math.min(Math.max(box.tabY + g.dy, box.min), box.max) - box.tabY);
       },
       onPanResponderRelease: (_, g) => {
-        if (!box.dragging) return box.toggle();
+        if (box.timer) clearTimeout(box.timer);
+        box.timer = null;
+        if (!box.dragging) {
+          if (!box.slipped) box.toggle();
+          return;
+        }
         box.showDragging(false);
         const y = Math.min(Math.max(box.tabY + g.dy, box.min), box.max);
         const side = box.loose ? (g.moveX < box.width / 2 ? 'left' : 'right') : box.side;
@@ -540,6 +558,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         haptics.drop();
       },
       onPanResponderTerminate: () => {
+        if (box.timer) clearTimeout(box.timer);
+        box.timer = null;
+        box.dragging = false;
         box.showDragging(false);
         toolsDragX.set(withSpring(0));
         toolsDragY.set(withSpring(0));
@@ -2390,7 +2411,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               accessibilityLabel={toolsOpen ? 'Hide tools' : 'Show tools'}
               accessibilityHint="Drag to move it up or down, or to the other side."
               onAccessibilityTap={() => showTools(!toolsOpen)}
-              style={[styles.toolsTab, { top: tabInDrawer }, toolsSpot.side === 'left' ? styles.toolsTabLeft : styles.toolsTabRight]}>
+              style={[styles.toolsTab, { top: tabInDrawer }, toolsSpot.side === 'left' ? styles.toolsTabLeft : styles.toolsTabRight, toolsDragging && styles.toolsTabLifted]}>
               <SymbolView
                 name={
                   toolsOpen
@@ -2969,6 +2990,8 @@ const styles = StyleSheet.create({
   },
   toolsTabLeft: { left: TOOLS_W, borderTopRightRadius: 12, borderBottomRightRadius: 12, borderLeftWidth: 0 },
   toolsTabRight: { left: 0, borderTopLeftRadius: 12, borderBottomLeftRadius: 12, borderRightWidth: 0 },
+  // Lifted to be moved: outlined in gold all round, rounded all round (it's off its edge).
+  toolsTabLifted: { borderWidth: 2, borderColor: colors.accent, borderRadius: 12 },
   // The whole table's size (a sizeless layer at the table's corner can be skipped as off screen, cards and all),
   // turning about that corner, as its transform expects.
   groupLayer: { position: 'absolute', left: 0, top: 0, width: TABLE_W, height: TABLE_H, transformOrigin: [0, 0, 0] },

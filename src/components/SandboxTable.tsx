@@ -167,6 +167,8 @@ const QUICK_PINCH_SHRINK = 0.6;
 /** How far sideways the tools tab must be dragged to come away from its edge, and how much it gives before then. */
 const TOOLS_DETACH = 70;
 const TOOLS_EDGE_GIVE = 0.15;
+/** The tools panel's rounded corners (squared off where the tab meets one). */
+const TOOLS_PANEL_RADIUS = 14;
 /** How long the tools tab is held before it lifts to be moved. */
 const TOOLS_HOLD_MS = 400;
 /** Moving further than this before the hold is up is a slip: neither a tap nor a drag. */
@@ -494,6 +496,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const toolsTop = Math.min(Math.max(tabY - TOOLS_TAB_TOP, toolsMinY), toolsMaxY + TOOLS_TAB_H - toolsH);
   /** Where the tab sits in the drawer. */
   const tabInDrawer = tabY - toolsTop;
+  // With the tab up against the panel's top or bottom, that corner of the panel goes square, so the tab joins it
+  // cleanly (like a folder's tab) instead of leaving a notch where the panel's corner curves away.
+  const left = toolsSpot.side === 'left';
+  const panelCorners = {
+    ...(tabInDrawer < TOOLS_PANEL_RADIUS && { [left ? 'borderTopRightRadius' : 'borderTopLeftRadius']: 0 }),
+    ...(tabInDrawer + TOOLS_TAB_H > toolsH - TOOLS_PANEL_RADIUS && { [left ? 'borderBottomRightRadius' : 'borderBottomLeftRadius']: 0 }),
+  };
   // The tab: a tap opens or closes the drawer; a drag (while it's closed) carries it up or down, or to the other edge.
   const toolsDrag = useMemo(() => {
     const box = {
@@ -2327,7 +2336,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ]}
             pointerEvents={searching ? 'none' : 'box-none'}>
             <ScrollView
-              style={[styles.toolsPanel, { height: toolsH }, toolsSpot.side === 'left' ? styles.toolsPanelLeft : styles.toolsPanelRight, toolsDragging && styles.hidden]}
+              style={[styles.toolsPanel, { height: toolsH }, toolsSpot.side === 'left' ? styles.toolsPanelLeft : styles.toolsPanelRight, panelCorners, toolsDragging && styles.hidden]}
               contentContainerStyle={{ gap: 10 }}
               showsVerticalScrollIndicator={false}>
               <Text style={styles.toolsTitle}>Tools</Text>
@@ -2980,8 +2989,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.22)',
   },
-  toolsPanelLeft: { left: 0, borderTopRightRadius: 14, borderBottomRightRadius: 14, borderLeftWidth: 0 },
-  toolsPanelRight: { left: TOOLS_TAB_W, borderTopLeftRadius: 14, borderBottomLeftRadius: 14, borderRightWidth: 0 },
+  toolsPanelLeft: { left: 0, borderTopRightRadius: TOOLS_PANEL_RADIUS, borderBottomRightRadius: TOOLS_PANEL_RADIUS, borderLeftWidth: 0 },
+  toolsPanelRight: { left: TOOLS_TAB_W, borderTopLeftRadius: TOOLS_PANEL_RADIUS, borderBottomLeftRadius: TOOLS_PANEL_RADIUS, borderRightWidth: 0 },
   toolsTitle: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   toolText: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '600' },

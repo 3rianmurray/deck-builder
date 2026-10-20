@@ -41,6 +41,7 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
     title: 'Tables',
     tips: [
       ['Move around', 'Slide with one finger. Pinch and twist with two to zoom and turn.'],
+      ['Quick pinch in', 'Two fingers pinched together fast: every card fitted in view.'],
       ['Drag a stack', 'Takes its top card. Hold it a moment first to move the whole stack.'],
       ['Tap a card', 'Picks it out. Tap it again for its options.'],
       ['Double-tap a card', 'Flips it. Flipped onto a stack facing the same way, it joins it.'],

@@ -161,6 +161,9 @@ const GRID_FADE_MS = 1000;
 type ToolsSpot = { side: 'left' | 'right'; at: number };
 /** Where it starts: on the left, near the top. */
 const DEFAULT_TOOLS_SPOT: ToolsSpot = { side: 'left', at: 0.08 };
+/** A pinch inward this quick, to this share of its fingers' first distance apart or less, fits all cards in view. */
+const QUICK_PINCH_MS = 350;
+const QUICK_PINCH_SHRINK = 0.6;
 /** How far the tools tab must be dragged before it moves (less is a tap). */
 const TOOLS_DRAG_SLOP = 8;
 
@@ -723,6 +726,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       cameraLocked: boolean;
       toolsOpen: boolean;
       showTools: (open: boolean) => void;
+      fitAll: () => void;
       setHandGap: (g: number | null) => void;
       handInsertAt: (x: number) => number;
       flipButton: { x: number; y: number; size: number };
@@ -736,7 +740,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -788,6 +792,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       camFrom: [] as Pt[],
       /** Whether the camera last sat on a quarter turn (for a tick each time it snaps onto one). */
       camSquare: true,
+      /** Two fingers came down on the table: when, and how far apart (a quick pinch inward fits all cards in view). */
+      pinch: null as { at: number; dist: number } | null,
       /** What was pressed: a stack (or its badge), or a hand card. */
       pressed: null as Source | null,
       /** Everything carried: where each came from, and the cards (the pile's bottom first). */
@@ -1204,6 +1210,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.mode = 'camera';
       touch.camStart = readCamera();
       touch.camFrom = pts.slice(0, 2);
+      // A second finger: perhaps a quick pinch.
+      touch.pinch = pts.length === 2 ? { at: Date.now(), dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) } : null;
     };
     const move = (all: Touch[]) => {
       for (const t of all) {
@@ -1406,6 +1414,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           touch.emptyTap = { x: f.start.x, y: f.start.y, at: Date.now() };
         }
         touch.onEmpty = false;
+      }
+      // A quick pinch inward (two fingers, pinched together fast and let go): every card fitted in view, as the
+      // tools' Fit All Cards (which sets the whole camera, so the pinch's own zoom doesn't matter).
+      if (touch.mode === 'camera' && touch.pinch && touch.fingers.size === 2) {
+        const [a, b] = [...touch.fingers.values()].map((f) => f.now);
+        const quick = Date.now() - touch.pinch.at < QUICK_PINCH_MS;
+        const pinched = Math.hypot(a.x - b.x, a.y - b.y) < touch.pinch.dist * QUICK_PINCH_SHRINK;
+        touch.pinch = null;
+        if (quick && pinched) {
+          L.fitAll();
+          for (const id of lifted) touch.fingers.delete(id);
+          // The other finger, still down, does nothing more till it's lifted.
+          touch.mode = touch.fingers.size ? 'button' : 'none';
+          return;
+        }
       }
       for (const id of lifted) touch.fingers.delete(id);
       if (touch.mode === 'camera') {
@@ -1677,9 +1700,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const fitView = (t: SandboxTable) => {
     if (!view) return;
     const bounds = tableBounds(t, size);
+    // Between the top bar's buttons and the hand: the top of its tabs (as it is now: open, or folded away).
     const top = insets.top + TOP_BAR_H;
-    const space = { x: FIT_MARGIN, y: top + FIT_MARGIN, w: view.w - FIT_MARGIN * 2, h: view.h - HAND_H - top - FIT_MARGIN * 2 };
-    writeCamera(bounds ? fitCamera(bounds, space) : startCamera({ w: view.w, h: view.h - HAND_H }, t.focus));
+    const bottom = handTop - HAND_TAB_H;
+    const space = { x: FIT_MARGIN, y: top + FIT_MARGIN, w: view.w - FIT_MARGIN * 2, h: bottom - top - FIT_MARGIN * 2 };
+    writeCamera(bounds ? fitCamera(bounds, space) : startCamera({ w: view.w, h: bottom }, t.focus));
     // Saved with the table as it is by then (this render's may be a change behind).
     setTimeout(() => latest.get().saveCamera(), 50);
     haptics.tick();

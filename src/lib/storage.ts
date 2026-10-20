@@ -51,6 +51,8 @@ function readJson<T>(name: string, fallback: T): T {
  * (see `saveFailed`) instead of crashing the app; the last good copy stays.
  */
 function writeJson(name: string, value: unknown) {
+  // Everything's being erased (see `eraseEverything`): nothing's saved again before the app restarts.
+  if (erasing) return;
   try {
     const tmp = new File(Paths.document, `${name}.tmp`);
     tmp.create({ overwrite: true });
@@ -58,6 +60,34 @@ function writeJson(name: string, value: unknown) {
     tmp.moveSync(new File(Paths.document, name), { overwrite: true });
   } catch (e) {
     saveFailed(name, e);
+  }
+}
+
+/** Everything the app keeps: its saved files (by name), and the folder of each deck's pictures. */
+const ALL_FILES = [DECKS_FILE, TABLES_FILE, SESSIONS_FILE, GROUPS_FILE, SETTINGS_FILE, SANDBOXES_FILE];
+let erasing = false;
+
+/**
+ * Erases everything the app keeps on the phone (decks and their pictures, tables, sessions, groups, settings), as
+ * if it had just been installed. Nothing's saved after this: the app should be restarted straight away. (A Pro
+ * purchase isn't kept here: it belongs to the Apple Account, and is found again as the app starts.)
+ */
+export function eraseEverything() {
+  erasing = true;
+  for (const name of ALL_FILES) {
+    for (const file of [new File(Paths.document, name), new File(Paths.document, `${name}.tmp`)]) {
+      try {
+        if (file.exists) file.delete();
+      } catch (e) {
+        console.warn(`Could not erase ${file.name}`, e);
+      }
+    }
+  }
+  try {
+    const decks = new Directory(Paths.document, 'decks');
+    if (decks.exists) decks.delete();
+  } catch (e) {
+    console.warn('Could not erase the decks folder', e);
   }
 }
 

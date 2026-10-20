@@ -1,9 +1,11 @@
-import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { reloadAppAsync } from 'expo';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon } from '../components/AppIcon';
 import { Text } from '../components/Text';
 import { isPro, setProOverride, useProState } from '../lib/pro';
+import { eraseEverything } from '../lib/storage';
 import type { ProOverride } from '../lib/pro';
 import { versionLabel } from '../lib/version';
 import { colors } from '../theme';
@@ -23,6 +25,23 @@ const TESTER: [ProOverride | null, string][] = [
 export default function AboutScreen() {
   const insets = useSafeAreaInsets();
   const proState = useProState();
+
+  const confirmReset = () =>
+    Alert.alert(
+      'Reset Shufflevale?',
+      'Every deck, table and session, and all settings and tips, are erased, and the app starts over as if it had just been installed. A Pro purchase comes back by itself.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Erase and restart',
+          style: 'destructive',
+          onPress: () => {
+            eraseEverything();
+            reloadAppAsync().catch((e) => Alert.alert('Couldn’t restart', `Close and reopen Shufflevale to finish. (${String(e)})`));
+          },
+        },
+      ],
+    );
   const links: [string, string][] = [
     ['Support', SUPPORT],
     ['Privacy Policy', PRIVACY],
@@ -68,6 +87,13 @@ export default function AboutScreen() {
             })}
           </View>
           <Text style={styles.testerNote}>Only in TestFlight. Real purchases here are free (Apple’s test store).</Text>
+          {/* Start over as a brand new install: the welcome, the examples and every tip again. */}
+          <Pressable
+            onPress={confirmReset}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.testerReset, pressed && { opacity: 0.7 }]}>
+            <Text style={styles.testerResetText}>Reset app as if just installed</Text>
+          </Pressable>
         </View>
       ) : null}
       <Text style={styles.footnote}>© 2026 Brian Murray</Text>
@@ -94,4 +120,6 @@ const styles = StyleSheet.create({
   testerItemOn: { backgroundColor: colors.accent },
   testerText: { color: colors.text, fontSize: 13, fontWeight: '600' },
   testerNote: { color: colors.textMuted, fontSize: 12 },
+  testerReset: { marginTop: 4, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: colors.danger, alignItems: 'center' },
+  testerResetText: { color: colors.danger, fontSize: 14, fontWeight: '600' },
 });

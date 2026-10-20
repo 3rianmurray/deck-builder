@@ -32,7 +32,7 @@ import { useDecks } from '../lib/DecksContext';
 import * as haptics from '../lib/haptics';
 import * as T from '../lib/table';
 import { fitTilt, project, tiltTransform, unproject } from '../lib/tilt';
-import { countFor, offerTipSoon } from '../lib/tips';
+import { countFor, offerTipSoon, tipLearned } from '../lib/tips';
 import { setTourTarget, tourEvent, tourRunning, useTourStep } from '../lib/tour';
 import { cardRadius, cardRatio } from '../lib/types';
 import type { Card, CardInstance, Deck, Spot, TableState, Zone } from '../lib/types';
@@ -1509,6 +1509,7 @@ function Table({
       setDrag(null);
       setZoomed(holdIid);
       haptics.liftHeavy();
+      tipLearned('reveal-hold');
     }, HOLD_TO_ZOOM_MS);
     return () => clearTimeout(timer);
   }, [holdKey, holdIid]);

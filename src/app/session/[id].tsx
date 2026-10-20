@@ -11,7 +11,7 @@ import type { TableControls } from '../../components/TableTopBar';
 import { TabletopSurface } from '../../components/Tabletop';
 import * as haptics from '../../lib/haptics';
 import { useDecks } from '../../lib/DecksContext';
-import { offerTipAfterUses } from '../../lib/tips';
+import { offerTipAfterUses, tipLearned } from '../../lib/tips';
 import { playThemeKey, usePlayTheme } from '../../lib/playThemes';
 import { themeOf } from '../../lib/tableThemes';
 import { colors } from '../../theme';
@@ -66,6 +66,7 @@ export default function SessionScreen() {
       const next = dx < 0 ? at + 1 : at - 1;
       if (next < 0 || next >= count) return;
       haptics.tick();
+      tipLearned('session-swipe');
       setIndex(next);
       pager.scrollTo(next * w);
     };

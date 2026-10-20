@@ -8,6 +8,7 @@ import ReanimatedSwipeable, { SwipeDirection } from 'react-native-gesture-handle
 import type { SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 
 import * as haptics from '../lib/haptics';
+import { tipLearned } from '../lib/tips';
 import { colors } from '../theme';
 
 const ACTION_WIDTH = 72;
@@ -74,7 +75,11 @@ export function SwipeRow({ open, onOpenChange, onDelete, onDuplicate, radius = 1
         leftThreshold={(ACTION_WIDTH + GAP) / 2}
         rightThreshold={(ACTION_WIDTH + GAP) / 2}
         // A tick as a button clicks into view.
-        onSwipeableWillOpen={() => haptics.tick()}
+        onSwipeableWillOpen={() => {
+          haptics.tick();
+          // Swiped open: the swipe's tip isn't needed.
+          tipLearned('home-swipe');
+        }}
         onSwipeableOpen={(direction) => {
           shown.current = sideOf(direction);
           onOpenChange(shown.current);

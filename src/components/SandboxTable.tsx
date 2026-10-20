@@ -75,7 +75,7 @@ import {
 } from '../lib/sandbox';
 import type { Camera, CardSize, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
-import { offerTipAfterUses, offerTipSoon } from '../lib/tips';
+import { offerTipAfterUses, offerTipSoon, tipLearned } from '../lib/tips';
 import { tourEvent } from '../lib/tour';
 import { cardRatio, cardSizeMm, copiesOf, deckSize, PRESET_SIZES_MM } from '../lib/types';
 import type { Deck } from '../lib/types';
@@ -167,6 +167,8 @@ const QUICK_PINCH_SHRINK = 0.6;
 /** How far sideways the tools tab must be dragged to come away from its edge, and how much it gives before then. */
 const TOOLS_DETACH = 70;
 const TOOLS_EDGE_GIVE = 0.15;
+/** How far the tray and the tools panel carry on past their outer edge, so their springy bounce shows no gap. */
+const SPRING_OVERSHOOT = 60;
 /** Cards moved about the table before the lasso's tip is offered. */
 const LASSO_TIP_AFTER = 5;
 /** The tools panel's rounded corners (squared off where the tab meets one). */
@@ -479,6 +481,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** Folds the tray away (just the tops of its cards showing) or opens it, sliding with a little spring. */
   const foldTray = (fold: boolean) => {
     setFolded(fold);
+    if (fold) tipLearned('tables-fold-hand');
     foldY.set(withSpring(fold ? trayH - FOLDED_SHOWS : 0, { damping: 16, stiffness: 170, mass: 0.9 }));
     haptics.tick();
   };
@@ -568,6 +571,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         const side = box.loose ? (g.moveX < box.width / 2 ? 'left' : 'right') : box.side;
         box.set({ side, at: box.max > box.min ? (y - box.min) / (box.max - box.min) : 0 });
         haptics.drop();
+        tipLearned('tables-tools-drag');
       },
       onPanResponderTerminate: () => {
         if (box.timer) clearTimeout(box.timer);
@@ -604,6 +608,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     else commit(settleOnto(flipStack(table, src.stackId), src.stackId));
     haptics.tick();
     tourEvent('tables-flipped');
+    tipLearned('tables-double-tap');
   };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
   const changeGap = (g: number | null) => {
@@ -1044,7 +1049,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     L.setHandGap(null);
     if (!L.table || !sources.length || !p || !cards.length) return;
     haptics.drop();
+    // Carried by more than one finger, or a whole stack held up: those tips aren't needed now.
+    if (sources.length > 1) tipLearned('tables-second-finger');
+    if (sources.some((src) => src.kind === 'stack')) tipLearned('tables-hold-stack');
     if (p.y >= L.handTop) {
+      tipLearned('tables-drag-to-hand');
       // The gap's place in the row (which leaves out the carried cards) is their place in the hand once taken.
       const without = takeAll(L.table, sources);
       const at = Math.min(L.handInsertAt(p.x), without.hands[L.handIndex].length);
@@ -1217,6 +1226,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           touch.lassoBase = L.selected;
           L.setLassoPath(touch.lassoScreen);
           haptics.lift();
+          tipLearned('tables-lasso');
           return;
         }
         touch.onEmpty = true;
@@ -1494,6 +1504,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         touch.pinch = null;
         if (quick && pinched) {
           L.fitAll();
+          tipLearned('tables-quick-pinch');
           for (const id of lifted) touch.fingers.delete(id);
           // The other finger, still down, does nothing more till it's lifted.
           touch.mode = touch.fingers.size ? 'button' : 'none';
@@ -2289,6 +2300,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
             <View style={{ height: trayH }} pointerEvents="box-none">
               <WoodRail colors={theme.rail} shine={theme.shine} />
+              {/* More of the tray below its bottom (off screen), so its spring's bounce never shows a gap under it. */}
+              <View style={[styles.overshoot, { top: trayH, height: SPRING_OVERSHOOT, backgroundColor: theme.rail[2] }]} />
               <View style={[styles.groove, { top: HAND_TOP_PAD, height: handCardH + HAND_ROW_PAD * 2 }]} />
               {hand.length === 0 && handGap === null ? (
                 <Text style={[styles.trayEmpty, { top: rowTop + handCardH / 2 - 10, color: ink(0.45) }]}>Drag cards here to put them in {table.handNames[handIndex]}</Text>
@@ -2347,6 +2360,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               !!searching && styles.hidden,
             ]}
             pointerEvents={searching ? 'none' : 'box-none'}>
+            {/* More of the panel past the screen's edge, so its spring's bounce never shows a gap beside it. */}
+            {toolsDragging ? null : (
+              <View
+                style={[
+                  styles.overshoot,
+                  styles.toolsOvershoot,
+                  { top: 0, height: toolsH, width: SPRING_OVERSHOOT, left: toolsSpot.side === 'left' ? -SPRING_OVERSHOOT : TOOLS_TAB_W + TOOLS_W },
+                ]}
+              />
+            )}
             <ScrollView
               style={[styles.toolsPanel, { height: toolsH }, toolsSpot.side === 'left' ? styles.toolsPanelLeft : styles.toolsPanelRight, panelCorners, toolsDragging && styles.hidden]}
               contentContainerStyle={{ gap: 10 }}
@@ -3072,6 +3095,9 @@ const styles = StyleSheet.create({
   },
   // The tray and its tabs, which slide together when it folds.
   trayWrap: { position: 'absolute', left: 0, right: 0 },
+  // Past the tray's (or tools panel's) outer edge, off screen, for the spring's bounce.
+  overshoot: { position: 'absolute', left: 0, right: 0, pointerEvents: 'none' },
+  toolsOvershoot: { right: undefined, backgroundColor: 'rgba(8,18,26,0.9)' },
   // The groove the hand's cards sit in, as along table mode's rail.
   groove: {
     position: 'absolute',

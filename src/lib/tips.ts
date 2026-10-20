@@ -59,6 +59,17 @@ export function offerTip(id: TipId) {
   set(id);
 }
 
+/**
+ * The gesture a tip is about has been used: it's been figured out, so its tip never needs to show (it counts as
+ * seen). Puts it away if it's showing right now, since it's just been done.
+ */
+export function tipLearned(id: TipId) {
+  const settings = loadSettings();
+  if (showing === id) set(null);
+  if (settings.seenTips?.includes(id)) return;
+  saveSettings({ ...settings, seenTips: [...(settings.seenTips ?? []), id] });
+}
+
 /** How many times this many uses of a button go by before its gesture's tip is offered (see `offerTipAfterUses`). */
 export const USES_BEFORE_TIP = 3;
 

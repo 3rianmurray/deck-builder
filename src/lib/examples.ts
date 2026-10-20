@@ -1,50 +1,75 @@
 // The app's own examples: a Playing Cards deck and a Solitaire table dealt from it, made once on first opening
-// to show what Free Play can do, and restored from Help whenever they're wanted again (e.g. after being deleted).
+// to show what Free Play can do, and put back as new from Help whenever they're wanted again (deleted or changed).
+import { Alert } from 'react-native';
+
 import { useDecks } from './DecksContext';
+import * as haptics from './haptics';
 import { newId } from './id';
 import { playingCards } from './playingCards';
-import { solitaire } from './sandbox';
-import { createSandboxWith, sandboxes } from './sandboxStore';
+import { newSandbox, solitaire } from './sandbox';
+import { createSandboxWith, sandboxes, updateSandbox } from './sandboxStore';
 import { loadSettings, saveSettings } from './storage';
 
+const PLAYING_CARDS = 'Playing Cards';
 const SOLITAIRE = 'Solitaire';
 
 export function useExamples() {
-  const { decks, createReadyDeck, getDeck } = useDecks();
+  const { decks, createReadyDeck, refillDeck, getDeck } = useDecks();
 
   /** The Playing Cards deck the app made, if it's still here (found by name, if made before it was noted). */
   const playingDeck = () => {
     const id = loadSettings().playingCardsDeckId;
-    return id ? getDeck(id) : decks.find((d) => d.name === 'Playing Cards');
-  };
-
-  const addPlayingCards = async () => {
-    const { cards, back } = await playingCards();
-    const deck = createReadyDeck('Playing Cards', cards, back);
-    saveSettings({ ...loadSettings(), playingCardsDeckId: deck.id });
-    return deck;
+    return id ? getDeck(id) : decks.find((d) => d.name === PLAYING_CARDS);
   };
 
   /**
-   * Brings back whichever examples are missing: the Playing Cards deck, and a Solitaire table (dealt afresh
-   * from it). Says what it brought back (nothing, if both were still there).
+   * Puts both examples back as they were first made: the Playing Cards deck (made again if it's gone, or its
+   * cards, back, name and settings put back if it's been changed) and the Solitaire table, dealt afresh from it
+   * (made again if it's gone). Says what it brought back, and what it reset.
    */
-  const restore = async (): Promise<string[]> => {
-    const restored: string[] = [];
-    let deck = playingDeck();
-    if (!deck) {
-      deck = await addPlayingCards();
-      restored.push('Playing Cards');
+  const restore = async (): Promise<{ added: string[]; reset: string[] }> => {
+    const added: string[] = [];
+    const reset: string[] = [];
+    const { cards, back } = await playingCards();
+    const found = playingDeck();
+    const deck = found ? refillDeck(found.id, PLAYING_CARDS, cards, back) : createReadyDeck(PLAYING_CARDS, cards, back);
+    if (!deck) throw new Error('The Playing Cards deck couldn’t be found.');
+    saveSettings({ ...loadSettings(), playingCardsDeckId: deck.id });
+    (found ? reset : added).push(PLAYING_CARDS);
+
+    // The Solitaire table: dealt again in place (keeping its spot on the home screen), or made again.
+    const table = sandboxes().find((t) => t.name === SOLITAIRE);
+    if (table) {
+      updateSandbox(solitaire(newSandbox(table.id, SOLITAIRE, table.createdAt), deck, newId));
+      reset.push(SOLITAIRE);
+    } else {
+      createSandboxWith(SOLITAIRE, (empty) => solitaire(empty, deck, newId));
+      added.push(SOLITAIRE);
     }
-    const used = deck.id;
-    const hasTable = sandboxes().some((t) => t.name === SOLITAIRE || t.stacks.some((s) => s.cards.some((c) => c.deckId === used)));
-    if (!hasTable) {
-      const dealt = deck;
-      createSandboxWith(SOLITAIRE, (empty) => solitaire(empty, dealt, newId));
-      restored.push(SOLITAIRE);
-    }
-    return restored;
+    return { added, reset };
   };
 
-  return { restore };
+  /** Asks first (changes to the examples are lost), then restores them and says so. */
+  const confirmRestore = () =>
+    Alert.alert(
+      'Restore the examples?',
+      'The Playing Cards deck and the Solitaire table go back to how they first were. Any changes made to them are lost.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Restore',
+          style: 'destructive',
+          onPress: () =>
+            void restore().then(
+              () => {
+                haptics.success();
+                Alert.alert('Examples restored', 'The Playing Cards deck and the Solitaire table are on the home screen, as new.');
+              },
+              (e) => Alert.alert('Couldn’t restore the examples', e instanceof Error ? e.message : String(e)),
+            ),
+        },
+      ],
+    );
+
+  return { restore, confirmRestore };
 }

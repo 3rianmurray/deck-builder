@@ -1,12 +1,10 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../components/Button';
 import { Text } from '../components/Text';
 import { useExamples } from '../lib/examples';
-import * as haptics from '../lib/haptics';
 import { startTour } from '../lib/tour';
 import { colors } from '../theme';
 
@@ -62,8 +60,7 @@ const TIPS: { title: string; tips: [string, string][] }[] = [
 /** Help: the walkthrough again, the app's examples back, and every gesture and tip. */
 export default function HelpScreen() {
   const insets = useSafeAreaInsets();
-  const { restore } = useExamples();
-  const [busy, setBusy] = useState(false);
+  const { confirmRestore } = useExamples();
 
   const replayTutorial = () => {
     // The walkthrough starts on the home screen.
@@ -71,28 +68,13 @@ export default function HelpScreen() {
     startTour();
   };
 
-  const restoreExamples = async () => {
-    setBusy(true);
-    try {
-      const back = await restore();
-      haptics.success();
-      Alert.alert(
-        back.length ? 'Examples restored' : 'Nothing to restore',
-        back.length ? `${back.join(' and ')} ${back.length === 1 ? 'is' : 'are'} back on the home screen.` : 'The Playing Cards deck and a Solitaire table are both still there.',
-      );
-    } catch (e) {
-      Alert.alert('Couldn’t restore the examples', e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
       <View style={styles.actions}>
         <Button label="Replay the Tutorial" variant="primary" onPress={replayTutorial} />
-        <Button label="Restore Examples" onPress={restoreExamples} disabled={busy} />
-        <Text style={styles.note}>Brings back the Playing Cards deck and its Solitaire table, if you’ve deleted them.</Text>
+        <Button label="Restore Examples" onPress={confirmRestore} />
+        <Text style={styles.note}>Puts the Playing Cards deck and its Solitaire table back as new: brought back if deleted, reset if changed.</Text>
       </View>
 
       <Text style={styles.heading}>Gestures and tips</Text>

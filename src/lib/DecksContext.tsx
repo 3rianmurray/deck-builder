@@ -40,6 +40,12 @@ interface DecksApi {
   /** Empties a deck to start it again: no cards, no back, default settings, no saved tables, under a new name. */
   resetDeck: (id: string, name: string) => void;
   /**
+   * Puts a deck back as a ready-made one was first made (see `createReadyDeck`): these cards and back, default
+   * settings, no saved tables, this name. It keeps its place, its group, and the ids of cards with the same names,
+   * so tables holding them still do. Returns it as it now is.
+   */
+  refillDeck: (id: string, name: string, cards: { uri: string; name: string }[], back: string) => Deck | undefined;
+  /**
    * Adds a card for each image, named by `names` where given (otherwise numbered). `originals` are the uncropped
    * pictures they were cut from, kept to cut them again if the card size changes.
    */
@@ -275,6 +281,28 @@ export function DecksProvider({ children }: { children: ReactNode }) {
         tables.drop((key) => key === id || key.endsWith(`:${id}`));
         deleteDeckFiles(id);
         updateDeck(id, (d) => ({ id: d.id, name, backImage: null, cards: [], groupId: d.groupId, createdAt: d.createdAt, updatedAt: Date.now() }));
+      },
+      refillDeck(id, name, cards, back) {
+        const old = getDeck(id);
+        if (!old) return undefined;
+        // The new pictures in first, then the old ones out (so nothing is lost if copying fails part way).
+        const ids = new Map(old.cards.map((c) => [c.name, c.id]));
+        const deck: Deck = {
+          id,
+          name,
+          backImage: importImage(id, back),
+          backOriginal: importImage(id, back),
+          cards: cards.map((c) => ({ id: ids.get(c.name) ?? newId(), name: c.name, image: importImage(id, c.uri), original: importImage(id, c.uri) })),
+          ...(old.groupId ? { groupId: old.groupId } : {}),
+          createdAt: old.createdAt,
+          updatedAt: Date.now(),
+        };
+        for (const path of [old.backImage, old.backOriginal, ...old.cards.flatMap((c) => [c.image, c.original, c.back, c.backOriginal])]) {
+          if (path) deleteImage(path);
+        }
+        tables.drop((key) => key === id || key.endsWith(`:${id}`));
+        setDecks((all) => all.map((d) => (d.id === id ? deck : d)));
+        return deck;
       },
       addCards(deckId, uris, names, originals) {
         const deck = getDeck(deckId);

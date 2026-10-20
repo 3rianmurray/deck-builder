@@ -577,19 +577,7 @@ export default function HomeScreen() {
           {
             label: 'Restore examples',
             opensModal: true,
-            onPress: () =>
-              examples.restore().then(
-                (back) => {
-                  haptics.success();
-                  Alert.alert(
-                    back.length ? 'Examples restored' : 'Nothing to restore',
-                    back.length
-                      ? `${back.join(' and ')} ${back.length === 1 ? 'is' : 'are'} back.`
-                      : 'The Playing Cards deck and a Solitaire table are both still here.',
-                  );
-                },
-                (e) => Alert.alert('Couldn’t restore the examples', e instanceof Error ? e.message : String(e)),
-              ),
+            onPress: examples.confirmRestore,
           },
           { label: 'Import decks or tables', pro: !pro, opensModal: pro, groupStart: true, onPress: pro ? importFromFile : () => openPro('files') },
           ...(decks.length

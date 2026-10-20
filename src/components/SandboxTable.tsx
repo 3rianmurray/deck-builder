@@ -180,7 +180,7 @@ const TOOLS_PANEL_RADIUS = 14;
 /** The tools tab, let go this near the top or bottom of its edge, goes right up against it. */
 const TOOLS_END_SNAP = TOOLS_PANEL_RADIUS + 16;
 /** How long the tools tab is held before it lifts to be moved. */
-const TOOLS_HOLD_MS = 400;
+const TOOLS_HOLD_MS = 200;
 /** Moving further than this before the hold is up is a slip: neither a tap nor a drag. */
 const TOOLS_DRAG_SLOP = 8;
 

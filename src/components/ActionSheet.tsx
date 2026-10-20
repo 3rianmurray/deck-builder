@@ -45,6 +45,11 @@ interface Props {
   tiles?: SheetTile[];
   actions: SheetAction[];
   onClose: () => void;
+  /**
+   * The bottom button's label, which just closes the sheet: Cancel, unless what's changed in the sheet (e.g. a
+   * card's copies) is kept as it's made, when it's Done.
+   */
+  closeLabel?: string;
 }
 
 /** How long the sheet takes to come up, and to go. */
@@ -72,7 +77,7 @@ export function ActionSheet(props: Props) {
     return { keep: (p: Props) => Object.assign(box, { last: p }), get: () => box.last };
   }, []);
   if (visible) shown.keep(props);
-  const { title, header, banner, tiles, actions, overlay } = visible ? props : (shown.get() ?? props);
+  const { title, header, banner, tiles, actions, overlay, closeLabel = 'Cancel' } = visible ? props : (shown.get() ?? props);
   // The modal stays up after `visible` goes false until the sheet has slid away.
   const [mounted, setMounted] = useState(visible);
   if (visible && !mounted) setMounted(true);
@@ -205,7 +210,7 @@ export function ActionSheet(props: Props) {
               onPress={onClose}
               accessibilityRole="button"
               style={({ pressed }) => [styles.action, styles.cancel, pressed && styles.pressed]}>
-              <Text style={[styles.actionText, { fontWeight: '600' }]}>Cancel</Text>
+              <Text style={[styles.actionText, { fontWeight: '600' }]}>{closeLabel}</Text>
             </Pressable>
           </ScrollView>
         </Animated.View>

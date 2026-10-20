@@ -667,6 +667,8 @@ export default function DeckEditorScreen() {
           ) : null
         }
         actions={cardActions}
+        // Its copies are kept as they're typed: closing it is being done, not cancelling.
+        closeLabel="Done"
         onClose={() => setSheetOpen(false)}
       />
 

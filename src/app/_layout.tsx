@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -10,6 +10,15 @@ import { DecksProvider } from '../lib/DecksContext';
 import { startPro } from '../lib/pro';
 import { colors } from '../theme';
 
+/**
+ * The navigator's own colors: dark, as the app is. Its default (light) theme paints what's behind the screens, which
+ * showed as white at a screen's rounded corners while it slid in or out.
+ */
+const NAV_THEME = {
+  ...DarkTheme,
+  colors: { ...DarkTheme.colors, background: colors.bg, card: colors.bg, text: colors.text, primary: colors.accent, border: colors.bg },
+};
+
 export default function RootLayout() {
   // The App Store, for Shufflevale Pro: its price, and whether it's owned (see lib/pro).
   useEffect(() => {
@@ -19,6 +28,7 @@ export default function RootLayout() {
     // For swipeable rows (see SwipeRow).
     // The app's dark background right at the root, so nothing light shows round a screen's corners as it slides.
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
+      <ThemeProvider value={NAV_THEME}>
       <DecksProvider>
         <StatusBar style="light" />
         <Stack
@@ -61,6 +71,7 @@ export default function RootLayout() {
         {/* Now-and-then tips, over every screen. */}
         <TipToast />
       </DecksProvider>
+      </ThemeProvider>
     </GestureHandlerRootView>
   );
 }

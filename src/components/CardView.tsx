@@ -14,7 +14,7 @@ import type { Lean } from './viewpoint';
 import { Text } from './Text';
 
 /** Time for each half of a flip: turning edge-on, then turning back with the other face showing. */
-const HALF_FLIP_MS = 120;
+export const HALF_FLIP_MS = 120;
 
 let reduceMotion = false;
 AccessibilityInfo.isReduceMotionEnabled().then((on) => (reduceMotion = on));

@@ -89,7 +89,7 @@ import { TrashModal } from './TrashModal';
 import { DealPanel } from './DealPanel';
 import { Riffle } from './Riffle';
 import { StackSearchPanel } from './StackSearchPanel';
-import { CardView } from './CardView';
+import { CardView, HALF_FLIP_MS, prefersReducedMotion } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
 import { WoodRail } from './Tabletop';
@@ -2957,6 +2957,27 @@ const StackView = memo(function StackView({
 }) {
   const gone = new Set(hidden ? hidden.split(',') : []);
   const shown = gone.size ? stack.cards.filter((c) => !gone.has(c.iid)) : stack.cards;
+  // Turned over, the whole stack turns: the paper edges under the top card turn edge-on and back with it (the card
+  // does its own turn), so it doesn't look as if only the top card flipped.
+  const faceUp = shown[shown.length - 1]?.faceUp;
+  const [edgeTurn] = useState(() => new RNAnimated.Value(0));
+  const [lastFaceUp, setLastFaceUp] = useState(faceUp);
+  const [flips, setFlips] = useState(0);
+  if (faceUp !== lastFaceUp) {
+    setLastFaceUp(faceUp);
+    if (faceUp !== undefined && lastFaceUp !== undefined) setFlips((n) => n + 1);
+  }
+  useEffect(() => {
+    if (!flips || prefersReducedMotion()) return;
+    const half = (toValue: number, easing: (t: number) => number) =>
+      RNAnimated.timing(edgeTurn, { toValue, duration: HALF_FLIP_MS, easing, useNativeDriver: true });
+    RNAnimated.sequence([half(1, Easing.in(Easing.quad)), half(0, Easing.out(Easing.quad))]).start();
+  }, [flips, edgeTurn]);
+  const [edgeTransform] = useState(() => [
+    { perspective: 800 },
+    { rotateY: edgeTurn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] }) },
+    { scale: edgeTurn.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }) },
+  ]);
   if (!shown.length || !deck) return null;
   const top = shown[shown.length - 1];
   const topDeck = decks.get(top.deckId) ?? deck;
@@ -2970,9 +2991,11 @@ const StackView = memo(function StackView({
         styles.stack,
         { left: stack.x - size.w / 2, top: stack.y - size.h / 2, width: size.w, height: size.h, transform: [{ rotate: `${stack.angle}deg` }] },
       ]}>
-      {Array.from({ length: edges }, (_, i) => (
-        <View key={i} style={[styles.edge, { left: (edges - i) * 2, top: (edges - i) * 2, width: size.w, height: size.h }]} />
-      ))}
+      <RNAnimated.View style={[StyleSheet.absoluteFill, { transform: edgeTransform }]} pointerEvents="none">
+        {Array.from({ length: edges }, (_, i) => (
+          <View key={i} style={[styles.edge, { left: (edges - i) * 2, top: (edges - i) * 2, width: size.w, height: size.h }]} />
+        ))}
+      </RNAnimated.View>
       <View style={styles.shadow}>
         <CardView deck={topDeck} card={card} faceUp={top.faceUp} width={size.w} sharp />
       </View>

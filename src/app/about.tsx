@@ -1,6 +1,7 @@
-import { Image, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppIcon } from '../components/AppIcon';
 import { Text } from '../components/Text';
 import { isPro, setProOverride, useProState } from '../lib/pro';
 import type { ProOverride } from '../lib/pro';
@@ -29,7 +30,7 @@ export default function AboutScreen() {
   ];
   return (
     <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
-      <Image source={require('../../assets/about-icon.png')} style={styles.icon} accessibilityIgnoresInvertColors />
+      <AppIcon size={112} />
       <Text style={styles.name}>Shufflevale</Text>
       <Text style={styles.tagline}>Your own cards, ready to play</Text>
       <Text style={styles.version} selectable>
@@ -77,7 +78,6 @@ export default function AboutScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { alignItems: 'center', padding: 24, paddingTop: 36 },
-  icon: { width: 112, height: 112, borderRadius: 26 },
   name: { color: colors.text, fontSize: 26, fontWeight: '700', marginTop: 16 },
   tagline: { color: colors.textMuted, fontSize: 15, marginTop: 4 },
   version: { color: colors.textMuted, fontSize: 13, marginTop: 14, textAlign: 'center' },

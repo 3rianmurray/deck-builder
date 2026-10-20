@@ -1,8 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppIcon } from '../components/AppIcon';
 import { Button } from '../components/Button';
 import { Text } from '../components/Text';
 import { FREE_CARD_LIMIT } from '../lib/limits';
@@ -40,7 +41,7 @@ export default function ProScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
-      <Image source={require('../../assets/about-icon.png')} style={styles.icon} accessibilityIgnoresInvertColors />
+      <AppIcon size={96} />
       <Text style={styles.title}>Shufflevale Pro</Text>
       {reason && REASONS[reason] && !on ? <Text style={styles.reason}>{REASONS[reason]}</Text> : null}
 
@@ -83,7 +84,6 @@ export default function ProScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { alignItems: 'center', padding: 24, paddingTop: 32 },
-  icon: { width: 96, height: 96, borderRadius: 22 },
   title: { color: colors.text, fontSize: 26, fontWeight: '700', marginTop: 14 },
   reason: { color: colors.accent, fontSize: 15, textAlign: 'center', marginTop: 10, lineHeight: 21 },
   perks: { alignSelf: 'stretch', backgroundColor: colors.surface, borderRadius: 14, padding: 16, gap: 14, marginTop: 22 },

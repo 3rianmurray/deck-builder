@@ -77,7 +77,7 @@ import type { Camera, CardSize, SandboxCard, SandboxStack, SandboxTable, Source 
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
 import { offerTipAfterUses, offerTipSoon, tipLearned } from '../lib/tips';
 import { tourEvent } from '../lib/tour';
-import { cardRatio, cardSizeMm, copiesOf, deckSize, PRESET_SIZES_MM } from '../lib/types';
+import { cardRadius, cardRatio, cardSizeMm, copiesOf, deckSize, PRESET_SIZES_MM } from '../lib/types';
 import type { Deck } from '../lib/types';
 import { colors } from '../theme';
 import { ActionSheet } from './ActionSheet';
@@ -170,6 +170,8 @@ const QUICK_PINCH_SHRINK = 0.6;
 /** How far sideways the tools tab must be dragged to come away from its edge, and how much it gives before then. */
 const TOOLS_DETACH = 70;
 const TOOLS_EDGE_GIVE = 0.15;
+/** A card's size on the table when its deck is gone (as a standard card). */
+const STANDARD_SIZE = { w: PRESET_SIZES_MM.standard.w * UNITS_PER_MM, h: PRESET_SIZES_MM.standard.h * UNITS_PER_MM };
 /** The tools drawer's spring; how long it takes to slide shut, and how hard it bounces back off the edge then. */
 const TOOLS_SPRING = { damping: 18, stiffness: 180, mass: 0.9 };
 const TOOLS_CLOSE_MS = 220;
@@ -321,11 +323,19 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const decksById = useMemo(() => new Map(decks.map((d) => [d.id, d])), [decks]);
   const cardOf = (c: SandboxCard) => decksById.get(c.deckId)?.cards.find((k) => k.id === c.cardId);
   /** A card's size on the table: its deck's real size (a mini card is smaller; a landscape one, a portrait turned). */
-  const size: CardSize = (deckId) => {
-    const deck = decksById.get(deckId);
-    const mm = deck ? cardSizeMm(deck) : PRESET_SIZES_MM.standard;
-    return { w: mm.w * UNITS_PER_MM, h: mm.h * UNITS_PER_MM };
-  };
+  // Worked out once per deck, and the same object each time: a new one every redraw would make every stack on the
+  // table redraw too (they're memoized, and it's one of their props), every time a finger moves.
+  const sizes = useMemo(
+    () =>
+      new Map(
+        decks.map((d) => {
+          const mm = cardSizeMm(d);
+          return [d.id, { w: mm.w * UNITS_PER_MM, h: mm.h * UNITS_PER_MM }];
+        }),
+      ),
+    [decks],
+  );
+  const size: CardSize = (deckId) => sizes.get(deckId) ?? STANDARD_SIZE;
 
   // ---- The camera: on the animation thread, so moving it never redraws the table. ----
   const camA = useSharedValue(1);
@@ -3029,7 +3039,12 @@ const StackView = memo(function StackView({
           <View key={i} style={[styles.edge, { left: (edges - i) * 2, top: (edges - i) * 2, width: size.w, height: size.h }]} />
         ))}
       </RNAnimated.View>
-      <View style={styles.shadow}>
+      {/*
+        Its shadow. A rounded card's is drawn as a box shadow (worked out once, not traced from the card's picture
+        every frame as the table moves: with hundreds of cards, that made sliding and zooming slow). A die-cut card
+        keeps the traced one, which follows its shape.
+      */}
+      <View style={isSeeThrough(showing) ? styles.shadow : [styles.boxShadow, { width: size.w, height: size.h, borderRadius: cardRadius(topDeck, size.w) }]}>
         <CardView deck={topDeck} card={card} faceUp={top.faceUp} width={size.w} sharp />
       </View>
       {shown.length > 1 && showCount ? (
@@ -3070,6 +3085,8 @@ const styles = StyleSheet.create({
   stack: { position: 'absolute' },
   edge: { position: 'absolute', borderRadius: 6, backgroundColor: '#d9d2c4', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.3)' },
   shadow: { shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 4, shadowOffset: { width: 1, height: 3 } },
+  // The same shadow, as a box shadow (see StackView).
+  boxShadow: { boxShadow: '1px 3px 8px rgba(0, 0, 0, 0.45)' },
   target: { position: 'absolute', left: -5, top: -5, right: -5, bottom: -5, borderRadius: 10, borderWidth: 3, borderColor: colors.accent },
   badge: {
     position: 'absolute',

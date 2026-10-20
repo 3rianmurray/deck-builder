@@ -5,7 +5,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Alert, Animated as RNAnimated, Easing, Image, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { Easing as ReEasing, LinearTransition, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing as ReEasing, LinearTransition, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -167,6 +167,10 @@ const QUICK_PINCH_SHRINK = 0.6;
 /** How far sideways the tools tab must be dragged to come away from its edge, and how much it gives before then. */
 const TOOLS_DETACH = 70;
 const TOOLS_EDGE_GIVE = 0.15;
+/** The tools drawer's spring; how long it takes to slide shut, and how hard it bounces back off the edge then. */
+const TOOLS_SPRING = { damping: 18, stiffness: 180, mass: 0.9 };
+const TOOLS_CLOSE_MS = 220;
+const TOOLS_REBOUND = 450;
 /** How far the tray and the tools panel carry on past their outer edge, so their springy bounce shows no gap. */
 const SPRING_OVERSHOOT = 60;
 /** Cards moved about the table before the lasso's tip is offered. */
@@ -418,7 +422,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   }));
   const showTools = (open: boolean) => {
     setToolsOpen(open);
-    toolsX.set(withSpring(open ? 0 : toolsClosedX, { damping: 18, stiffness: 180, mass: 0.9 }));
+    // Opening springs out past its place and back. Closing can't (it would push the tab past the screen's edge, cut
+    // off): it slides shut, then bounces back out off the edge a little, like a drawer, and settles.
+    toolsX.set(
+      open
+        ? withSpring(0, TOOLS_SPRING)
+        : withSequence(
+            withTiming(toolsClosedX, { duration: TOOLS_CLOSE_MS, easing: ReEasing.in(ReEasing.quad) }),
+            withSpring(toolsClosedX, { ...TOOLS_SPRING, velocity: toolsSpot.side === 'left' ? TOOLS_REBOUND : -TOOLS_REBOUND }),
+          ),
+    );
     haptics.tick();
     // After opening it a few times: the tab can be moved.
     if (open) offerTipAfterUses('tables-tools-drag');

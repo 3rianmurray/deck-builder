@@ -50,12 +50,14 @@ export const HAND_COUNT = 4;
 
 /**
  * What a piece on the table is, besides cards: a counter (a number to count up and down), a die, a coin, a text
- * label, a first-player marker, a spinner, a playing piece (a meeple, pawn, cube or disc: see PieceShape), a token\n * (round or square, plain or with a picture of the player's own), or a timer.
+ * label, a first-player marker, a spinner, a playing piece (a meeple, pawn, cube or disc: see PieceShape), a token\n * (round or square, plain or with a picture of the player's own), a timer, or a zone (an area marked out on the cloth,\n * under the cards; a card spot is one that cards snap into).
  */
-export type PieceKind = 'counter' | 'die' | 'coin' | 'text' | 'marker' | 'spinner' | 'meeple' | 'token' | 'timer';
+export type PieceKind = 'counter' | 'die' | 'coin' | 'text' | 'marker' | 'spinner' | 'meeple' | 'token' | 'timer' | 'zone';
 
 /** A playing piece's shape. */
 export type PieceShape = 'meeple' | 'pawn' | 'cube' | 'disc';
+/** How a zone's drawn: its outline, filled in, or a dashed outline. */
+export type ZoneLook = 'outline' | 'filled' | 'dashed';
 export const PIECE_SHAPES: { shape: PieceShape; name: string }[] = [
   { shape: 'meeple', name: 'Meeple' },
   { shape: 'pawn', name: 'Pawn' },
@@ -87,6 +89,14 @@ export interface TablePiece {
   /** A running timer: when it runs out (ms since 1970). A paused one: how many seconds it had left. */
   endsAt?: number;
   left?: number;
+  /** A zone's own size (table units, before its scale), and how it's drawn. */
+  w?: number;
+  h?: number;
+  look?: ZoneLook;
+  /** A zone cards snap into (a card spot): a card dropped in it settles in its middle, onto any already there. */
+  snap?: boolean;
+  /** A zone that stays put: the table under it works as if it weren't there (a hold still gives its options). */
+  locked?: boolean;
   /** Its color (one of PIECE_COLORS), or none for its own (see defaultPieceColor). */
   color?: string;
   /** Drawn this much bigger (or smaller) than PIECE_SIZE; none is its own size. */
@@ -119,6 +129,7 @@ export function defaultPieceColor(p: Pick<TablePiece, 'kind' | 'sides'>): string
   if (p.kind === 'meeple') return PIECE_COLORS.Red;
   if (p.kind === 'token') return '#d9d2c4';
   if (p.kind === 'timer') return '#14202a';
+  if (p.kind === 'zone') return PIECE_COLORS.Ivory;
   const own: Record<number, string> = { 4: PIECE_COLORS.Green, 6: PIECE_COLORS.Ivory, 8: PIECE_COLORS.Blue, 10: PIECE_COLORS.Purple, 12: PIECE_COLORS.Pink, 20: PIECE_COLORS.Red };
   return own[p.sides ?? 6] ?? PIECE_COLORS.Ivory;
 }
@@ -358,7 +369,7 @@ export function cardSizeOf(c: SandboxCard, size: CardSize): { w: number; h: numb
 
 /** A piece's size on the table, at its scale. */
 export function pieceSizeOf(p: TablePiece): { w: number; h: number } {
-  const base = p.kind === 'text' ? textSize(p.label ?? '') : PIECE_SIZE[p.kind];
+  const base = p.kind === 'text' ? textSize(p.label ?? '') : p.kind === 'zone' ? { w: p.w ?? PIECE_SIZE.zone.w, h: p.h ?? PIECE_SIZE.zone.h } : PIECE_SIZE[p.kind];
   const k = p.scale ?? 1;
   return k === 1 ? base : { w: base.w * k, h: base.h * k };
 }
@@ -455,7 +466,12 @@ export const PIECE_SIZE: Record<PieceKind, { w: number; h: number }> = {
   meeple: { w: 46, h: 50 },
   token: { w: 62, h: 62 },
   timer: { w: 100, h: 100 },
+  // A new zone's size (each has its own: see TablePiece.w and h).
+  zone: { w: 320, h: 220 },
 };
+
+/** The smallest a zone can be made, on each side. */
+export const ZONE_MIN = 40;
 
 /** A text label's lettering size (table units), and roughly how wide each letter is against it. */
 export const TEXT_SIZE = 24;
@@ -473,9 +489,49 @@ export const COUNTER_BUTTON = 50;
 /** The part of a piece a point is on: a counter's − or +, or anywhere else on it. */
 export type PiecePart = 'minus' | 'plus' | 'body';
 
-/** The topmost piece under a table point, if any, and which part of it the point is on. */
+/** Whether a table point is on a piece (within its size, at its scale). */
+const onPiece = (p: TablePiece, x: number, y: number) => {
+  const { w, h } = pieceSizeOf(p);
+  return Math.abs(x - p.x) <= w / 2 && Math.abs(y - p.y) <= h / 2;
+};
+
+/** The topmost zone under a table point, if any (zones lie under everything else; see pieceAt). */
+export function zoneAt(t: SandboxTable, x: number, y: number): TablePiece | null {
+  const zones = (t.pieces ?? []).filter((p) => p.kind === 'zone');
+  for (let i = zones.length - 1; i >= 0; i--) if (onPiece(zones[i], x, y)) return zones[i];
+  return null;
+}
+
+/** The card spot (a zone cards snap into) a table point is in, if any. */
+export const spotAt = (t: SandboxTable, x: number, y: number) => (t.pieces ?? []).find((p) => p.kind === 'zone' && p.snap && onPiece(p, x, y)) ?? null;
+
+/** An unlocked zone whose bottom-right corner (its grip, for resizing it) is within `reach` of a table point. */
+export function zoneGripAt(t: SandboxTable, x: number, y: number, reach: number): TablePiece | null {
+  const zones = (t.pieces ?? []).filter((p) => p.kind === 'zone' && !p.locked);
+  for (let i = zones.length - 1; i >= 0; i--) {
+    const { w, h } = pieceSizeOf(zones[i]);
+    if (Math.hypot(x - (zones[i].x + w / 2), y - (zones[i].y + h / 2)) <= reach) return zones[i];
+  }
+  return null;
+}
+
+/**
+ * A zone resized from its bottom-right corner (its top-left corner staying put), to a new own size (before its
+ * scale), no smaller than ZONE_MIN.
+ */
+export function resizeZone(p: TablePiece, w: number, h: number): Pick<TablePiece, 'x' | 'y' | 'w' | 'h'> {
+  const k = p.scale ?? 1;
+  const was = pieceSizeOf(p);
+  const nw = Math.max(ZONE_MIN, Math.round(w));
+  const nh = Math.max(ZONE_MIN, Math.round(h));
+  const left = p.x - was.w / 2;
+  const top = p.y - was.h / 2;
+  return { w: nw, h: nh, x: Math.round(left + (nw * k) / 2), y: Math.round(top + (nh * k) / 2) };
+}
+
+/** The topmost piece (not a zone: see zoneAt) under a table point, if any, and which part of it the point is on. */
 export function pieceAt(t: SandboxTable, x: number, y: number): { piece: TablePiece; part: PiecePart } | null {
-  const pieces = t.pieces ?? [];
+  const pieces = (t.pieces ?? []).filter((p) => p.kind !== 'zone');
   for (let i = pieces.length - 1; i >= 0; i--) {
     const p = pieces[i];
     const { w, h } = pieceSizeOf(p);
@@ -500,6 +556,7 @@ export function newPiece(kind: PieceKind, id: string, at: { x: number; y: number
   // A token's number is how many it stands for (shown when more than one); a timer's, its time in seconds.
   if (kind === 'token') return { id, kind, ...spot, value: 1 };
   if (kind === 'timer') return { id, kind, ...spot, value: 60 };
+  if (kind === 'zone') return { id, kind, ...spot, value: 0, label: 'Zone', w: PIECE_SIZE.zone.w, h: PIECE_SIZE.zone.h };
   return { id, kind, ...spot, value: 0 };
 }
 
@@ -531,7 +588,8 @@ export function piecesInShape(t: SandboxTable, shape: { x: number; y: number }[]
   if (!shape.length) return [];
   return (t.pieces ?? [])
     .filter((p) => {
-      if (kind && p.kind !== kind) return false;
+      // Zones are part of the table's layout, not picked out with what's on it.
+      if (kind ? p.kind !== kind : p.kind === 'zone') return false;
       const { w, h } = pieceSizeOf(p);
       if (shape.some((q) => Math.abs(q.x - p.x) <= w / 2 && Math.abs(q.y - p.y) <= h / 2)) return true;
       return shape.length >= 3 && insideShape(p, shape);

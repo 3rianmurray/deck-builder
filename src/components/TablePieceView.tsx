@@ -237,6 +237,8 @@ export const TablePieceView = memo(function TablePieceView({
         <Token piece={piece} color={color} size={w} selected={selected} />
       ) : piece.kind === 'timer' ? (
         <Timer piece={piece} color={color} size={w} selected={selected} />
+      ) : piece.kind === 'zone' ? (
+        <Zone piece={piece} color={color} />
       ) : (
         <PlayingPiece piece={piece} color={color} w={w} h={h} selected={selected} />
       )}
@@ -886,6 +888,29 @@ function Timer({ piece, color, size, selected }: { piece: TablePiece; color: str
     </View>
   );
 }
+/**
+ * A zone: an area marked out on the cloth, under the cards (outlined, filled in, or dashed), its name in a corner.
+ * Unlocked, a grip in its bottom-right corner resizes it.
+ */
+function Zone({ piece, color }: { piece: TablePiece; color: string }) {
+  const look = piece.look ?? 'outline';
+  return (
+    <View
+      style={[
+        styles.zone,
+        // Its edge a little see-through, and filled in faintly (the cloth showing through); its name solid.
+        { borderColor: `${color}b3`, borderStyle: look === 'dashed' ? 'dashed' : 'solid' },
+        look === 'filled' && { backgroundColor: `${color}38` },
+      ]}>
+      {piece.label ? (
+        <Text allowFontScaling={false} numberOfLines={1} style={[styles.zoneLabel, { color }]}>
+          {piece.label}
+        </Text>
+      ) : null}
+      {piece.locked ? null : <View style={[styles.zoneGrip, { borderColor: color }]} />}
+    </View>
+  );
+}
 const styles = StyleSheet.create({
   piece: { position: 'absolute' },
 
@@ -937,6 +962,10 @@ const styles = StyleSheet.create({
   tokenCountText: { color: colors.accentText, fontSize: 14, fontWeight: '800' },
   timerText: { position: 'absolute', left: 0, top: 0, textAlign: 'center', fontWeight: '800', fontVariant: ['tabular-nums'] },
   timerHint: { position: 'absolute', left: 0, textAlign: 'center', fontSize: 9, fontWeight: '700', opacity: 0.7 },
+  zone: { flex: 1, borderWidth: 3, borderRadius: 12 },
+  zoneLabel: { position: 'absolute', left: 10, top: 6, right: 10, fontSize: 18, fontWeight: '700' },
+  // Two short lines across the bottom-right corner, as a window's resize grip.
+  zoneGrip: { position: 'absolute', right: 4, bottom: 4, width: 18, height: 18, borderRightWidth: 3, borderBottomWidth: 3, borderBottomRightRadius: 6 },
   markerText: { position: 'absolute', left: 0, top: 0, textAlign: 'center', fontWeight: '800', paddingHorizontal: 8 },
   textBox: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
   textBoxOn: { borderWidth: 2, borderColor: colors.accent, borderStyle: 'dashed' },

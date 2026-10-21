@@ -50,6 +50,11 @@ import {
   pieceAt,
   PIECE_SHAPES,
   rollable,
+  pieceSizeOf,
+  resizeZone,
+  spotAt,
+  zoneAt,
+  zoneGripAt,
   toggleTimer,
   parseTimerText,
   timerText,
@@ -144,6 +149,10 @@ const HOLD_STACK_MS = 350;
 const HOLD_PIECE_MS = 450;
 /** Where tokens' pictures are kept (as a deck's are, in a folder of their own). */
 const TOKEN_PICTURES = 'tokens';
+/** How near a zone's bottom-right corner (screen points) a finger grabs its grip, to resize it. */
+const ZONE_GRIP_REACH = 28;
+/** A card spot's size against its deck's cards: a little room round them. */
+const SPOT_ROOM = 1.12;
 /** Stands in for the finger carrying cards taken out of the search, till the table's gesture says which it is. */
 const TAKE_OUT_FINGER = -7;
 /** How long a stack brought onto the table takes to fly in (and the camera to glide over to it). */
@@ -237,6 +246,7 @@ type Menu =
   | { kind: 'pieceColor'; id?: string }
   | { kind: 'pieceShape'; id?: string }
   | { kind: 'addShape' }
+  | { kind: 'addSpot' }
   /** Scaling stacks and pieces (changing as the slider moves). */
   | { kind: 'scale'; stacks: string[]; pieces: string[] };
 
@@ -809,6 +819,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       Alert.alert('Couldn’t use that picture', e instanceof Error ? e.message : String(e));
     }
   };
+  /** A zone being resized by its grip: its own size for now (see resizeZone). */
+  const [zoneSize, setZoneSize] = useState<{ id: string; w: number; h: number } | null>(null);
+  const dropZoneSize = () => {
+    const zone = table?.pieces?.find((p) => p.id === zoneSize?.id);
+    setZoneSize(null);
+    if (!table || !zone || !zoneSize) return;
+    commit(setPiece(table, zone.id, resizeZone(zone, zoneSize.w, zoneSize.h)));
+    haptics.drop();
+  };
   /** The picked-out dice lined up in a tight grid (the button by the roll one). */
   const gridPickedDice = () => {
     if (!table || pickedDice.length < 2) return;
@@ -1045,16 +1064,20 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       onDiceGridButton: (x: number, y: number) => boolean;
       gridPickedDice: () => void;
       addPieceToTable: (kind: PieceKind, sides?: number, shape?: PieceShape, extra?: Partial<TablePiece>) => void;
+      setZoneSize: (z: { id: string; w: number; h: number } | null) => void;
+      dropZoneSize: () => void;
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, addPieceToTable, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, addPieceToTable, setZoneSize, dropZoneSize, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
     type Pt = { x: number; y: number };
     const s = {
-      mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress' | 'lasso' | 'group' | 'button' | 'piece',
+      mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress' | 'lasso' | 'group' | 'button' | 'piece' | 'zoneResize',
+      /** A zone being resized by its grip: where the finger landed (on the table), and its own size and scale then. */
+      zone: null as null | { id: string; from: Pt; size: { w: number; h: number }; scale: number },
       /** The counter or die pressed: which part, where it lay and where the finger landed (on the table), and whether it's been dragged. */
       piece: null as null | { id: string; part: PiecePart; group: string[]; from: Pt; moved: boolean },
       /** Waiting to see if a press on a stack is held (the whole stack comes) rather than dragged (its top card). */
@@ -1309,14 +1332,23 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const whole = sources.find((src) => src.kind === 'stack');
     // Only onto a stack facing the same way.
     const face = cards[cards.length - 1].faceUp;
-    const onto = cards.some((c) => c.solo)
+    let onto = cards.some((c) => c.solo)
       ? null
       : // On the table as it'll be once they're taken: where a card alone lay is nowhere to go back onto (it would
         // land, unsnapped, as if joining it). The rest of a stack it came off still counts.
         stackTargetAt(takeAll(L.table, sources), w.x, w.y, L.size, whole?.kind === 'stack' ? whole.stackId : undefined, L.gridOn ? gridStackReach(L.gridStep) : undefined, face);
     // With snapping on, its middle on the nearest grid crossing.
     const free = { x: w.x, y: w.y, angle: p.tableAngle };
-    const at = L.gridOn && !onto ? snapToGrid(free, L.gridStep) : free;
+    let at = L.gridOn && !onto ? snapToGrid(free, L.gridStep) : free;
+    // Dropped in a card spot: onto what's in it already (facing the same way), or settled in its middle, upright.
+    const spot = onto ? null : spotAt(L.table, w.x, w.y);
+    if (spot) {
+      const there = takeAll(L.table, sources).stacks.find(
+        (s) => s.id !== (whole?.kind === 'stack' ? whole.stackId : '') && Math.hypot(s.x - spot.x, s.y - spot.y) < 1 && !s.cards.some((c) => c.solo) && s.cards[s.cards.length - 1].faceUp === face,
+      );
+      if (there && !cards.some((c) => c.solo)) onto = there;
+      else at = { x: spot.x, y: spot.y, angle: 0 };
+    }
     // A whole stack just moved (and turned), on its own, keeps being itself.
     // Tips, the first times: holding a stack (after taking one card off one), and more fingers (after a few drags).
     const from = sources[0]?.kind === 'card' ? L.table.stacks.find((st) => st.id === (sources[0] as { stackId: string }).stackId) : undefined;
@@ -1385,6 +1417,29 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       if (touch.holdTimer) clearTimeout(touch.holdTimer);
       touch.holdTimer = null;
     };
+    /** A finger down on a piece (or an unlocked zone): a tap uses it, a drag moves it (and any picked out with it), a hold gives its options. */
+    const pressPiece = (pressed: string, part: PiecePart, w: { x: number; y: number }) => {
+      const L = latest.get();
+      // Pressing one of the picked-out dice keeps them picked out (a tap rolls them all); anything else lets them go.
+      if (L.selected.length && !L.pickedPieces.includes(pressed)) L.setSelected([]);
+      else if (L.pickedPieces.length && !L.pickedPieces.includes(pressed)) L.setPickedPieces([]);
+      // One of several picked out: a drag takes them all.
+      const group = L.pickedPieces.includes(pressed) && L.pickedPieces.length > 1 ? L.pickedPieces : [pressed];
+      touch.piece = { id: pressed, part, group, from: w, moved: false };
+      touch.mode = 'piece';
+      touch.onEmpty = false;
+      touch.holdTimer = setTimeout(() => {
+        touch.holdTimer = null;
+        if (touch.mode !== 'piece' || touch.piece?.id !== pressed || touch.piece.moved) return;
+        touch.mode = 'button';
+        touch.piece = null;
+        haptics.lift();
+        // One of several picked out: the group's options. Otherwise its own.
+        const now = latest.get();
+        const many = now.pickedPieces.includes(pressed) && now.pickedPieces.length + now.selected.length > 1;
+        now.setMenu(many ? { kind: 'selection' } : { kind: 'piece', id: pressed });
+      }, HOLD_PIECE_MS);
+    };
     const down = (changed: Touch[]) => {
       const L = latest.get();
       // A touch on the table tucks the tools away, and does nothing else (a selection stays picked out).
@@ -1440,29 +1495,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         }
         // A counter or die (they lie above every card): a tap counts or rolls, a drag moves it, a hold opens its options.
         const onPiece = L.table ? pieceAt(L.table, w.x, w.y) : null;
-        if (onPiece) {
-          const pressed = onPiece.piece.id;
-          // Pressing one of the picked-out dice keeps them picked out (a tap rolls them all); anything else lets them go.
-          if (L.selected.length && !L.pickedPieces.includes(pressed)) L.setSelected([]);
-          else if (L.pickedPieces.length && !L.pickedPieces.includes(pressed)) L.setPickedPieces([]);
-          // One of several picked out: a drag takes them all.
-          const group = L.pickedPieces.includes(pressed) && L.pickedPieces.length > 1 ? L.pickedPieces : [pressed];
-          touch.piece = { id: pressed, part: onPiece.part, group, from: w, moved: false };
-          touch.mode = 'piece';
-          touch.onEmpty = false;
-          touch.holdTimer = setTimeout(() => {
-            touch.holdTimer = null;
-            if (touch.mode !== 'piece' || touch.piece?.id !== pressed || touch.piece.moved) return;
-            touch.mode = 'button';
-            touch.piece = null;
-            haptics.lift();
-            // One of several picked out: the group's options. Otherwise its own.
-            const now = latest.get();
-            const group = now.pickedPieces.includes(pressed) && now.pickedPieces.length + now.selected.length > 1;
-            now.setMenu(group ? { kind: 'selection' } : { kind: 'piece', id: pressed });
-          }, HOLD_PIECE_MS);
-          return;
-        }
+        if (onPiece) return pressPiece(onPiece.piece.id, onPiece.part, w);
         const hit = L.table ? stackAt(L.table, w.x, w.y, L.size) : null;
         touch.onEmpty = false;
         if (hit) {
@@ -1498,6 +1531,33 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             }, HOLD_STACK_MS);
           }
           return;
+        }
+        // A zone, painted on the cloth under the cards: its corner grip resizes it; unlocked, it's moved as a piece
+        // is; locked, the table under it works as ever (and a hold still gives its options).
+        if (L.table) {
+          const grip = zoneGripAt(L.table, w.x, w.y, ZONE_GRIP_REACH / cameraZoom(readCamera()));
+          if (grip) {
+            if (L.selected.length || L.pickedPieces.length) L.setSelected([]);
+            touch.zone = { id: grip.id, from: w, size: pieceSizeOf({ ...grip, scale: 1 }), scale: grip.scale ?? 1 };
+            touch.mode = 'zoneResize';
+            haptics.lift();
+            return;
+          }
+          const zone = zoneAt(L.table, w.x, w.y);
+          if (zone && !zone.locked) return pressPiece(zone.id, 'body', w);
+          if (zone) {
+            const held = zone.id;
+            touch.holdTimer = setTimeout(() => {
+              touch.holdTimer = null;
+              const f = touch.fingers.get(touch.first);
+              if (touch.fingers.size !== 1 || !f || Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) > TAP_SLOP) return;
+              if (touch.mode !== 'none' && touch.mode !== 'camera') return;
+              touch.mode = 'button';
+              touch.onEmpty = false;
+              haptics.lift();
+              latest.get().setMenu({ kind: 'piece', id: held });
+            }, HOLD_PIECE_MS);
+          }
         }
         // Empty table. The second tap of a double tap, held down: a lasso, drawn round the cards to pick out.
         const now = Date.now();
@@ -1593,6 +1653,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           if (touch.groupPress) startGroup();
           else pickUp();
         }
+        return;
+      }
+      if (touch.mode === 'zoneResize' && touch.zone) {
+        const f = touch.fingers.get(touch.first);
+        if (!f) return;
+        const w = toTable(readCamera(), f.now.x, f.now.y);
+        const z = touch.zone;
+        latest.get().setZoneSize({ id: z.id, w: z.size.w + (w.x - z.from.x) / z.scale, h: z.size.h + (w.y - z.from.y) / z.scale });
         return;
       }
       if (touch.mode === 'piece' && touch.piece) {
@@ -1757,6 +1825,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           }
         }
         touch.mode = 'none';
+      } else if (touch.mode === 'zoneResize' && lifted.includes(touch.first)) {
+        touch.zone = null;
+        L.dropZoneSize();
+        touch.mode = 'none';
       } else if (touch.mode === 'piece' && lifted.includes(touch.first)) {
         clearHold();
         const pressed = touch.piece;
@@ -1858,6 +1930,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       if (touch.mode === 'piece') {
         L.setPieceDrag(null);
         touch.piece = null;
+      }
+      if (touch.mode === 'zoneResize') {
+        L.setZoneSize(null);
+        touch.zone = null;
       }
       if (touch.mode === 'group') {
         // Back where it was, untwisted.
@@ -2521,6 +2597,35 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           ],
         };
       }
+      if (piece.kind === 'zone') {
+        const look = piece.look ?? 'outline';
+        return {
+          title: piece.label || (piece.snap ? 'Card spot' : 'Zone'),
+          tiles: [],
+          actions: [
+            {
+              label: piece.label ? 'Rename it…' : 'Name it…',
+              opensModal: true,
+              onPress: () => rename(piece.snap ? 'Name the card spot' : 'Name the zone', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))),
+            },
+            ...(['outline', 'filled', 'dashed'] as const).map((l) => ({
+              label: `${l === 'outline' ? 'Outlined' : l === 'filled' ? 'Filled in' : 'Dashed'}${look === l ? '  ✓' : ''}`,
+              onPress: () => commit(setPiece(table, piece.id, { look: l === 'outline' ? undefined : l })),
+            })),
+            {
+              label: piece.snap ? 'Cards don’t snap into it' : 'Cards snap into it',
+              onPress: () => commit(setPiece(table, piece.id, { snap: !piece.snap || undefined })),
+            },
+            {
+              label: piece.locked ? 'Unlock' : 'Lock in place',
+              onPress: () => commit(setPiece(table, piece.id, { locked: !piece.locked || undefined })),
+            },
+            color,
+            scale,
+            takeOff,
+          ],
+        };
+      }
       if (piece.kind === 'timer') {
         return {
           title: `Timer · ${timerText(piece.value)}`,
@@ -2643,11 +2748,28 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'First-player marker', onPress: () => addPieceToTable('marker') },
           { label: 'Spinner', onPress: () => addPieceToTable('spinner') },
           { label: 'Timer', onPress: () => addPieceToTable('timer') },
+          { label: 'Zone', onPress: () => addPieceToTable('zone') },
+          { label: 'Card spot…', onPress: () => setTimeout(() => setMenu({ kind: 'addSpot' }), 250) },
           { label: 'Token', onPress: () => addPieceToTable('token') },
           // Its own screen, which iOS can only show once this menu has gone.
           { label: 'Token from a picture…', opensModal: true, onPress: () => setTimeout(() => void pictureForToken(), 300) },
           { label: 'Meeples, pawns, cubes, discs…', onPress: () => setTimeout(() => setMenu({ kind: 'addShape' }), 250) },
         ],
+      };
+    }
+    if (menu.kind === 'addSpot') {
+      // Sized to a deck's cards (with a little room round them), and cards snap into it.
+      const playable = decks.filter((d) => d.cards.length);
+      return {
+        title: playable.length ? 'A card spot the size of…' : 'No decks with cards yet',
+        tiles: [],
+        actions: playable.map((d) => ({
+          label: d.name,
+          onPress: () => {
+            const s = size(d.id);
+            addPieceToTable('zone', undefined, undefined, { label: '', w: Math.round(s.w * SPOT_ROOM), h: Math.round(s.h * SPOT_ROOM), snap: true, look: 'dashed' });
+          },
+        })),
       };
     }
     if (menu.kind === 'addShape') {
@@ -2744,6 +2866,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 <GridLines step={gridStep} />
               </Animated.View>
             ) : null}
+            {/* Zones, painted on the cloth: under every card. */}
+            {(table.pieces ?? [])
+              .filter((p) => p.kind === 'zone')
+              .map((p) => {
+                const shown = zoneSize?.id === p.id ? { ...p, ...resizeZone(p, zoneSize.w, zoneSize.h) } : p;
+                const dragged = !!pieceDrag?.ids.includes(p.id);
+                return <TablePieceView key={p.id} piece={shown} at={dragged && pieceDrag ? { x: p.x + pieceDrag.dx, y: p.y + pieceDrag.dy } : undefined} />;
+              })}
             {table.stacks.map((s) =>
               groupMoving && chosenIds.has(s.id) && !s.locked ? null : (
                 <StackView
@@ -2768,6 +2898,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             )}
             {/* Counters and dice, above every card. */}
             {(table.pieces ?? []).map((p) => {
+              if (p.kind === 'zone') return null;
               const dragged = !!pieceDrag?.ids.includes(p.id);
               const view = (
                 <TablePieceView
@@ -3311,7 +3442,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot')}
         title={sheet?.title}
         banner={sheet && 'banner' in sheet ? sheet.banner : undefined}
         actions={sheet?.actions ?? []}

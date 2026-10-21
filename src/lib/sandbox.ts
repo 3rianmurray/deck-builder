@@ -95,7 +95,9 @@ export interface TablePiece {
   look?: ZoneLook;
   /** A zone cards snap into (a card spot): a card dropped in it settles in its middle, onto any already there. */
   snap?: boolean;
-  /** A zone that stays put: the table under it works as if it weren't there (a hold still gives its options). */
+  /**
+   * A zone (or text) that stays put: dragged, the table moves instead. A locked zone's table works as if it weren't\n   * there; a hold still gives either's options, and text can still be tapped to change it.
+   */
   locked?: boolean;
   /** What's in a bag, bottom first (the top is drawn first), as a stack's cards are. */
   items?: BagItem[];
@@ -917,7 +919,9 @@ export function separateDice(t: SandboxTable, movable: string[]): SandboxTable {
 /** Moves pieces by the same amount each (a group dragged together), on top of the others. Dice end up apart. */
 export function movePieces(t: SandboxTable, ids: string[], by: { x: number; y: number }): SandboxTable {
   const pieces = t.pieces ?? [];
-  const moving = pieces.filter((p) => ids.includes(p.id)).map((p) => ({ ...p, x: Math.round(p.x + by.x), y: Math.round(p.y + by.y) }));
+  // Locked ones stay put.
+  const moving = pieces.filter((p) => ids.includes(p.id) && !p.locked).map((p) => ({ ...p, x: Math.round(p.x + by.x), y: Math.round(p.y + by.y) }));
+  ids = moving.map((p) => p.id);
   if (!moving.length) return t;
   return separateDice({ ...t, pieces: [...pieces.filter((p) => !ids.includes(p.id)), ...moving] }, ids);
 }

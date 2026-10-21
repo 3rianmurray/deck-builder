@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE } from './sandbox.ts';
+import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText } from './sandbox.ts';
 
 const table = () => newSandbox('t', 'Test', 0);
 
@@ -109,4 +109,27 @@ test('picked-out dice line up in a near-square grid round where they were', () =
   assert.equal(xs.size, 3);
   assert.equal(ys.size, 2);
   assert.equal(overlaps(g), false);
+});
+test('a timer starts, pauses keeping what it had left, and is set back once it runs out', () => {
+  let t = addPiece(table(), newPiece('timer', 'tm', { x: 0, y: 0 }));
+  t = toggleTimer(t, 'tm', 1000);
+  assert.equal(t.pieces![0].endsAt, 61000);
+  t = toggleTimer(t, 'tm', 31000);
+  assert.equal(t.pieces![0].endsAt, undefined);
+  assert.equal(t.pieces![0].left, 30);
+  t = toggleTimer(t, 'tm', 100000);
+  assert.equal(t.pieces![0].endsAt, 130000);
+  t = toggleTimer(t, 'tm', 200000);
+  assert.equal(t.pieces![0].left, undefined);
+  assert.equal(t.pieces![0].endsAt, undefined);
+});
+
+test('a timer is set in minutes, or minutes and seconds, and shown as m:ss', () => {
+  assert.equal(parseTimerText('5'), 300);
+  assert.equal(parseTimerText('1:30'), 90);
+  assert.equal(parseTimerText('0:00'), null);
+  assert.equal(parseTimerText('abc'), null);
+  assert.equal(timerText(90), '1:30');
+  assert.equal(timerText(0.2), '0:01');
+  assert.equal(timerText(0), '0:00');
 });

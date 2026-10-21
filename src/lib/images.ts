@@ -131,3 +131,14 @@ export async function rotateImage(uri: string, turn: -90 | 90): Promise<LoadedIm
   const img = await ref.saveAsync({ format: formatOf(uri), compress: 1 });
   return { uri: img.uri, width: img.width, height: img.height };
 }
+
+/** How big a token's picture is kept: plenty for a token, even zoomed right in. */
+const TOKEN_SIDE = 360;
+
+/** A picture made into a token's: the largest square from its middle, shrunk to TOKEN_SIDE. */
+export async function tokenPicture(uri: string): Promise<string> {
+  const square = await cropToShape(uri, 1);
+  const ref = await ImageManipulator.manipulate(square).resize({ width: TOKEN_SIDE }).renderAsync();
+  const out = await ref.saveAsync({ format: formatOf(square), compress: 0.85 });
+  return out.uri;
+}

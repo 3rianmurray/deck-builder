@@ -46,6 +46,10 @@ import {
   movePiece,
   newPiece,
   pieceAt,
+  cardSizeOf,
+  matchStackSizes,
+  scaleItems,
+  scaleOf,
   piecesInShape,
   removePiece,
   throwDice,
@@ -101,6 +105,7 @@ import { DealPanel } from './DealPanel';
 import { Riffle } from './Riffle';
 import { StackSearchPanel } from './StackSearchPanel';
 import { TablePieceView } from './TablePieceView';
+import { ScaleControl } from './ScaleControl';
 import { CardView, HALF_FLIP_MS, prefersReducedMotion } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
@@ -218,7 +223,9 @@ type Menu =
   | { kind: 'addDie' }
   /** For one counter or die, or (with no id) every one picked out. */
   | { kind: 'dieKind'; id?: string }
-  | { kind: 'pieceColor'; id?: string };
+  | { kind: 'pieceColor'; id?: string }
+  /** Scaling stacks and pieces (changing as the slider moves). */
+  | { kind: 'scale'; stacks: string[]; pieces: string[] };
 
 /** A card being carried by a finger. */
 interface Held {
@@ -413,11 +420,34 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   // ---- Changes ----
   /** A change to the table, which can be undone. */
-  const commit = (next: SandboxTable) => {
-    if (!table || next === table) return;
+  const commit = (changed: SandboxTable) => {
+    if (!table || changed === table) return;
+    // A card put onto a stack of another size takes the stack's size.
+    const next = matchStackSizes(changed, size);
     setHistory((h) => [...h.slice(-(UNDO_STEPS - 1)), table]);
     setFuture([]);
     updateSandbox(next);
+  };
+  // ---- Scaling: the chosen things change size as the slider moves, and it's all one undo once it's put away ----
+  /** The table as it was when scaling began. */
+  const [scaleBase, setScaleBase] = useState<SandboxTable | null>(null);
+  const openScale = (stacks: string[], pieces: string[]) => {
+    if (!table) return;
+    setScaleBase(table);
+    // Once the menu it's chosen from has gone.
+    setTimeout(() => setMenu({ kind: 'scale', stacks, pieces }), 300);
+  };
+  const previewScale = (k: number) => {
+    if (!scaleBase || menu?.kind !== 'scale') return;
+    updateSandbox(scaleItems(scaleBase, menu.stacks, menu.pieces, k, size));
+  };
+  const finishScale = () => {
+    if (!scaleBase) return;
+    if (table && table !== scaleBase) {
+      setHistory((h) => [...h.slice(-(UNDO_STEPS - 1)), scaleBase]);
+      setFuture([]);
+    }
+    setScaleBase(null);
   };
   const undo = () => {
     const prev = history[history.length - 1];
@@ -865,7 +895,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return id;
   };
   /** How much a card's table size is scaled to show it at its size in the hand. */
-  const handScaleOf = (c: SandboxCard) => handWidthOf(c) / size(c.deckId).w;
+  const handScaleOf = (c: SandboxCard) => handWidthOf(c) / cardSizeOf(c, size).w;
   /** Where in the row (of cards not carried) cards dropped with their middle at a point on screen would go. */
   const handInsertAt = (x: number) => {
     // Before the first card whose middle (as the row is without the gap) lies past the point.
@@ -2192,6 +2222,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           })),
         },
         { kind: 'toggle', label: 'Lock in place', value: !!menuStack.locked, onChange: (on) => commit(setStack(table, menuStack.id, { locked: on })) },
+        { kind: 'action', label: 'Scale…', onPress: () => openScale([menuStack.id], []) },
         // A single card can be kept from stacking: nothing goes onto it, and it goes onto nothing.
         ...(n === 1 ? [{ kind: 'toggle' as const, label: 'Never stack', value: !!top.solo, onChange: (on: boolean) => commit(setSolo(table, menuStack.id, on)) }] : []),
         ...(top.faceUp ? [{ kind: 'action' as const, label: 'Full size', keepsOpen: true, onPress: () => setZoomed(top) }] : []),
@@ -2300,6 +2331,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 },
               ]
             : []),
+          { label: 'Scale…', onPress: () => openScale(chosen, pieces.map((p) => p.id)) },
           { label: total === 1 ? 'Take it off the table' : `Take all ${total} off the table`, destructive: true, onPress: takeAllOff },
         ],
       };
@@ -2329,6 +2361,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               onPress: () => rename('Name the counter', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))),
             },
             { label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor', id: piece.id }), 250) },
+            { label: 'Scale…', onPress: () => openScale([], [piece.id]) },
             takeOff,
           ],
         };
@@ -2339,6 +2372,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         actions: [
           { label: 'Change the die…', onPress: () => setTimeout(() => setMenu({ kind: 'dieKind', id: piece.id }), 250) },
           { label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor', id: piece.id }), 250) },
+          { label: 'Scale…', onPress: () => openScale([], [piece.id]) },
           takeOff,
         ],
       };
@@ -2388,6 +2422,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           </View>
         ),
         actions: targets.some((p) => p.color) ? [{ label: targets.length === 1 ? 'Its own color' : 'Their own colors', onPress: () => pick(undefined) }] : [],
+      };
+    }
+    if (menu.kind === 'scale') {
+      const n = menu.stacks.length + menu.pieces.length;
+      return {
+        title: n === 1 ? 'Scale' : `Scale ${n} things`,
+        tiles: [],
+        banner: <ScaleControl value={scaleOf(table, menu.stacks, menu.pieces)} onChange={previewScale} />,
+        actions: [],
       };
     }
     if (menu.kind === 'components') {
@@ -2464,9 +2507,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const arrivingTop = arrivingStack?.cards[arrivingStack.cards.length - 1];
   const riffleStack = riffling ? table.stacks.find((s) => s.id === riffling.stackId) : undefined;
   const riffleDeck = riffleStack ? decksById.get(riffleStack.cards[riffleStack.cards.length - 1].deckId) : undefined;
+  const riffleSize = riffleStack ? cardSizeOf(riffleStack.cards[riffleStack.cards.length - 1], size) : { w: 0, h: 0 };
   const heldTop = held ? held.cards[held.cards.length - 1] : null;
   const heldDeck = heldTop ? getDeck(heldTop.deckId) : undefined;
-  const heldSize = heldTop ? size(heldTop.deckId) : null;
+  const heldSize = heldTop ? cardSizeOf(heldTop, size) : null;
   const zoomDeck = zoomed ? getDeck(zoomed.deckId) : undefined;
   const zoomCard = zoomed ? cardOf(zoomed) : undefined;
 
@@ -2493,7 +2537,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   stack={s}
                   deck={decksById.get(s.cards[s.cards.length - 1].deckId)}
                   decks={decksById}
-                  size={size(s.cards[s.cards.length - 1].deckId)}
+                  size={cardSizeOf(s.cards[s.cards.length - 1], size)}
                   // While carried, its carried cards are out of sight (the rest still show); while riffled, all of it.
                   hidden={
                     (riffling?.started && riffling.stackId === s.id) || arriving?.stackId === s.id
@@ -2526,17 +2570,17 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 style={[
                   styles.stack,
                   {
-                    left: riffleStack.x - size(riffleDeck.id).w / 2,
-                    top: riffleStack.y - size(riffleDeck.id).h / 2,
-                    width: size(riffleDeck.id).w,
-                    height: size(riffleDeck.id).h,
+                    left: riffleStack.x - riffleSize.w / 2,
+                    top: riffleStack.y - riffleSize.h / 2,
+                    width: riffleSize.w,
+                    height: riffleSize.h,
                     transform: [{ rotate: `${riffleStack.angle}deg` }],
                   },
                 ]}>
                 <Riffle
                   key={riffling.key}
                   deck={riffleDeck}
-                  width={size(riffleDeck.id).w}
+                  width={riffleSize.w}
                   onStart={() => setRiffling((r) => (r ? { ...r, started: true } : r))}
                   onDone={() => setRiffling(null)}
                 />
@@ -2554,7 +2598,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                       stack={s}
                       deck={decksById.get(s.cards[s.cards.length - 1].deckId)}
                       decks={decksById}
-                      size={size(s.cards[s.cards.length - 1].deckId)}
+                      size={cardSizeOf(s.cards[s.cards.length - 1], size)}
                       hidden=""
                       target={false}
                       selected
@@ -2568,7 +2612,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                       key={f.key}
                       flyer={f}
                       deck={deck}
-                      size={size(f.card.deckId)}
+                      size={cardSizeOf(f.card, size)}
                       onLanded={() => setFlyers((all) => all.filter((x) => x.key !== f.key))}
                     />
                   ) : null;
@@ -2585,7 +2629,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                       key={f.key}
                       flyer={f}
                       deck={deck}
-                      size={size(f.card.deckId)}
+                      size={cardSizeOf(f.card, size)}
                       onLanded={() => setFlyers((all) => all.filter((x) => x.key !== f.key))}
                     />
                   ) : null;
@@ -2881,7 +2925,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               key={arriving.key}
               deck={decksById.get(arrivingTop.deckId)!}
               card={arrivingTop}
-              size={size(arrivingTop.deckId)}
+              size={cardSizeOf(arrivingTop, size)}
               from={{ x: area.w / 2, y: insets.top + TOP_BAR_H / 2 }}
               to={arriving.to}
               scale={arriving.scale}
@@ -2903,10 +2947,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               style={[
                 styles.held,
                 {
-                  width: size(groupLeadTop.deckId).w,
-                  height: size(groupLeadTop.deckId).h,
-                  left: -size(groupLeadTop.deckId).w / 2,
-                  top: -size(groupLeadTop.deckId).h / 2,
+                  width: cardSizeOf(groupLeadTop, size).w,
+                  height: cardSizeOf(groupLeadTop, size).h,
+                  left: -cardSizeOf(groupLeadTop, size).w / 2,
+                  top: -cardSizeOf(groupLeadTop, size).h / 2,
                 },
                 heldStyle,
               ]}>
@@ -2914,7 +2958,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 deck={decksById.get(groupLeadTop.deckId)!}
                 card={cardOf(groupLeadTop)}
                 faceUp={groupLeadTop.faceUp}
-                width={size(groupLeadTop.deckId).w}
+                width={cardSizeOf(groupLeadTop, size).w}
                 sharp
               />
               <View style={styles.badge}>
@@ -2931,7 +2975,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 key={f.key}
                 flight={f}
                 deck={deck}
-                size={size(f.card.deckId)}
+                size={cardSizeOf(f.card, size)}
                 live={pileLive}
                 onLanded={() => {
                   setPileFlights((all) => {
@@ -3034,11 +3078,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale')}
         title={sheet?.title}
         banner={sheet && 'banner' in sheet ? sheet.banner : undefined}
         actions={sheet?.actions ?? []}
-        onClose={() => setMenu(null)}
+        // Scaling is kept as it's made: put away, it's done (and one undo).
+        closeLabel={menu?.kind === 'scale' ? 'Done' : undefined}
+        onClose={() => {
+          finishScale();
+          setMenu(null);
+        }}
       />
     </View>
   );

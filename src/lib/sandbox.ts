@@ -18,6 +18,8 @@ export interface SandboxCard {
   solo?: boolean;
   /** Brought on by itself (with Add cards), not as part of a whole deck: gathered up as a single, not a deck. */
   single?: boolean;
+  /** Drawn this much bigger (or smaller) than its deck's size on the table; none is its own size. Not in a hand. */
+  scale?: number;
 }
 
 /** A pile of one or more cards lying somewhere on the table, all at one angle. Its last card is on top. */
@@ -64,6 +66,8 @@ export interface TablePiece {
   label?: string;
   /** Its color (one of PIECE_COLORS), or none for its own (see defaultPieceColor). */
   color?: string;
+  /** Drawn this much bigger (or smaller) than PIECE_SIZE; none is its own size. */
+  scale?: number;
 }
 
 /** The colors a counter or die can be, by name. */
@@ -304,6 +308,66 @@ export function snapToGrid(at: { x: number; y: number; angle: number }, step = G
 /** A card's size on the table: `CARD_W` wide, as tall as its deck's shape makes it. */
 export type CardSize = (deckId: string) => { w: number; h: number };
 
+// ---- Scale: anything on the table drawn bigger or smaller ----
+
+/** How small and how big anything on the table can be made, against its own size. */
+export const SCALE_MIN = 0.25;
+export const SCALE_MAX = 4;
+export const clampScale = (k: number) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, k));
+/** A scale as kept: none for its own size (or near enough), and rounded so it doesn't drift. */
+const keptScale = (k: number) => (Math.abs(k - 1) < 0.005 ? undefined : Math.round(clampScale(k) * 1e6) / 1e6);
+
+/** A card's size on the table: its deck's, at its own scale. Its deck's very size (the same object) at its own. */
+export function cardSizeOf(c: SandboxCard, size: CardSize): { w: number; h: number } {
+  const base = size(c.deckId);
+  const k = c.scale ?? 1;
+  return k === 1 ? base : { w: base.w * k, h: base.h * k };
+}
+
+/** A piece's size on the table, at its scale. */
+export function pieceSizeOf(p: TablePiece): { w: number; h: number } {
+  const base = PIECE_SIZE[p.kind];
+  const k = p.scale ?? 1;
+  return k === 1 ? base : { w: base.w * k, h: base.h * k };
+}
+
+/** How wide a card is drawn on the table, to within a tenth of a unit (what counts as the same size). */
+const drawnWidth = (c: SandboxCard, size: CardSize) => Math.round(cardSizeOf(c, size).w * 10) / 10;
+
+/**
+ * Every card in a stack the size of its bottom card (the one the stack started as): a card put onto a stack of
+ * another size is scaled to it. Stacks already that way, and the table if all are, are left as they were.
+ */
+export function matchStackSizes(t: SandboxTable, size: CardSize): SandboxTable {
+  let changed = false;
+  const stacks = t.stacks.map((s) => {
+    const w = drawnWidth(s.cards[0], size);
+    if (s.cards.every((c) => drawnWidth(c, size) === w)) return s;
+    changed = true;
+    const want = cardSizeOf(s.cards[0], size).w;
+    return { ...s, cards: s.cards.map((c) => ({ ...c, scale: keptScale(want / size(c.deckId).w) })) };
+  });
+  return changed ? { ...t, stacks } : t;
+}
+
+/** The scale stacks and pieces are drawn at now: the first one's (its bottom card's, for a stack). */
+export function scaleOf(t: SandboxTable, stackIds: string[], pieceIds: string[]): number {
+  const s = t.stacks.find((x) => stackIds.includes(x.id));
+  if (s) return s.cards[0].scale ?? 1;
+  return t.pieces?.find((p) => pieceIds.includes(p.id))?.scale ?? 1;
+}
+
+/**
+ * Stacks and pieces drawn at a scale of their own size (each card of a stack its bottom card's, so they stay one
+ * size), within SCALE_MIN and SCALE_MAX. 1 puts them back to their own sizes.
+ */
+export function scaleItems(t: SandboxTable, stackIds: string[], pieceIds: string[], k: number, size: CardSize): SandboxTable {
+  const scale = keptScale(k);
+  const stacks = t.stacks.map((s) => (stackIds.includes(s.id) ? { ...s, cards: s.cards.map((c, i) => (i ? c : { ...c, scale })) } : s));
+  const pieces = t.pieces?.map((p) => (pieceIds.includes(p.id) ? { ...p, scale } : p));
+  return matchStackSizes({ ...t, stacks, ...(pieces ? { pieces } : {}) }, size);
+}
+
 /** Where a table point is relative to a stack: in its own (turned) frame, from its middle. */
 function inStack(s: SandboxStack, x: number, y: number) {
   const r = (-s.angle * Math.PI) / 180;
@@ -332,7 +396,7 @@ export function stackAt(
   for (let i = t.stacks.length - 1; i >= 0; i--) {
     const s = t.stacks[i];
     const top = s.cards[s.cards.length - 1];
-    const { w, h } = size(top.deckId);
+    const { w, h } = cardSizeOf(top, size);
     const p = inStack(s, x, y);
     const several = s.cards.length > 1;
     if (several && Math.hypot(p.x - (w / 2 - BADGE_OFFSET), p.y - (-h / 2 + BADGE_OFFSET)) <= badgeReach) return { stack: s, whole: true };
@@ -364,11 +428,12 @@ export function pieceAt(t: SandboxTable, x: number, y: number): { piece: TablePi
   const pieces = t.pieces ?? [];
   for (let i = pieces.length - 1; i >= 0; i--) {
     const p = pieces[i];
-    const { w, h } = PIECE_SIZE[p.kind];
+    const { w, h } = pieceSizeOf(p);
     const dx = x - p.x;
     const dy = y - p.y;
     if (Math.abs(dx) > w / 2 || Math.abs(dy) > h / 2) continue;
-    const part: PiecePart = p.kind !== 'counter' ? 'body' : dx < -w / 2 + COUNTER_BUTTON ? 'minus' : dx > w / 2 - COUNTER_BUTTON ? 'plus' : 'body';
+    const button = COUNTER_BUTTON * (p.scale ?? 1);
+    const part: PiecePart = p.kind !== 'counter' ? 'body' : dx < -w / 2 + button ? 'minus' : dx > w / 2 - button ? 'plus' : 'body';
     return { piece: p, part };
   }
   return null;
@@ -406,7 +471,7 @@ export function piecesInShape(t: SandboxTable, shape: { x: number; y: number }[]
   return (t.pieces ?? [])
     .filter((p) => {
       if (kind && p.kind !== kind) return false;
-      const { w, h } = PIECE_SIZE[p.kind];
+      const { w, h } = pieceSizeOf(p);
       if (shape.some((q) => Math.abs(q.x - p.x) <= w / 2 && Math.abs(q.y - p.y) <= h / 2)) return true;
       return shape.length >= 3 && insideShape(p, shape);
     })
@@ -480,7 +545,7 @@ export function stackTargetAt(
       if (Math.hypot(x - s.x, y - s.y) <= reach) return s;
       continue;
     }
-    const { w, h } = size(s.cards[s.cards.length - 1].deckId);
+    const { w, h } = cardSizeOf(s.cards[s.cards.length - 1], size);
     const p = inStack(s, x, y);
     if (Math.abs(p.x) <= w * STACK_REACH && Math.abs(p.y) <= h * STACK_REACH) return s;
   }
@@ -608,7 +673,7 @@ function segmentsMeet(a: P, b: P, c: P, d: P): boolean {
 
 /** A stack's four corners on the table (its top card's size, turned as it lies). */
 function stackCorners(s: SandboxStack, size: CardSize): P[] {
-  const { w, h } = size(s.cards[s.cards.length - 1].deckId);
+  const { w, h } = cardSizeOf(s.cards[s.cards.length - 1], size);
   const r = (s.angle * Math.PI) / 180;
   const cos = Math.cos(r);
   const sin = Math.sin(r);

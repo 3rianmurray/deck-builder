@@ -13,6 +13,8 @@ const ROLL_FACE_MS = 45;
 const ROLL_FACE_SLOWING = 1.22;
 /** How many whole turns a rolled die spins as it goes. */
 const ROLL_TURNS = 2;
+/** How much bigger a piece looks while it's dragged. */
+const LIFT = 1.08;
 /**
  * A die is drawn this many times bigger than it lies and shrunk back down, so it stays sharp when the table's
  * zoomed in on it (the camera scales the table's drawing up).
@@ -184,7 +186,8 @@ export const TablePieceView = memo(function TablePieceView({
   const y = at?.y ?? piece.y;
   const color = piece.color ?? defaultPieceColor(piece);
   return (
-    <View pointerEvents="none" style={[styles.piece, { left: x - w / 2, top: y - h / 2, width: w, height: h }, lifted && styles.lifted]}>
+    // Drawn at its own size and scaled about its middle (its parts and lettering keep their proportions).
+    <View pointerEvents="none" style={[styles.piece, { left: x - w / 2, top: y - h / 2, width: w, height: h, transform: [{ scale: (piece.scale ?? 1) * (lifted ? LIFT : 1) }] }]}>
       {piece.kind === 'counter' ? (
         <Counter piece={piece} color={color} selected={selected} />
       ) : (
@@ -368,7 +371,7 @@ function Die({
 
 const styles = StyleSheet.create({
   piece: { position: 'absolute' },
-  lifted: { transform: [{ scale: 1.08 }] },
+
   counter: {
     flex: 1,
     flexDirection: 'row',

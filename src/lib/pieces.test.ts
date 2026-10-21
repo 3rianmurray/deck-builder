@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText } from './sandbox.ts';
+import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN } from './sandbox.ts';
 
 const table = () => newSandbox('t', 'Test', 0);
 
@@ -132,4 +132,27 @@ test('a timer is set in minutes, or minutes and seconds, and shown as m:ss', () 
   assert.equal(timerText(90), '1:30');
   assert.equal(timerText(0.2), '0:01');
   assert.equal(timerText(0), '0:00');
+});
+test('zones lie under pieces: found on their own, and never as the piece under a point', () => {
+  let t = addPiece(table(), newPiece('zone', 'z', { x: 500, y: 500 }));
+  t = addPiece(t, newPiece('die', 'd', { x: 500, y: 500 }));
+  assert.equal(pieceAt(t, 500, 500)?.piece.id, 'd');
+  assert.equal(pieceAt(t, 600, 560), null);
+  assert.equal(zoneAt(t, 600, 560)?.id, 'z');
+  assert.deepEqual(piecesInShape(t, [{ x: 0, y: 0 }, { x: 1000, y: 0 }, { x: 1000, y: 1000 }, { x: 0, y: 1000 }]), ['d']);
+});
+
+test('a zone resizes from its bottom-right grip, its top-left corner staying put, and not too small', () => {
+  const z = newPiece('zone', 'z', { x: 500, y: 500 });
+  const t = addPiece(table(), z);
+  assert.equal(zoneGripAt(t, 500 + 160, 500 + 110, 20)?.id, 'z');
+  assert.equal(zoneGripAt(t, 500, 500, 20), null);
+  assert.deepEqual(resizeZone(z, 420, 10), { w: 420, h: ZONE_MIN, x: 340 + 210, y: 390 + ZONE_MIN / 2 });
+});
+
+test('a card spot is found under a point; a plain zone isn’t one', () => {
+  let t = addPiece(table(), { ...newPiece('zone', 's', { x: 100, y: 100 }), w: 120, h: 160, snap: true });
+  t = addPiece(t, newPiece('zone', 'plain', { x: 800, y: 800 }));
+  assert.equal(spotAt(t, 140, 160)?.id, 's');
+  assert.equal(spotAt(t, 800, 800), null);
 });

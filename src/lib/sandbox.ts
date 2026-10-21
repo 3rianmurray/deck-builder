@@ -62,6 +62,29 @@ export interface TablePiece {
   sides?: number;
   /** What a counter counts (e.g. Life), shown under it. */
   label?: string;
+  /** Its color (one of PIECE_COLORS), or none for its own (see defaultPieceColor). */
+  color?: string;
+}
+
+/** The colors a counter or die can be, by name. */
+export const PIECE_COLORS = {
+  Ivory: '#f4f1e8',
+  Black: '#2c2c2a',
+  Red: '#e24b4a',
+  Orange: '#ef9f27',
+  Yellow: '#f2d04a',
+  Green: '#639922',
+  Teal: '#1d9e75',
+  Blue: '#378add',
+  Purple: '#7f77dd',
+  Pink: '#d4537e',
+} as const;
+
+/** A piece's own color, when none's been chosen: dark for a counter, ivory for a d6, and its own for each other die. */
+export function defaultPieceColor(p: Pick<TablePiece, 'kind' | 'sides'>): string {
+  if (p.kind === 'counter') return '#14202a';
+  const own: Record<number, string> = { 4: PIECE_COLORS.Green, 6: PIECE_COLORS.Ivory, 8: PIECE_COLORS.Blue, 10: PIECE_COLORS.Purple, 12: PIECE_COLORS.Pink, 20: PIECE_COLORS.Red };
+  return own[p.sides ?? 6] ?? PIECE_COLORS.Ivory;
 }
 
 export interface SandboxTable {

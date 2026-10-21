@@ -1,16 +1,21 @@
-import { memo, useEffect, useState } from 'react';
+import { Canvas, Circle, Path, RoundedRect, Shadow, Skia } from '@shopify/react-native-skia';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
-import { PIECE_SIZE, rollDie } from '../lib/sandbox';
+import { defaultPieceColor, PIECE_SIZE, rollDie } from '../lib/sandbox';
 import type { TablePiece } from '../lib/sandbox';
-import { colors } from '../theme';
 import { prefersReducedMotion } from './CardView';
 
 /** How long a die tumbles when rolled, and how often its face changes meanwhile. */
 const ROLL_MS = 420;
 const ROLL_FACE_MS = 60;
-/** A die's rounded corners. */
-const DIE_RADIUS = 12;
+/**
+ * A die is drawn this many times bigger than it lies and shrunk back down, so it stays sharp when the table's
+ * zoomed in on it (the camera scales the table's drawing up).
+ */
+const OVERSAMPLE = 3;
+/** Room round a die's drawing, as a share of its size, for its shadow. */
+const PAD = 0.2;
 
 /** Where a d6's pips go, on a 3 × 3 grid (0 top-left to 8 bottom-right), for each face. */
 const PIPS: Record<number, number[]> = {
@@ -22,14 +27,132 @@ const PIPS: Record<number, number[]> = {
   6: [0, 2, 3, 5, 6, 8],
 };
 
-/** Each other die's color, by its faces, so they're told apart at a glance. */
-const DIE_COLORS: Record<number, string> = {
-  4: '#1d9e75',
-  8: '#378add',
-  10: '#7f77dd',
-  12: '#d4537e',
-  20: '#d85a30',
-};
+type Pt = [number, number];
+
+/** A color made lighter (toward 1) or darker (toward −1), for a face catching more or less of the light. */
+function shade(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const to = k > 0 ? 255 : 0;
+  const t = Math.min(1, Math.abs(k));
+  const mix = (c: number) => Math.round(c + (to - c) * t);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(mix);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** Whether a color is light (dark marks go on it) or dark (light ones do). */
+function isLight(hex: string): boolean {
+  const n = parseInt(hex.slice(1), 16);
+  return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) > 160;
+}
+
+/** Points round a middle, starting straight up (−90°), at a given reach (all in a 0–1 box). */
+const ring = (count: number, reach: number, mid: Pt = [0.5, 0.5], start = -90): Pt[] =>
+  Array.from({ length: count }, (_, i) => {
+    const a = ((start + (360 / count) * i) * Math.PI) / 180;
+    return [mid[0] + reach * Math.cos(a), mid[1] + reach * Math.sin(a)];
+  });
+
+/**
+ * How lit a face is, from where it lies: the light comes from the top left, so faces turned that way are lighter
+ * and those turned away darker. The face looking straight up (in the middle) is lit evenly.
+ */
+function lightOf(face: Pt[]): number {
+  const cx = face.reduce((s, p) => s + p[0], 0) / face.length - 0.5;
+  const cy = face.reduce((s, p) => s + p[1], 0) / face.length - 0.5;
+  const d = Math.hypot(cx, cy);
+  if (d < 0.06) return 0.12;
+  return (-(cx * 0.6 + cy * 0.8) / d) * 0.32 - 0.12;
+}
+
+/** A die's outline, its faces (each with how lit it is), and where its number goes and how big (in a 0–1 box). */
+interface DieShape {
+  outline: Pt[];
+  faces: { pts: Pt[]; light: number }[];
+  number: { at: Pt; size: number };
+}
+
+const faces = (list: Pt[][], front?: Pt[]) => [
+  ...list.map((pts) => ({ pts, light: lightOf(pts) })),
+  ...(front ? [{ pts: front, light: 0.12 }] : []),
+];
+
+/** Each die's shape, seen from a little above: its faces drawn flat, shaded as if solid. */
+function dieShape(sides: number): DieShape {
+  if (sides === 4) {
+    // A tetrahedron, point up: three faces meet in the middle.
+    const [a, b, c]: Pt[] = [
+      [0.5, 0.03],
+      [0.98, 0.9],
+      [0.02, 0.9],
+    ];
+    const o: Pt = [0.5, 0.6];
+    return { outline: [a, b, c], faces: faces([[o, a, b], [o, b, c], [o, c, a]]), number: { at: [0.5, 0.6], size: 0.26 } };
+  }
+  if (sides === 8) {
+    // An octahedron, point up: four faces round the near point, a little up and left of the middle.
+    const [t, r, b, l]: Pt[] = [
+      [0.5, 0.0],
+      [0.94, 0.5],
+      [0.5, 1.0],
+      [0.06, 0.5],
+    ];
+    const o: Pt = [0.46, 0.46];
+    return { outline: [t, r, b, l], faces: faces([[t, r, o], [r, b, o], [b, l, o], [l, t, o]]), number: { at: o, size: 0.3 } };
+  }
+  if (sides === 10) {
+    // A pentagonal trapezohedron: a kite with its front face (the kite-shaped one) facing up.
+    const [t, r, b, l]: Pt[] = [
+      [0.5, 0.02],
+      [0.96, 0.56],
+      [0.5, 0.98],
+      [0.04, 0.56],
+    ];
+    const [fr, fb, fl]: Pt[] = [
+      [0.76, 0.5],
+      [0.5, 0.7],
+      [0.24, 0.5],
+    ];
+    return {
+      outline: [t, r, b, l],
+      faces: faces(
+        [
+          [t, r, fr],
+          [t, fl, l],
+          [l, fl, fb, b],
+          [fr, r, b, fb],
+        ],
+        [t, fr, fb, fl],
+      ),
+      number: { at: [0.5, 0.44], size: 0.28 },
+    };
+  }
+  if (sides === 12) {
+    // A dodecahedron: a pentagon facing up, five more round it, its outline ten-sided.
+    const inner = ring(5, 0.25, [0.5, 0.52]);
+    const outer = ring(10, 0.5);
+    const round = inner.map((p, i) => [p, outer[2 * i], outer[2 * i + 1], outer[(2 * i + 2) % 10], inner[(i + 1) % 5]]);
+    return { outline: outer, faces: faces(round, inner), number: { at: [0.5, 0.52], size: 0.28 } };
+  }
+  if (sides === 20) {
+    // An icosahedron: a triangle facing up in a six-sided outline, the faces round it filling the rest.
+    const hex = ring(6, 0.5);
+    const tri = ring(3, 0.3);
+    const [t0, t1, t2] = tri;
+    const round: Pt[][] = [
+      [t0, hex[1], t1],
+      [t1, hex[3], t2],
+      [t2, hex[5], t0],
+      [hex[0], hex[1], t0],
+      [hex[1], hex[2], t1],
+      [hex[2], hex[3], t1],
+      [hex[3], hex[4], t2],
+      [hex[4], hex[5], t2],
+      [hex[5], hex[0], t0],
+    ];
+    return { outline: hex, faces: faces(round, tri), number: { at: [0.5, 0.53], size: 0.22 } };
+  }
+  return { outline: [], faces: [], number: { at: [0.5, 0.5], size: 0.3 } };
+}
 
 /**
  * A counter or a die lying on the table, drawn in table units (the camera zooms and turns it with the cards).
@@ -49,27 +172,30 @@ export const TablePieceView = memo(function TablePieceView({
   const { w, h } = PIECE_SIZE[piece.kind];
   const x = at?.x ?? piece.x;
   const y = at?.y ?? piece.y;
+  const color = piece.color ?? defaultPieceColor(piece);
   return (
-    <View
-      pointerEvents="none"
-      // Its shadow follows its shape: a counter's pill, a die's rounded square.
-      style={[styles.piece, { left: x - w / 2, top: y - h / 2, width: w, height: h, borderRadius: piece.kind === 'counter' ? h / 2 : DIE_RADIUS }, lifted && styles.lifted]}>
-      {piece.kind === 'counter' ? <Counter piece={piece} /> : <Die piece={piece} rollKey={rollKey} />}
+    <View pointerEvents="none" style={[styles.piece, { left: x - w / 2, top: y - h / 2, width: w, height: h }, lifted && styles.lifted]}>
+      {piece.kind === 'counter' ? <Counter piece={piece} color={color} /> : <Die piece={piece} color={color} rollKey={rollKey} size={w} />}
     </View>
   );
 });
 
-function Counter({ piece }: { piece: TablePiece }) {
+function Counter({ piece, color }: { piece: TablePiece; color: string }) {
+  const ink = isLight(color) ? '#2c2c2a' : '#ffffff';
   return (
-    <View style={styles.counter}>
-      <View style={styles.counterButton}>
-        <Text allowFontScaling={false} style={styles.counterSign}>−</Text>
+    <View style={[styles.counter, { backgroundColor: color, borderColor: shade(color, isLight(color) ? -0.25 : 0.3) }]}>
+      <View style={[styles.counterButton, { backgroundColor: shade(color, isLight(color) ? -0.12 : 0.16) }]}>
+        <Text allowFontScaling={false} style={[styles.counterSign, { color: ink }]}>
+          −
+        </Text>
       </View>
-      <Text allowFontScaling={false} style={styles.counterValue} numberOfLines={1} adjustsFontSizeToFit>
+      <Text allowFontScaling={false} style={[styles.counterValue, { color: ink }]} numberOfLines={1} adjustsFontSizeToFit>
         {piece.value}
       </Text>
-      <View style={styles.counterButton}>
-        <Text allowFontScaling={false} style={styles.counterSign}>+</Text>
+      <View style={[styles.counterButton, { backgroundColor: shade(color, isLight(color) ? -0.12 : 0.16) }]}>
+        <Text allowFontScaling={false} style={[styles.counterSign, { color: ink }]}>
+          +
+        </Text>
       </View>
       {piece.label ? (
         <Text allowFontScaling={false} style={styles.counterLabel} numberOfLines={1}>
@@ -80,8 +206,8 @@ function Counter({ piece }: { piece: TablePiece }) {
   );
 }
 
-/** A die: a d6 with pips, any other with its number on its own color. Rolled, it tumbles through faces first. */
-function Die({ piece, rollKey }: { piece: TablePiece; rollKey: number }) {
+/** A die in its own shape and color, shaded face by face. Rolled, it tumbles through faces first. */
+function Die({ piece, color, rollKey, size }: { piece: TablePiece; color: string; rollKey: number; size: number }) {
   const sides = piece.sides ?? 6;
   const [face, setFace] = useState<number | null>(null);
   const [tumble] = useState(() => new Animated.Value(0));
@@ -101,36 +227,85 @@ function Die({ piece, rollKey }: { piece: TablePiece; rollKey: number }) {
     };
   }, [rollKey, sides, tumble]);
   const shown = face ?? piece.value;
-  const transform = [
+  const [transform] = useState(() => [
     { rotate: tumble.interpolate({ inputRange: [0, 0.35, 0.7, 1], outputRange: ['0deg', '-28deg', '14deg', '0deg'] }) },
     { scale: tumble.interpolate({ inputRange: [0, 0.3, 1], outputRange: [1, 1.18, 1] }) },
-  ];
-  if (sides === 6) {
-    return (
-      <Animated.View style={[styles.die, styles.d6, { transform }]}>
-        {Array.from({ length: 9 }, (_, i) => (
-          <View key={i} style={styles.pipCell}>
-            {PIPS[shown]?.includes(i) ? <View style={styles.pip} /> : null}
-          </View>
-        ))}
-      </Animated.View>
-    );
-  }
+  ]);
+  const ink = isLight(color) ? '#2c2c2a' : '#ffffff';
+  const shape = useMemo(() => dieShape(sides), [sides]);
+  // The drawing, oversampled (see OVERSAMPLE), with room round it for the shadow.
+  const px = size * OVERSAMPLE;
+  const canvas = px * (1 + PAD * 2);
+  const at = (p: Pt) => [(p[0] + PAD) * px, (p[1] + PAD) * px] as const;
+  const path = (pts: Pt[]) => {
+    const p = Skia.Path.Make();
+    pts.forEach((pt, i) => (i ? p.lineTo(...at(pt)) : p.moveTo(...at(pt))));
+    p.close();
+    return p;
+  };
+  const shadow = <Shadow dx={2 * OVERSAMPLE} dy={4 * OVERSAMPLE} blur={4 * OVERSAMPLE} color="rgba(0,0,0,0.45)" shadowOnly />;
+  const edge = shade(color, -0.45);
   return (
-    <Animated.View style={[styles.die, { backgroundColor: DIE_COLORS[sides] ?? colors.accent, transform }]}>
-      <Text allowFontScaling={false} style={styles.dieValue}>
-        {shown}
-      </Text>
-      <Text allowFontScaling={false} style={styles.dieSides}>
-        d{sides}
-      </Text>
+    <Animated.View style={[StyleSheet.absoluteFill, { transform }]}>
+      <Canvas
+        style={{
+          position: 'absolute',
+          width: canvas,
+          height: canvas,
+          left: -size * PAD - (canvas - size * (1 + PAD * 2)) / 2,
+          top: -size * PAD - (canvas - size * (1 + PAD * 2)) / 2,
+          transform: [{ scale: 1 / OVERSAMPLE }],
+        }}>
+        {sides === 6 ? (
+          <>
+            {/* A cube from a little above and to the left: its top face, with its two sides showing below and right. */}
+            <RoundedRect x={at([0.1, 0.1])[0]} y={at([0.1, 0.1])[1]} width={0.88 * px} height={0.88 * px} r={0.16 * px} color={shade(color, -0.42)}>
+              {shadow}
+            </RoundedRect>
+            <RoundedRect x={at([0.1, 0.1])[0]} y={at([0.1, 0.1])[1]} width={0.88 * px} height={0.88 * px} r={0.16 * px} color={shade(color, -0.42)} />
+            <RoundedRect x={at([0.02, 0.02])[0]} y={at([0.02, 0.02])[1]} width={0.84 * px} height={0.84 * px} r={0.15 * px} color={shade(color, 0.04)} />
+            {(PIPS[shown] ?? []).map((cell) => {
+              const [cx, cy] = at([0.02 + 0.84 * ((cell % 3) * 0.3 + 0.2), 0.02 + 0.84 * (Math.floor(cell / 3) * 0.3 + 0.2)]);
+              return <Circle key={cell} cx={cx} cy={cy} r={0.085 * px} color={ink} />;
+            })}
+          </>
+        ) : (
+          <>
+            <Path path={path(shape.outline)} color={color}>
+              {shadow}
+            </Path>
+            {shape.faces.map((f, i) => (
+              <Path key={i} path={path(f.pts)} color={shade(color, f.light)} />
+            ))}
+            {shape.faces.map((f, i) => (
+              <Path key={`e${i}`} path={path(f.pts)} color={edge} style="stroke" strokeWidth={0.6 * OVERSAMPLE} opacity={0.35} />
+            ))}
+          </>
+        )}
+      </Canvas>
+      {sides === 6 ? null : (
+        <Text
+          allowFontScaling={false}
+          style={[
+            styles.dieValue,
+            {
+              color: ink,
+              fontSize: shape.number.size * size,
+              left: shape.number.at[0] * size - size / 2,
+              top: shape.number.at[1] * size - shape.number.size * size * 0.62,
+              width: size,
+            },
+          ]}>
+          {shown}
+        </Text>
+      )}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  piece: { position: 'absolute', boxShadow: '1px 3px 8px rgba(0, 0, 0, 0.45)' },
-  lifted: { boxShadow: '6px 16px 18px rgba(0, 0, 0, 0.45)', transform: [{ scale: 1.08 }] },
+  piece: { position: 'absolute' },
+  lifted: { transform: [{ scale: 1.08 }] },
   counter: {
     flex: 1,
     flexDirection: 'row',
@@ -138,9 +313,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 8,
     borderRadius: 30,
-    backgroundColor: 'rgba(8,18,26,0.9)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
+    boxShadow: '1px 3px 8px rgba(0, 0, 0, 0.45)',
   },
   counterButton: {
     width: 40,
@@ -148,26 +322,20 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
   },
-  counterSign: { color: colors.text, fontSize: 26, fontWeight: '600', marginTop: -2 },
-  counterValue: { flex: 1, textAlign: 'center', color: '#fff', fontSize: 30, fontWeight: '700' },
+  counterSign: { fontSize: 26, fontWeight: '600', marginTop: -2 },
+  counterValue: { flex: 1, textAlign: 'center', fontSize: 30, fontWeight: '700' },
   counterLabel: {
     position: 'absolute',
     top: 64,
     left: -20,
     right: -20,
     textAlign: 'center',
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.85)',
     fontSize: 16,
     fontWeight: '600',
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowRadius: 3,
   },
-  die: { flex: 1, borderRadius: DIE_RADIUS, alignItems: 'center', justifyContent: 'center' },
-  d6: { backgroundColor: '#f4f1e8', flexDirection: 'row', flexWrap: 'wrap', padding: 8 },
-  pipCell: { width: '33.33%', height: '33.33%', alignItems: 'center', justifyContent: 'center' },
-  pip: { width: 11, height: 11, borderRadius: 6, backgroundColor: '#2c2c2a' },
-  dieValue: { color: '#fff', fontSize: 28, fontWeight: '800', marginTop: 4 },
-  dieSides: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '700', marginTop: -4 },
+  dieValue: { position: 'absolute', textAlign: 'center', fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.25)', textShadowRadius: 2 },
 });

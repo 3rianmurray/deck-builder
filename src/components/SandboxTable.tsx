@@ -41,6 +41,8 @@ import {
   stackAt,
   addPiece,
   DIE_SIDES,
+  defaultPieceColor,
+  PIECE_COLORS,
   movePiece,
   newPiece,
   pieceAt,
@@ -210,7 +212,11 @@ type Menu =
   | { kind: 'addDeck' }
   | { kind: 'color' }
   | { kind: 'selection' }
-  | { kind: 'piece'; id: string };
+  | { kind: 'piece'; id: string }
+  | { kind: 'components' }
+  | { kind: 'addDie' }
+  | { kind: 'dieKind'; id: string }
+  | { kind: 'pieceColor'; id: string };
 
 /** A card being carried by a finger. */
 interface Held {
@@ -684,11 +690,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     haptics.drop();
   };
   /** A new piece in the middle of what's in view (a little apart from the last few, so they don't hide each other). */
-  const addPieceToTable = (kind: PieceKind) => {
+  const addPieceToTable = (kind: PieceKind, sides?: number) => {
     if (!table || !view) return;
     const mid = toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2);
     const nudge = ((table.pieces?.length ?? 0) % 5) * 24;
-    commit(addPiece(table, newPiece(kind, newId(), { x: mid.x + nudge, y: mid.y + nudge })));
+    commit(addPiece(table, newPiece(kind, newId(), { x: mid.x + nudge, y: mid.y + nudge }, sides)));
     haptics.drop();
   };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
@@ -2243,22 +2249,81 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               opensModal: true,
               onPress: () => rename('Name the counter', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))),
             },
+            { label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor', id: piece.id }), 250) },
             takeOff,
           ],
         };
       }
-      const sides = piece.sides ?? 6;
       return {
-        title: `d${sides}`,
+        title: `d${piece.sides ?? 6}`,
         tiles: [],
         actions: [
-          // Another kind of die: its number kept, if it has that face.
-          ...DIE_SIDES.map((n) => ({
-            label: `d${n}${n === sides ? '  ✓' : ''}`,
-            onPress: () => commit(setPiece(table, piece.id, { sides: n, value: Math.min(piece.value, n) })),
-          })),
+          { label: 'Change the die…', onPress: () => setTimeout(() => setMenu({ kind: 'dieKind', id: piece.id }), 250) },
+          { label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor', id: piece.id }), 250) },
           takeOff,
         ],
+      };
+    }
+    if (menu.kind === 'dieKind') {
+      const piece = table.pieces?.find((p) => p.id === menu.id);
+      if (!piece) return null;
+      const sides = piece.sides ?? 6;
+      return {
+        title: 'Change the die',
+        tiles: [],
+        // Another kind of die: its number kept, if it has that face.
+        actions: DIE_SIDES.map((n) => ({
+          label: `d${n}${n === sides ? '  ✓' : ''}`,
+          onPress: () => commit(setPiece(table, piece.id, { sides: n, value: Math.min(piece.value, n) })),
+        })),
+      };
+    }
+    if (menu.kind === 'pieceColor') {
+      const piece = table.pieces?.find((p) => p.id === menu.id);
+      if (!piece) return null;
+      const current = piece.color ?? defaultPieceColor(piece);
+      const pick = (color: string | undefined) => {
+        commit(setPiece(table, piece.id, { color }));
+        haptics.tick();
+        setMenu(null);
+      };
+      return {
+        title: 'Color',
+        tiles: [],
+        // Swatches to tap; and back to its own color (a die's color for its kind, a counter's dark glass).
+        banner: (
+          <View style={styles.swatches}>
+            {Object.entries(PIECE_COLORS).map(([name, hex]) => (
+              <Pressable
+                key={name}
+                onPress={() => pick(hex)}
+                accessibilityRole="button"
+                accessibilityLabel={name}
+                accessibilityState={{ selected: current === hex }}
+                style={[styles.swatch, { backgroundColor: hex }, current === hex && styles.swatchOn]}
+              />
+            ))}
+          </View>
+        ),
+        actions: piece.color ? [{ label: 'Its own color', onPress: () => pick(undefined) }] : [],
+      };
+    }
+    if (menu.kind === 'components') {
+      return {
+        title: 'Add to the table',
+        tiles: [],
+        actions: [
+          { label: 'Counter', onPress: () => addPieceToTable('counter') },
+          { label: 'Dice…', onPress: () => setTimeout(() => setMenu({ kind: 'addDie' }), 250) },
+        ],
+      };
+    }
+    if (menu.kind === 'addDie') {
+      const names: Record<number, string> = { 4: 'four', 6: 'six', 8: 'eight', 10: 'ten', 12: 'twelve', 20: 'twenty' };
+      return {
+        title: 'Add a die',
+        tiles: [],
+        actions: DIE_SIDES.map((n) => ({ label: `d${n}  ·  ${names[n]} sides`, onPress: () => addPieceToTable('die', n) })),
       };
     }
     if (menu.kind === 'addDeck') {
@@ -2628,8 +2693,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                       offerTipAfterUses('tables-quick-pinch', undefined, 900);
                     },
                   ],
-                  ['plus.forwardslash.minus', 'exposure', 'Add Counter', () => addPieceToTable('counter')],
-                  ['die.face.5', 'casino', 'Add Die', () => addPieceToTable('die')],
+                  ['die.face.5', 'casino', 'Add Components', () => setMenu({ kind: 'components' })],
                   ['wand.and.stars', 'auto_fix_high', 'Clean Up', cleanUp],
                   ['rectangle.stack', 'layers', 'Gather by Deck', gatherUp],
                   ['trash', 'delete', `Trash${table.trash?.length ? ` (${table.trash.length})` : ''}`, () => setTrashOpen(true)],
@@ -2871,8 +2935,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie')}
         title={sheet?.title}
+        banner={sheet && 'banner' in sheet ? sheet.banner : undefined}
         actions={sheet?.actions ?? []}
         onClose={() => setMenu(null)}
       />
@@ -3253,6 +3318,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
+  // A counter's or die's colors to pick from (see the pieceColor menu).
+  swatches: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 14, paddingVertical: 8, paddingHorizontal: 12 },
+  swatch: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
+  swatchOn: { borderWidth: 3, borderColor: colors.accent },
   // The grid's lines, shown for now (for trying the grid out).
   gridLine: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.13)' },
   // The tools drawer: a panel off the left (or right) edge, with a tab on its inner edge to pull it out by.

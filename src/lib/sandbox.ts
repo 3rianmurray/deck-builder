@@ -97,7 +97,11 @@ export interface TablePiece {
   snap?: boolean;
   /** A zone that stays put: the table under it works as if it weren't there (a hold still gives its options). */
   locked?: boolean;
-  /** The cards in a bag (in no order that matters: one's drawn at random). */
+  /** What's in a bag, bottom first (the top is drawn first), as a stack's cards are. */
+  items?: BagItem[];
+  /** A bag that's an endless supply of one thing: each drawn is a fresh one of it. */
+  supply?: BagItem;
+  /** What was in a bag before it held pieces too (only cards): read as its items. */
   cards?: SandboxCard[];
   /** A track's number of spaces, and the number its first space shows (its marker's space is its value, from 0). */
   spaces?: number;
@@ -653,47 +657,159 @@ export const timerText = (secs: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-/** The bag under a table point, if any (for cards dropped onto it). */
-export const bagAt = (t: SandboxTable, x: number, y: number) =>
-  [...(t.pieces ?? [])].reverse().find((p) => p.kind === 'bag' && onPiece(p, x, y)) ?? null;
+/** Something in a bag: a card, or a piece (as it was, though where it lay on the table is forgotten). */
+export type BagItem = { card: SandboxCard; piece?: undefined } | { piece: TablePiece; card?: undefined };
 
-/** Cards dropped into a bag. */
-export const putInBag = (t: SandboxTable, bagId: string, cards: SandboxCard[]): SandboxTable => ({
-  ...t,
-  pieces: (t.pieces ?? []).map((p) => (p.id === bagId ? { ...p, cards: [...(p.cards ?? []), ...cards.map(({ scale: _, ...c }) => c)] } : p)),
-});
+/** Its id: a card's instance, or a piece's. */
+export const itemKey = (i: BagItem) => (i.card ? i.card.iid : i.piece!.id);
+
+/** What's in a bag, bottom first (one from before bags held pieces too reads its cards). */
+export const bagItems = (p: TablePiece): BagItem[] => p.items ?? (p.cards ?? []).map((card) => ({ card }));
 
 /**
- * A card drawn from a bag at random, laid beside it (face down, or up), onto any card already lying there.
- * The table as it was if the bag's empty.
+ * What makes two things the same, for a supply: the same card (either way up), or a piece that looks just the
+ * same (its kind and faces, color, shape, picture, words and size; not where it lies or what it shows now).
  */
-export function drawFromBag(t: SandboxTable, bagId: string, id: string, faceUp = false, random: () => number = Math.random): SandboxTable {
-  const bag = t.pieces?.find((p) => p.id === bagId);
-  const inside = bag?.cards ?? [];
-  if (!bag || !inside.length) return t;
-  const i = Math.min(inside.length - 1, Math.floor(random() * inside.length));
-  const card = { ...inside[i], faceUp };
-  const emptier = { ...t, pieces: t.pieces!.map((p) => (p.id === bagId ? { ...p, cards: inside.filter((_, j) => j !== i) } : p)) };
-  const at = { x: bag.x + pieceSizeOf(bag).w / 2 + CARD_W * 0.7, y: bag.y, angle: 0 };
-  const there = emptier.stacks.find((s) => Math.hypot(s.x - at.x, s.y - at.y) < 1);
-  return putOnTable(emptier, [card], at, id, there);
+export function itemLook(i: BagItem): string {
+  if (i.card) return `card:${i.card.deckId}:${i.card.cardId}`;
+  const p = i.piece!;
+  return JSON.stringify([p.kind, p.sides, p.color, p.shape, p.image, p.square, p.label, p.scale ?? 1, p.spaces, p.first, p.look, p.w, p.h]);
 }
 
-/** Everything in a bag laid beside it as one face-down stack (shuffled). */
-export function emptyBag(t: SandboxTable, bagId: string, id: string, random: () => number = Math.random): SandboxTable {
+/** Whether things are one or more of the very same thing (what a supply can be made of). */
+export const allAlike = (items: BagItem[]) => items.length > 0 && items.every((i) => itemLook(i) === itemLook(items[0]));
+
+/** A thing as it's kept in a bag: no place on the table, nothing picked out. */
+const bagged = (i: BagItem): BagItem => (i.card ? { card: i.card } : { piece: { ...i.piece!, x: 0, y: 0 } });
+
+/** A fresh one of a thing (from a supply), under a new id. */
+const freshOf = (i: BagItem, id: string): BagItem => (i.card ? { card: { ...i.card, iid: id } } : { piece: { ...i.piece!, id } });
+
+const setBag = (t: SandboxTable, bagId: string, changes: Partial<TablePiece>): SandboxTable => ({
+  ...t,
+  pieces: (t.pieces ?? []).map((p) => (p.id === bagId ? { ...p, cards: undefined, ...changes } : p)),
+});
+
+/** The bag under a table point, if any (for things dropped onto it), but not one being moved itself. */
+export const bagAt = (t: SandboxTable, x: number, y: number, except: string[] = []) =>
+  [...(t.pieces ?? [])].reverse().find((p) => p.kind === 'bag' && !except.includes(p.id) && onPiece(p, x, y)) ?? null;
+
+/** Whether things can go into a bag: anything, unless it's a supply, which takes back only what it supplies. */
+export const bagTakes = (bag: TablePiece, items: BagItem[]) => !bag.supply || items.every((i) => itemLook(i) === itemLook(bag.supply!));
+
+/**
+ * Things put into a bag: on top of what's in it; or (`asSupply`) making it an endless supply of the first of
+ * them. Into a supply, they just go (back into it). The caller takes them off the table.
+ */
+export function putInBag(t: SandboxTable, bagId: string, items: BagItem[], asSupply = false): SandboxTable {
   const bag = t.pieces?.find((p) => p.id === bagId);
-  if (!bag?.cards?.length) return t;
-  const at = { x: bag.x + pieceSizeOf(bag).w / 2 + CARD_W * 0.7, y: bag.y, angle: 0 };
-  const emptier = { ...t, pieces: t.pieces!.map((p) => (p.id === bagId ? { ...p, cards: [] } : p)) };
-  return putOnTable(emptier, shuffled(bag.cards, random).map((c) => ({ ...c, faceUp: false })), at, id);
+  if (!bag || !items.length || bag.supply) return t;
+  if (asSupply) return setBag(t, bagId, { items: [], supply: bagged(items[0]) });
+  return setBag(t, bagId, { items: [...bagItems(bag), ...items.map(bagged)] });
 }
 
+/**
+ * The top thing out of a bag (from a supply, a fresh one, called `id`): the table without it, and it. Null if
+ * there's nothing.
+ */
+export function takeFromBag(t: SandboxTable, bagId: string, id: string): { table: SandboxTable; item: BagItem } | null {
+  const bag = t.pieces?.find((p) => p.id === bagId);
+  if (!bag) return null;
+  if (bag.supply) return { table: t, item: freshOf(bag.supply, id) };
+  const items = bagItems(bag);
+  if (!items.length) return null;
+  return { table: setBag(t, bagId, { items: items.slice(0, -1) }), item: items[items.length - 1] };
+}
+
+/** A bag's things in a new order, at random. */
+export function shuffleBag(t: SandboxTable, bagId: string, random: () => number = Math.random): SandboxTable {
+  const bag = t.pieces?.find((p) => p.id === bagId);
+  return bag ? setBag(t, bagId, { items: shuffled(bagItems(bag), random) }) : t;
+}
+
+/** Things moved within a bag, as its search shows them (top first), as reorderStack does a stack's cards. */
+export function reorderBag(t: SandboxTable, bagId: string, picked: number[], to: number): SandboxTable {
+  const bag = t.pieces?.find((p) => p.id === bagId);
+  if (!bag) return t;
+  const topFirst = [...bagItems(bag)].reverse();
+  const moving = picked.map((i) => topFirst[i]).filter((x): x is BagItem => !!x);
+  const rest = topFirst.filter((x) => !moving.includes(x));
+  const at = Math.max(0, Math.min(rest.length, to));
+  return setBag(t, bagId, { items: [...rest.slice(0, at), ...moving, ...rest.slice(at)].reverse() });
+}
+
+/** Where things taken out of a bag are laid: just to its right. */
+const besideBag = (bag: TablePiece) => ({ x: bag.x + pieceSizeOf(bag).w / 2 + CARD_W * 0.7, y: bag.y });
+
+/**
+ * A thing out of a bag put on the table at a point: a card as a new stack there (onto one already lying just
+ * there), a piece where it's put (a die moved off any other).
+ */
+export function placeItem(t: SandboxTable, item: BagItem, at: { x: number; y: number }, stackId: string): SandboxTable {
+  if (item.card) {
+    const there = t.stacks.find((s) => Math.hypot(s.x - at.x, s.y - at.y) < 1);
+    return putOnTable(t, [item.card], { ...at, angle: 0 }, stackId, there);
+  }
+  const piece = { ...item.piece!, x: Math.round(at.x), y: Math.round(at.y) };
+  return separateDice(addPiece(t, piece), [piece.id]);
+}
+
+/** The top thing out of a bag, laid beside it (a card face up or down). The table as it was if there's nothing. */
+export function drawFromBag(t: SandboxTable, bagId: string, id: string, faceUp?: boolean): SandboxTable {
+  const bag = t.pieces?.find((p) => p.id === bagId);
+  const out = takeFromBag(t, bagId, id);
+  if (!bag || !out) return t;
+  const item = out.item.card && faceUp !== undefined ? { card: { ...out.item.card, faceUp } } : out.item;
+  return placeItem(out.table, item, besideBag(bag), id);
+}
+
+/**
+ * Everything in a bag laid out beside it: its cards in one stack (in the bag's order), its pieces in rows below
+ * that. Not a supply's (there's no end to it).
+ */
+export function emptyBag(t: SandboxTable, bagId: string, ids: () => string): SandboxTable {
+  const bag = t.pieces?.find((p) => p.id === bagId);
+  const items = bag && !bag.supply ? bagItems(bag) : [];
+  if (!bag || !items.length) return t;
+  const at = besideBag(bag);
+  let table = setBag(t, bagId, { items: [] });
+  const cards = items.flatMap((i) => (i.card ? [i.card] : []));
+  if (cards.length) table = putOnTable(table, cards, { ...at, angle: 0 }, ids());
+  const pieces = items.flatMap((i) => (i.piece ? [i.piece] : []));
+  const step = Math.max(...pieces.map((p) => pieceSizeOf(p).w), 0) + DICE_SPACE * 4;
+  const cols = Math.max(1, Math.ceil(Math.sqrt(pieces.length)));
+  pieces.forEach((p, i) => {
+    const spot = { x: at.x + CARD_W + (i % cols) * step, y: at.y - step / 2 + Math.floor(i / cols) * step };
+    table = addPiece(table, { ...p, x: Math.round(spot.x), y: Math.round(spot.y) });
+  });
+  return separateDice(table, pieces.map((p) => p.id));
+}
+
+/** Things taken out of a bag (by their keys: see itemKey). */
+export function removeBagItems(t: SandboxTable, bagId: string, keys: string[]): SandboxTable {
+  const bag = t.pieces?.find((p) => p.id === bagId);
+  return bag ? setBag(t, bagId, { items: bagItems(bag).filter((i) => !keys.includes(itemKey(i))) }) : t;
+}
+
+/** Where things taken out of a bag go: beside it. */
+export const besideBagOf = (bag: TablePiece) => besideBag(bag);
+
+/** A supply made an ordinary (empty) bag again. */
+export const endSupply = (t: SandboxTable, bagId: string) => setBag(t, bagId, { supply: undefined });
 /** Which of a track's spaces a table point is over (0 the first), within its spaces. */
 export function trackSpaceAt(p: TablePiece, x: number): number {
   const k = p.scale ?? 1;
   const spaces = p.spaces ?? 10;
   const left = p.x - (trackSize(spaces).w * k) / 2 + TRACK_END * k;
   return Math.min(spaces - 1, Math.max(0, Math.floor((x - left) / (TRACK_SPACE * k))));
+}
+
+/** What a piece is called (in a menu's title, or a search). */
+export function pieceName(p: TablePiece): string {
+  if (p.kind === 'die') return `d${p.sides ?? 6}`;
+  if (p.kind === 'meeple') return PIECE_SHAPES.find((s) => s.shape === (p.shape ?? 'meeple'))?.name ?? 'Piece';
+  if (p.label) return p.label;
+  return p.kind[0].toUpperCase() + p.kind.slice(1);
 }
 
 /** Takes a piece off the table. */
@@ -887,11 +1003,17 @@ export type Source =
   | { kind: 'top'; stackId: string }
   | { kind: 'card'; stackId: string; iid: string }
   | { kind: 'stack'; stackId: string }
-  | { kind: 'hand'; hand: number; iid: string };
+  | { kind: 'hand'; hand: number; iid: string }
+  /** A card out of a bag (one from a supply isn't in it: there's nothing to take). */
+  | { kind: 'bag'; bagId: string; iid: string };
 
 /** The cards a source holds (bottom first), without taking them. */
 export function cardsOf(t: SandboxTable, src: Source): SandboxCard[] {
   if (src.kind === 'hand') return t.hands[src.hand].filter((c) => c.iid === src.iid);
+  if (src.kind === 'bag') {
+    const bag = t.pieces?.find((p) => p.id === src.bagId);
+    return bag ? bagItems(bag).flatMap((i) => (i.card?.iid === src.iid ? [i.card] : [])) : [];
+  }
   const s = t.stacks.find((st) => st.id === src.stackId);
   if (!s) return [];
   if (src.kind === 'card') return s.cards.filter((c) => c.iid === src.iid);
@@ -902,6 +1024,10 @@ export function cardsOf(t: SandboxTable, src: Source): SandboxCard[] {
 export function take(t: SandboxTable, src: Source): SandboxTable {
   if (src.kind === 'hand') {
     return { ...t, hands: t.hands.map((h, i) => (i === src.hand ? h.filter((c) => c.iid !== src.iid) : h)) };
+  }
+  if (src.kind === 'bag') {
+    const bag = t.pieces?.find((p) => p.id === src.bagId);
+    return bag ? setBag(t, src.bagId, { items: bagItems(bag).filter((i) => i.card?.iid !== src.iid) }) : t;
   }
   const stacks = t.stacks.flatMap((s) => {
     if (s.id !== src.stackId) return [s];
@@ -1140,7 +1266,7 @@ export const MAX_TABLE_CARDS = 1000;
 
 /** How many cards a table holds: on it, in its hands and in its trash. */
 export function tableCardCount(t: SandboxTable): number {
-  const inBags = (t.pieces ?? []).reduce((n, p) => n + (p.cards?.length ?? 0), 0);
+  const inBags = (t.pieces ?? []).reduce((n, p) => n + bagItems(p).filter((i) => i.card).length, 0);
   return t.stacks.reduce((n, s) => n + s.cards.length, 0) + t.hands.reduce((n, h) => n + h.length, 0) + (t.trash?.length ?? 0) + inBags;
 }
 
@@ -1225,7 +1351,12 @@ export function prune(t: SandboxTable, decks: Deck[]): SandboxTable {
   const hands = t.hands.map((h) => h.filter(keep));
   const trash = (t.trash ?? []).filter(keep);
   // Cards in bags too.
-  const pieces = t.pieces?.map((p) => (p.cards && !p.cards.every(keep) ? { ...p, cards: p.cards.filter(keep) } : p));
+  const keepItem = (i: BagItem) => !i.card || keep(i.card);
+  const pieces = t.pieces?.map((p) => {
+    const items = bagItems(p);
+    const supplyGone = p.supply && !keepItem(p.supply);
+    return items.every(keepItem) && !supplyGone ? p : { ...p, cards: undefined, items: items.filter(keepItem), ...(supplyGone ? { supply: undefined } : {}) };
+  });
   const same =
     stacks.length === t.stacks.length &&
     stacks.every((s, i) => s.cards.length === t.stacks[i].cards.length) &&

@@ -5,7 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import * as haptics from '../lib/haptics';
 import { offerTipSoon } from '../lib/tips';
-import type { SandboxCard } from '../lib/sandbox';
+import { pieceName, pieceSizeOf } from '../lib/sandbox';
+import type { SandboxCard, TablePiece } from '../lib/sandbox';
 import type { Deck } from '../lib/types';
 import { colors } from '../theme';
 import { ActionSheet } from './ActionSheet';
@@ -14,6 +15,7 @@ import { Button } from './Button';
 import { CardView } from './CardView';
 import { CardZoom } from './CardZoom';
 import { ReorderableGrid } from './ReorderableGrid';
+import { TablePieceView } from './TablePieceView';
 import type { GridHold } from './ReorderableGrid';
 import { Text } from './Text';
 
@@ -22,9 +24,16 @@ const IN_MS = 240;
 const OUT_MS = 180;
 const COLUMNS = 4;
 
+/** Something being searched through: a card, or (in a bag) a piece. Its key is the card's instance or the piece's id. */
+export interface SearchEntry {
+  key: string;
+  card?: SandboxCard;
+  piece?: TablePiece;
+}
+
 /**
- * Looking through a stack on a table, as a deck's search did: every card, top first and face up, slid up over the
- * table (a layer of it, not a separate window, so a drag can carry on out of it onto the table).
+ * Looking through a stack (or a bag) on a table, as a deck's search did: everything in it, top first and face up,
+ * slid up over the table (a layer of it, not a separate window, so a drag can carry on out of it onto the table).
  *
  * - Tap a card for its options.
  * - Hold a card to pick it up and drag it to another place in the stack; tap more with a second finger to carry
@@ -34,10 +43,12 @@ const COLUMNS = 4;
  */
 export function StackSearchPanel({
   title,
-  cards,
+  entries: cards,
   decks,
   visible,
   leaving,
+  noun = ['card', 'cards'],
+  canTakeOut = true,
   onReorder,
   onTakeOut,
   cardActions,
@@ -46,8 +57,12 @@ export function StackSearchPanel({
   onClosed,
 }: {
   title: string;
-  /** The stack's cards, top first. */
-  cards: SandboxCard[];
+  /** What's in it, top first. */
+  entries: SearchEntry[];
+  /** What to call one of them, and several. */
+  noun?: [string, string];
+  /** Held ones can be taken out onto the table (by tapping Close with another finger): cards from a stack. */
+  canTakeOut?: boolean;
   decks: Map<string, Deck>;
   visible: boolean;
   /** Cards have been taken out and are being carried over the table: fade away, but stay until they're dropped. */
@@ -88,7 +103,7 @@ export function StackSearchPanel({
   // A second finger lifting off Close while the first holds cards: take them out, the first finger still on them.
   const touchEnd = (e: GestureResponderEvent) => {
     const held = holding;
-    if (!held) return;
+    if (!held || !canTakeOut) return;
     const tap = e.nativeEvent.changedTouches.find((t) => t.identifier !== held.touchId);
     const holder = e.nativeEvent.touches.find((t) => t.identifier === held.touchId);
     if (!tap || !holder) return;
@@ -100,7 +115,7 @@ export function StackSearchPanel({
       held.letGo();
       setHolding(null);
       onTakeOut(
-        held.picked.map((i) => cards[i]?.iid).filter((iid): iid is string => !!iid),
+        held.picked.map((i) => cards[i]?.key).filter((key): key is string => !!key),
         finger,
       );
     });
@@ -109,7 +124,7 @@ export function StackSearchPanel({
   useEffect(() => {
     if (visible) {
       // A tip, the first time: taking cards out.
-      offerTipSoon('search-take-out', 1200);
+      if (canTakeOut) offerTipSoon('search-take-out', 1200);
       fade.setValue(1);
       Animated.timing(open, { toValue: 1, duration: IN_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     } else {
@@ -125,9 +140,29 @@ export function StackSearchPanel({
   }, [leaving, fade]);
 
   const cardWidth = (width - 16 * 2 - 8 * (COLUMNS - 1)) / COLUMNS;
-  const selectedCard = selected ? cards.find((c) => c.iid === selected) : undefined;
+  const selectedEntry = selected ? cards.find((c) => c.key === selected) : undefined;
+  const selectedCard = selectedEntry?.card;
   const deckOf = (c: SandboxCard) => decks.get(c.deckId);
   const cardOf = (c: SandboxCard) => deckOf(c)?.cards.find((k) => k.id === c.cardId);
+
+  /** How a thing looks in the grid: a card face up, or a piece shrunk to fit a card's room. */
+  const thumb = (entry: SearchEntry, lifted: boolean) => {
+    if (entry.card) {
+      const deck = deckOf(entry.card);
+      return deck ? <CardView deck={deck} card={cardOf(entry.card)} width={cardWidth} sharp={lifted} /> : null;
+    }
+    if (!entry.piece) return null;
+    const own = pieceSizeOf({ ...entry.piece, scale: 1 });
+    const room = cardWidth * 1.2;
+    const fit = Math.min(1, (cardWidth * 0.86) / own.w, (room * 0.86) / own.h);
+    return (
+      <View style={{ width: cardWidth, height: room, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ width: own.w, height: own.h, transform: [{ scale: fit }] }}>
+          <TablePieceView piece={{ ...entry.piece, x: own.w / 2, y: own.h / 2, scale: 1 }} />
+        </View>
+      </View>
+    );
+  };
 
   return (
     <Animated.View
@@ -152,65 +187,62 @@ export function StackSearchPanel({
             </Pressable>
           ) : null}
         </View>
-        <Text style={styles.hint}>Tap for options · Hold to move · Hold and tap Close to take out</Text>
+        <Text style={styles.hint}>{canTakeOut ? 'Tap for options · Hold to move · Hold and tap Close to take out' : 'Tap for options · Hold to move'}</Text>
       </View>
       {cards.length ? (
         <ReorderableGrid
           items={cards}
-          keyOf={(c) => c.iid}
+          keyOf={(c) => c.key}
           columns={COLUMNS}
           itemWidth={cardWidth}
           gap={8}
           padding={16}
           renderItem={(item) => {
-            const deck = deckOf(item);
-            return deck ? (
+            const look = thumb(item, false);
+            return look ? (
               <View>
-                <CardView deck={deck} card={cardOf(item)} width={cardWidth} />
+                {look}
                 {selecting ? (
-                  <View style={[styles.tick, picked.includes(item.iid) && styles.ticked]}>
-                    {picked.includes(item.iid) ? <Text style={styles.tickMark}>✓</Text> : null}
+                  <View style={[styles.tick, picked.includes(item.key) && styles.ticked]}>
+                    {picked.includes(item.key) ? <Text style={styles.tickMark}>✓</Text> : null}
                   </View>
                 ) : null}
               </View>
             ) : null;
           }}
-          renderLifted={(item) => {
-            const deck = deckOf(item);
-            return deck ? <CardView deck={deck} card={cardOf(item)} width={cardWidth} sharp /> : null;
-          }}
+          renderLifted={(item) => thumb(item, true)}
           onPress={(item) => {
             // Selecting: a tap ticks it (or unticks it). Otherwise, its own options.
             if (selecting) {
-              setPicked((p) => (p.includes(item.iid) ? p.filter((x) => x !== item.iid) : [...p, item.iid]));
+              setPicked((p) => (p.includes(item.key) ? p.filter((x) => x !== item.key) : [...p, item.key]));
               haptics.tick();
               return;
             }
-            setSelected(item.iid);
+            setSelected(item.key);
             setSheetOpen(true);
           }}
           onMove={onReorder}
           onHold={setHolding}
           // Holding a ticked card picks up every ticked card (it first, the rest in the stack's order).
           liftWith={(index) => {
-            const held = cards[index]?.iid;
+            const held = cards[index]?.key;
             if (!selecting || !held || !picked.includes(held)) return [index];
-            return [index, ...cards.flatMap((c, i) => (i !== index && picked.includes(c.iid) ? [i] : []))];
+            return [index, ...cards.flatMap((c, i) => (i !== index && picked.includes(c.key) ? [i] : []))];
           }}
         />
       ) : (
-        <Text style={styles.empty}>No cards here.</Text>
+        <Text style={styles.empty}>Nothing here.</Text>
       )}
       <View ref={closeRef} style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 12 }}>
         {selecting ? (
           <View style={styles.pickRow}>
             <Button
               label={picked.length === cards.length ? 'Deselect All' : 'Select All'}
-              onPress={() => setPicked(picked.length === cards.length ? [] : cards.map((c) => c.iid))}
+              onPress={() => setPicked(picked.length === cards.length ? [] : cards.map((c) => c.key))}
               style={{ flex: 1 }}
             />
             <Button
-              label={picked.length ? `Move ${picked.length} ${picked.length === 1 ? 'card' : 'cards'}…` : 'Tap cards to pick them'}
+              label={picked.length ? `Move ${picked.length} ${picked.length === 1 ? noun[0] : noun[1]}…` : `Tap ${noun[1]} to pick them`}
               variant="primary"
               disabled={!picked.length}
               onPress={() => setPickSheetOpen(true)}
@@ -226,9 +258,9 @@ export function StackSearchPanel({
       {/* Where the picked cards go (top first, as the stack has them). */}
       <ActionSheet
         visible={pickSheetOpen}
-        title={`${picked.length} ${picked.length === 1 ? 'card' : 'cards'}`}
+        title={`${picked.length} ${picked.length === 1 ? noun[0] : noun[1]}`}
         onClose={() => setPickSheetOpen(false)}
-        actions={pickActions(cards.filter((c) => picked.includes(c.iid)).map((c) => c.iid)).map((a) => ({
+        actions={pickActions(cards.filter((c) => picked.includes(c.key)).map((c) => c.key)).map((a) => ({
           ...a,
           onPress: () => {
             a.onPress();
@@ -243,7 +275,7 @@ export function StackSearchPanel({
           setSheetOpen(false);
           setZoomedHere(null);
         }}
-        title={selectedCard ? cardOf(selectedCard)?.name : undefined}
+        title={selectedCard ? cardOf(selectedCard)?.name : selectedEntry?.piece ? pieceName(selectedEntry.piece) : undefined}
         header={
           selectedCard && deckOf(selectedCard) ? (
             <View style={{ alignItems: 'center', marginBottom: 6 }}>
@@ -254,7 +286,9 @@ export function StackSearchPanel({
         actions={
           selectedCard
             ? [{ label: 'Full size', keepsOpen: true, onPress: () => setZoomedHere(selectedCard.iid) }, ...cardActions(selectedCard.iid)]
-            : []
+            : selectedEntry
+              ? cardActions(selectedEntry.key)
+              : []
         }
         overlay={
           zoomedHere && selectedCard?.iid === zoomedHere && deckOf(selectedCard) && cardOf(selectedCard) ? (

@@ -5,7 +5,7 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 
 import * as haptics from '../lib/haptics';
-import { defaultPieceColor, pieceSizeOf, rollDie, TEXT_SIZE, timerText } from '../lib/sandbox';
+import { bagItems, defaultPieceColor, pieceSizeOf, rollDie, TEXT_SIZE, timerText } from '../lib/sandbox';
 import { imageUri, isSeeThrough } from '../lib/storage';
 import type { TablePiece } from '../lib/sandbox';
 import { colors } from '../theme';
@@ -949,7 +949,8 @@ function Bag({ piece, color, w, h, selected }: { piece: TablePiece; color: strin
     [0.68, 0.33],
     [0.32, 0.33],
   ];
-  const n = piece.cards?.length ?? 0;
+  // How many things are in it (a supply never runs out).
+  const n = piece.supply ? '∞' : bagItems(piece).length;
   return (
     <View style={StyleSheet.absoluteFill}>
       <Canvas style={art.style}>

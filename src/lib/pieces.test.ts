@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, trackSize, trackSpaceAt } from './sandbox.ts';
+import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, trackSize, trackSpaceAt } from './sandbox.ts';
 
 const table = () => newSandbox('t', 'Test', 0);
 
@@ -156,28 +156,46 @@ test('a card spot is found under a point; a plain zone isn’t one', () => {
   assert.equal(spotAt(t, 140, 160)?.id, 's');
   assert.equal(spotAt(t, 800, 800), null);
 });
-test('cards dropped in a bag are drawn out one at a time, at random, beside it; and it can be emptied', () => {
-  const card = (iid: string) => ({ iid, deckId: 'd', cardId: iid, faceUp: true });
+test('a bag holds cards and pieces like a stack: the top comes out first; shuffled and searched like one', () => {
+  const card = (iid: string) => ({ card: { iid, deckId: 'd', cardId: iid, faceUp: true } });
   let t = addPiece(table(), newPiece('bag', 'b', { x: 1000, y: 1000 }));
-  t = putInBag(t, 'b', [card('x'), card('y'), card('z')]);
-  assert.equal(tableCardCount(t), 3);
-  const one = drawFromBag(t, 'b', 's1', false, () => 0.5);
-  assert.equal(one.pieces![0].cards!.length, 2);
-  assert.equal(one.stacks.length, 1);
-  assert.equal(one.stacks[0].cards[0].iid, 'y');
+  t = putInBag(t, 'b', [card('x'), { piece: newPiece('die', 'die1', { x: 5, y: 5 }) }, card('z')]);
+  assert.equal(tableCardCount(t), 2);
+  assert.equal(bagItems(t.pieces![0]).length, 3);
+  // The top (last in) comes out first, beside the bag.
+  const one = drawFromBag(t, 'b', 's1', false);
+  assert.equal(one.stacks[0].cards[0].iid, 'z');
   assert.equal(one.stacks[0].cards[0].faceUp, false);
-  // A second draw goes onto the first.
-  const two = drawFromBag(one, 'b', 's2', false, () => 0);
-  assert.equal(two.stacks.length, 1);
-  assert.equal(two.stacks[0].cards.length, 2);
-  const emptied = emptyBag(t, 'b', 's3', () => 0.3);
-  assert.equal(emptied.pieces![0].cards!.length, 0);
-  assert.equal(emptied.stacks[0].cards.length, 3);
-  assert.equal(drawFromBag(emptied, 'b', 's4'), emptied);
+  const two = drawFromBag(one, 'b', 's2');
+  assert.ok(two.pieces!.some((p) => p.id === 'die1' && p.x > 1000));
+  // Rearranged as a search shows it (top first): the bottom card to the top.
+  const moved = reorderBag(t, 'b', [2], 0);
+  assert.deepEqual(bagItems(moved.pieces![0]).map(itemKey), ['die1', 'z', 'x']);
+  assert.equal(bagItems(shuffleBag(t, 'b', () => 0).pieces![0]).length, 3);
+  // Emptied out: cards in a stack, pieces beside it.
+  const emptied = emptyBag(t, 'b', () => 'new');
+  assert.equal(bagItems(emptied.pieces!.find((p) => p.id === 'b')!).length, 0);
+  assert.equal(emptied.stacks[0].cards.length, 2);
+  assert.ok(emptied.pieces!.some((p) => p.id === 'die1'));
   // Gone with their deck.
-  assert.equal(prune(t, []).pieces![0].cards!.length, 0);
+  assert.equal(bagItems(prune(t, []).pieces![0]).length, 1);
 });
 
+test('a supply never runs out: each drawn is a fresh one, and only the same thing goes back in', () => {
+  const die = newPiece('die', 'd1', { x: 0, y: 0 }, 20);
+  let t = addPiece(table(), newPiece('bag', 'b', { x: 1000, y: 1000 }));
+  assert.ok(allAlike([{ piece: die }, { piece: { ...die, id: 'd2', value: 3 } }]));
+  assert.equal(allAlike([{ piece: die }, { piece: newPiece('die', 'd3', { x: 0, y: 0 }, 6) }]), false);
+  t = putInBag(t, 'b', [{ piece: die }], true);
+  const bag = () => t.pieces!.find((p) => p.id === 'b')!;
+  assert.equal(bagItems(bag()).length, 0);
+  const a = drawFromBag(t, 'b', 'fresh1');
+  const b = drawFromBag(a, 'b', 'fresh2');
+  assert.deepEqual(b.pieces!.filter((p) => p.kind === 'die').map((p) => p.id).sort(), ['fresh1', 'fresh2']);
+  assert.equal(bagTakes(bag(), [{ piece: { ...die, id: 'other' } }]), true);
+  assert.equal(bagTakes(bag(), [{ piece: newPiece('die', 'x', { x: 0, y: 0 }, 6) }]), false);
+  assert.equal(endSupply(t, 'b').pieces![0].supply, undefined);
+});
 test('a track’s spaces are found under a point, ends included', () => {
   const tr = newPiece('track', 'tr', { x: 1000, y: 500 });
   const w = trackSize(10).w;

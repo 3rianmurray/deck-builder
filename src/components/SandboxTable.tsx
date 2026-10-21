@@ -51,9 +51,21 @@ import {
   PIECE_SHAPES,
   rollable,
   bagAt,
+  bagItems,
+  bagTakes,
+  allAlike,
   drawFromBag,
   emptyBag,
+  endSupply,
+  itemKey,
+  placeItem,
   putInBag,
+  removeBagItems,
+  besideBagOf,
+  pieceName,
+  reorderBag,
+  shuffleBag,
+  takeFromBag,
   trackSpaceAt,
   TRACK_MAX,
   pieceSizeOf,
@@ -106,7 +118,7 @@ import {
   MAX_TABLE_CARDS,
   tableCardCount,
 } from '../lib/sandbox';
-import type { Camera, CardSize, PieceKind, PiecePart, PieceShape, SandboxCard, SandboxStack, SandboxTable, Source, TablePiece } from '../lib/sandbox';
+import type { BagItem, Camera, CardSize, PieceKind, PiecePart, PieceShape, SandboxCard, SandboxStack, SandboxTable, Source, TablePiece } from '../lib/sandbox';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { tokenPicture } from '../lib/images';
@@ -267,6 +279,8 @@ interface PieceDrag {
   ids: string[];
   dx: number;
   dy: number;
+  /** A piece just taken out of a bag (it isn't on the table till it's put down): which bag, and it, where it set off. */
+  out?: { bagId: string; piece: TablePiece };
 }
 
 /** Where a token's picture comes from. */
@@ -730,7 +744,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const flipButton = { x: FLIP_MARGIN, y: handTop - HAND_TAB_H - FLIP_MARGIN - FLIP_SIZE, size: FLIP_SIZE };
   /** A double tap: the card (or the whole stack) turned over where it lies. */
   const flipFromTap = (src: Source) => {
-    if (!table) return;
+    if (!table || src.kind === 'bag') return;
     if (src.kind === 'hand') commit(flipInHand(table, src.hand, src.iid));
     // Turned over to face the way the stack it lies on does, it joins it.
     else commit(settleOnto(flipStack(table, src.stackId), src.stackId));
@@ -786,10 +800,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       return;
     }
     if (piece.kind === 'bag') {
-      // A card drawn at random, face down beside it (nothing, with a buzz, if it's empty).
-      if (!piece.cards?.length) return haptics.warn();
-      commit(drawFromBag(table, id, newId()));
-      haptics.deal();
+      // As a stack: a tap picks it out, a second opens its options.
+      if (pickedPieces.length === 1 && pickedPieces[0] === id) {
+        setMenu({ kind: 'piece', id });
+        return;
+      }
+      setSelected([]);
+      setPickedPieces([id]);
+      haptics.tick();
       return;
     }
     if (piece.kind === 'track') {
@@ -824,12 +842,58 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
    */
   const dropPieces = (drag: PieceDrag) => {
     setPieceDrag(null);
-    const lead = table?.pieces?.find((p) => p.id === drag.lead);
-    if (!table || !lead) return;
+    if (!table) return;
+    // A piece just taken out of a bag: put on the table (or dropped on a bag; back on its own, it's left there).
+    if (drag.out) {
+      const { bagId, piece } = drag.out;
+      const to = { x: piece.x + drag.dx, y: piece.y + drag.dy };
+      const source = table.pieces?.find((p) => p.id === bagId);
+      if (!source) return;
+      const taken = source.supply ? table : removeBagItems(table, bagId, [piece.id]);
+      const onto = bagAt(table, to.x, to.y);
+      if (onto?.id === bagId) return;
+      if (onto) return dropIntoBag(onto.id, [{ piece }], taken);
+      commit(placeItem(taken, { piece }, gridOn ? snapToGrid({ ...to, angle: 0 }, gridStep) : to, newId()));
+      return haptics.drop();
+    }
+    const lead = table.pieces?.find((p) => p.id === drag.lead);
+    if (!lead) return;
     const to = { x: lead.x + drag.dx, y: lead.y + drag.dy };
+    // Dropped on a bag (not one of those being dragged): into it.
+    const bag = bagAt(table, to.x, to.y, drag.ids);
+    if (bag) {
+      const pieces = (table.pieces ?? []).filter((p) => drag.ids.includes(p.id));
+      return dropIntoBag(bag.id, pieces.map((piece) => ({ piece })), { ...table, pieces: (table.pieces ?? []).filter((p) => !drag.ids.includes(p.id)) });
+    }
     const snapped = gridOn ? snapToGrid({ ...to, angle: 0 }, gridStep) : to;
     commit(movePieces(table, drag.ids, { x: snapped.x - lead.x, y: snapped.y - lead.y }));
     haptics.drop();
+  };
+  /**
+   * Things dropped on a bag (`without`: the table with them already taken from where they were). An empty bag
+   * given one thing, or several of the very same, asks: an endless supply of it, or just these? A supply takes
+   * back only what it supplies; anything else stays where it was.
+   */
+  const dropIntoBag = (bagId: string, items: BagItem[], without: SandboxTable) => {
+    const bag = without.pieces?.find((p) => p.id === bagId);
+    if (!bag || !items.length) return;
+    if (!bagTakes(bag, items)) return haptics.warn();
+    const put = (asSupply: boolean) => {
+      commit(putInBag(without, bagId, items, asSupply));
+      haptics.drop();
+    };
+    // Back into a supply: they just go.
+    if (bag.supply) return put(false);
+    if (!bagItems(bag).length && allAlike(items)) {
+      const n = items.length;
+      Alert.alert(n === 1 ? 'Into the bag' : `${n} into the bag`, 'Make the bag an endless supply of it, or put in just what’s here?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: n === 1 ? 'Just this one' : `Just these ${n}`, onPress: () => put(false) },
+        { text: 'Endless supply', onPress: () => put(true) },
+      ]);
+      return;
+    }
+    put(false);
   };
   /**
    * A picture for a token, from Photos, Files or the camera, made into a token's (see tokenPicture: a cut-out
@@ -926,6 +990,19 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const turn = gestureState.get().groupAngle;
     // Nothing left to move (e.g. trashed mid-drag), or not moved at all.
     if (!table || !chosen.length || (!by.x && !by.y && !turn)) return;
+    // Dropped on a bag: all of it (cards and pieces picked out) into it.
+    const grab = gestureState.get().groupFrom;
+    const over = turn ? null : bagAt(table, grab.x + by.x, grab.y + by.y, pickedPieces);
+    if (over) {
+      const cardsIn = chosen.flatMap((id) => table.stacks.find((s) => s.id === id && !s.locked)?.cards ?? []);
+      const piecesIn = (table.pieces ?? []).filter((p) => pickedPieces.includes(p.id) && p.id !== over.id);
+      const lockedOut = new Set(table.stacks.filter((s) => s.locked).map((s) => s.id));
+      return dropIntoBag(over.id, [...cardsIn.map((card) => ({ card })), ...piecesIn.map((piece) => ({ piece }))], {
+        ...table,
+        stacks: table.stacks.filter((s) => !chosen.includes(s.id) || lockedOut.has(s.id)),
+        pieces: (table.pieces ?? []).filter((p) => !piecesIn.includes(p)),
+      });
+    }
     const place = gridOn ? (p: { x: number; y: number; angle: number }) => snapToGrid(p, gridStep) : undefined;
     const moved = turn ? rotateStacks(table, chosen, gestureState.get().groupFrom, turn, by, place) : moveStacks(table, chosen, by, place);
     // Counters and dice picked out with them come too (as far as the finger went).
@@ -1129,11 +1206,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       gridPickedDice: () => void;
       addPieceToTable: (kind: PieceKind, sides?: number, shape?: PieceShape, extra?: Partial<TablePiece>) => void;
       setZoneSize: (z: { id: string; w: number; h: number } | null) => void;
+      dropIntoBag: (bagId: string, items: BagItem[], without: SandboxTable) => void;
       dropZoneSize: () => void;
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, addPieceToTable, setZoneSize, dropZoneSize, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, addPieceToTable, dropIntoBag, setZoneSize, dropZoneSize, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -1143,7 +1221,17 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       /** A zone being resized by its grip: where the finger landed (on the table), and its own size and scale then. */
       zone: null as null | { id: string; from: Pt; size: { w: number; h: number }; scale: number },
       /** The counter or die pressed: which part, where it lay and where the finger landed (on the table), and whether it's been dragged. */
-      piece: null as null | { id: string; part: PiecePart; group: string[]; from: Pt; moved: boolean },
+      piece: null as null | {
+        id: string;
+        part: PiecePart;
+        group: string[];
+        from: Pt;
+        moved: boolean;
+        /** A bag held a moment: a drag moves the bag itself, not the top thing out of it. */
+        whole?: boolean;
+        /** A piece just taken out of a bag (see PieceDrag). */
+        out?: { bagId: string; piece: TablePiece };
+      },
       /** Waiting to see if a press on a stack is held (the whole stack comes) rather than dragged (its top card). */
       holdTimer: null as null | ReturnType<typeof setTimeout>,
       /** The press is on a selected stack: a drag moves the whole group. */
@@ -1302,7 +1390,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       // From the hand: upright on screen, under the finger (at its hand size while it's still over the hand).
       touch.offset = { x: 0, y: 0 };
       touch.screenAngle = 0;
-    } else {
+    } else if (src.kind !== 'bag') {
       const stack = L.table.stacks.find((s) => s.id === src.stackId)!;
       const mid = toScreen(cam, stack.x, stack.y);
       touch.offset = { x: mid.x - f.now.x, y: mid.y - f.now.y };
@@ -1395,7 +1483,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const w = toTable(readCamera(), p.x, p.y);
     // Dropped on a bag: into it.
     const bag = bagAt(L.table, w.x, w.y);
-    if (bag) return L.commit(putInBag(takeAll(L.table, sources), bag.id, cards));
+    if (bag) return L.dropIntoBag(bag.id, cards.map((card) => ({ card })), takeAll(L.table, sources));
     const whole = sources.find((src) => src.kind === 'stack');
     // Only onto a stack facing the same way.
     const face = cards[cards.length - 1].faceUp;
@@ -1465,7 +1553,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const startGroup = () => {
       const L = latest.get();
       const f = touch.fingers.get(touch.first);
-      if (!f || touch.pressed?.kind === 'hand' || !touch.pressed) return;
+      if (!f || !touch.pressed || touch.pressed.kind === 'hand' || touch.pressed.kind === 'bag') return;
       touch.mode = 'group';
       touch.groupFrom = toTable(readCamera(), f.start.x, f.start.y);
       touch.groupLead = touch.pressed.stackId;
@@ -1498,6 +1586,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.holdTimer = setTimeout(() => {
         touch.holdTimer = null;
         if (touch.mode !== 'piece' || touch.piece?.id !== pressed || touch.piece.moved) return;
+        // A bag on its own, held: as a stack held, a drag now moves the whole of it.
+        const held = latest.get();
+        if (touch.piece.group.length === 1 && held.table?.pieces?.find((p) => p.id === pressed)?.kind === 'bag') {
+          touch.piece.whole = true;
+          haptics.lift();
+          return;
+        }
         touch.mode = 'button';
         touch.piece = null;
         haptics.lift();
@@ -1506,6 +1601,41 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         const many = now.pickedPieces.includes(pressed) && now.pickedPieces.length + now.selected.length > 1;
         now.setMenu(many ? { kind: 'selection' } : { kind: 'piece', id: pressed });
       }, HOLD_PIECE_MS);
+    };
+    /**
+     * The top thing out of a bag (a fresh one, from a supply), under the finger: a card carried as one off a stack
+     * is; a piece dragged as a piece is (it's on the table once it's put down).
+     */
+    const pullFromBag = (bag: TablePiece, at: { x: number; y: number }) => {
+      const L = latest.get();
+      const items = bagItems(bag);
+      const top = bag.supply ?? items[items.length - 1];
+      if (!top) return;
+      const id = newId();
+      const item: BagItem = bag.supply ? (top.card ? { card: { ...top.card, iid: id } } : { piece: { ...top.piece!, id } }) : top;
+      const w = toTable(readCamera(), at.x, at.y);
+      haptics.lift();
+      if (item.card) {
+        touch.piece = null;
+        touch.mode = 'carry';
+        touch.sources = [{ kind: 'bag', bagId: bag.id, iid: item.card.iid }];
+        touch.cards = [item.card];
+        // Upright on the table, its middle under the finger.
+        touch.offset = { x: 0, y: 0 };
+        touch.screenAngle = cameraAngle(readCamera());
+        touch.scaleShown = 0;
+        touch.snapped = false;
+        touch.turnedOver = false;
+        touch.twist = null;
+        touch.buttonFingers.clear();
+        L.setHeld({ sources: touch.sources, cards: touch.cards });
+        showCarried();
+        return;
+      }
+      const piece = { ...item.piece!, x: w.x, y: w.y };
+      const out = { bagId: bag.id, piece };
+      touch.piece = { id: piece.id, part: 'body', group: [piece.id], from: w, moved: true, out };
+      L.setPieceDrag({ lead: piece.id, ids: [piece.id], dx: 0, dy: 0, out });
     };
     const down = (changed: Touch[]) => {
       const L = latest.get();
@@ -1737,12 +1867,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         if (!touch.piece.moved && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) <= TAP_SLOP) return;
         if (!touch.piece.moved) {
           clearHold();
+          // A quick drag from a bag (alone) takes its top thing out, as from a stack; held first, the bag moves.
+          const bag = latest.get().table?.pieces?.find((p) => p.id === touch.piece!.id && p.kind === 'bag');
+          if (bag && !touch.piece.whole && touch.piece.group.length === 1 && (bag.supply || bagItems(bag).length)) return pullFromBag(bag, f.now);
           touch.piece.moved = true;
           haptics.lift();
         }
         const w = toTable(readCamera(), f.now.x, f.now.y);
-        const { id, group, from } = touch.piece;
-        latest.get().setPieceDrag({ lead: id, ids: group, dx: w.x - from.x, dy: w.y - from.y });
+        const { id, group, from, out } = touch.piece;
+        latest.get().setPieceDrag({ lead: id, ids: group, dx: w.x - from.x, dy: w.y - from.y, ...(out ? { out } : {}) });
         return;
       }
       if (touch.mode === 'lasso') {
@@ -1862,7 +1995,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         clearHold();
         const src = touch.pressed;
         const wasSelected = touch.groupPress && touch.mode === 'press';
-        if (src) {
+        if (src && src.kind !== 'bag') {
           const key = src.kind === 'hand' ? `h:${src.iid}` : `s:${src.stackId}`;
           const now = Date.now();
           if (touch.lastTap && touch.lastTap.key === key && now - touch.lastTap.at < DOUBLE_TAP_MS) {
@@ -1903,8 +2036,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         touch.piece = null;
         if (pressed?.moved && f) {
           const w = toTable(readCamera(), f.now.x, f.now.y);
-          L.dropPieces({ lead: pressed.id, ids: pressed.group, dx: w.x - pressed.from.x, dy: w.y - pressed.from.y });
-        } else if (pressed) {
+          L.dropPieces({ lead: pressed.id, ids: pressed.group, dx: w.x - pressed.from.x, dy: w.y - pressed.from.y, ...(pressed.out ? { out: pressed.out } : {}) });
+        } else if (pressed && !pressed.whole) {
+          // (A bag held a moment and let go without moving isn't a tap.)
           L.tapPiece(pressed.id, pressed.part, pressed.from);
         }
         touch.mode = 'none';
@@ -2306,6 +2440,40 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   };
   // ---- The search: a stack looked through, over the table. ----
   const searchStack = searching ? table?.stacks.find((s) => s.id === searching) : undefined;
+  /** A bag being searched through (as a stack is), and what can be done with what's in it. */
+  const searchBag = searching ? table?.pieces?.find((p) => p.id === searching && p.kind === 'bag') : undefined;
+  const bagSearchActions = (key: string): SheetAction[] => {
+    if (!table || !searchBag) return [];
+    const topFirst = [...bagItems(searchBag)].reverse();
+    const i = topFirst.findIndex((x) => itemKey(x) === key);
+    const item = topFirst[i];
+    if (!item) return [];
+    return [
+      { label: 'Take it out', onPress: () => commit(placeItem(removeBagItems(table, searchBag.id, [key]), item, besideBagOf(searchBag), newId())) },
+      ...(i > 0 ? [{ label: 'Move to the top', onPress: () => commit(reorderBag(table, searchBag.id, [i], 0)) }] : []),
+      ...(i < topFirst.length - 1 ? [{ label: 'Move to the bottom', onPress: () => commit(reorderBag(table, searchBag.id, [i], topFirst.length - 1)) }] : []),
+    ];
+  };
+  const bagPickActions = (keys: string[]): SheetAction[] => {
+    if (!table || !searchBag || !keys.length) return [];
+    const topFirst = [...bagItems(searchBag)].reverse();
+    const places = keys.map((k) => topFirst.findIndex((x) => itemKey(x) === k)).filter((i) => i >= 0);
+    const n = places.length;
+    const takeOut = () => {
+      const beside = besideBagOf(searchBag);
+      // Cards onto one pile beside it, pieces in a row after them.
+      const next = places.reduce(
+        (t, place, j) => placeItem(t, topFirst[place], topFirst[place].card ? beside : { x: beside.x + CARD_W + j * gridStep, y: beside.y }, newId()),
+        removeBagItems(table, searchBag.id, keys),
+      );
+      commit(next);
+    };
+    return [
+      { label: n === 1 ? 'Take it out' : `Take all ${n} out`, onPress: takeOut },
+      { label: 'Top of the bag', onPress: () => commit(reorderBag(table, searchBag.id, places, 0)) },
+      { label: 'Bottom of the bag', onPress: () => commit(reorderBag(table, searchBag.id, places, topFirst.length - n)) },
+    ];
+  };
   /** A card's options in the search: elsewhere in the stack, into the hand, onto the table (face up), or off it. */
   const searchActions = (iid: string): SheetAction[] => {
     if (!table || !searchStack) return [];
@@ -2665,25 +2833,52 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         };
       }
       if (piece.kind === 'bag') {
-        const n = piece.cards?.length ?? 0;
+        // As a stack's: draw, shuffle and search, and more under them.
+        const items = bagItems(piece);
+        const top = piece.supply ?? items[items.length - 1];
+        const named = (i: BagItem) => (i.card ? (cardOf(i.card)?.name ?? 'Card') : pieceName(i.piece!));
+        // The top thing: a card into the open hand, a piece beside the bag.
+        const drawTop = () => {
+          const out = takeFromBag(table, piece.id, newId());
+          if (!out) return haptics.warn();
+          commit(out.item.card ? putInHand(out.table, [out.item.card], handIndex) : placeItem(out.table, out.item, besideBagOf(piece), newId()));
+          haptics.deal();
+        };
+        const icon = (ios: string, android: string) => ({ ios, android, web: android }) as SheetTile['icon'];
         return {
-          title: n ? `Bag · ${n} ${n === 1 ? 'card' : 'cards'}` : 'Bag · empty',
-          tiles: [],
+          title: piece.supply ? `Endless supply · ${named(piece.supply)}` : items.length ? `Bag · ${items.length}` : 'Bag · empty',
+          tiles: [
+            { label: 'Draw', icon: icon('arrow.down.to.line', 'download'), disabled: !top, onPress: drawTop },
+            {
+              label: 'Shuffle',
+              icon: icon('shuffle', 'shuffle'),
+              disabled: !!piece.supply || items.length < 2,
+              onPress: () => {
+                commit(shuffleBag(table, piece.id));
+                haptics.deal();
+              },
+            },
+            {
+              label: 'Search',
+              icon: icon('magnifyingglass', 'search'),
+              disabled: !!piece.supply || !items.length,
+              onPress: () => {
+                setSearchLeaving(false);
+                setSearching(piece.id);
+              },
+            },
+          ],
           actions: [
-            ...(n
-              ? [
-                  { label: 'Draw one face up', onPress: () => commit(drawFromBag(table, piece.id, newId(), true)) },
-                  { label: 'Empty it onto the table', onPress: () => commit(emptyBag(table, piece.id, newId())) },
-                ]
-              : []),
+            ...(top ? [{ label: 'Take out the top', onPress: () => commit(drawFromBag(table, piece.id, newId(), true)) }] : []),
+            ...(items.length ? [{ label: 'Empty it onto the table', onPress: () => commit(emptyBag(table, piece.id, newId)) }] : []),
+            ...(piece.supply ? [{ label: 'Stop being a supply', onPress: () => commit(endSupply(table, piece.id)) }] : []),
             color,
             scale,
             // Its cards go to the trash, to be put back from there.
-            { ...takeOff, onPress: () => commit(trashCards(removePiece(table, piece.id), piece.cards ?? [])) },
+            { ...takeOff, onPress: () => commit(trashCards(removePiece(table, piece.id), items.flatMap((i) => (i.card ? [i.card] : [])))) },
           ],
         };
-      }
-      if (piece.kind === 'track') {
+      }      if (piece.kind === 'track') {
         const first = piece.first ?? 1;
         return {
           title: 'Track',
@@ -3066,6 +3261,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 view
               );
             })}
+            {/* A piece just taken out of a bag, under the finger (it's on the table once it's put down). */}
+            {pieceDrag?.out ? (
+              <TablePieceView
+                key={`out:${pieceDrag.out.piece.id}`}
+                piece={pieceDrag.out.piece}
+                at={{ x: pieceDrag.out.piece.x + pieceDrag.dx, y: pieceDrag.out.piece.y + pieceDrag.dy }}
+                lifted
+              />
+            ) : null}
             {/* A stack being shuffled: the riffle, played where it lies, turned as it is. */}
             {riffling && riffleStack && riffleDeck ? (
               <View
@@ -3516,12 +3720,29 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           {/* The search: over everything, a layer of the table (not a window), so cards can be taken out of it. */}
           {searchMounted ? (
             <StackSearchPanel
-              title={searchStack ? `Searching ${searchStack.cards.length} ${searchStack.cards.length === 1 ? 'card' : 'cards'}` : 'Search'}
-              cards={searchStack ? [...searchStack.cards].reverse() : []}
+              title={
+                searchStack
+                  ? `Searching ${searchStack.cards.length} ${searchStack.cards.length === 1 ? 'card' : 'cards'}`
+                  : searchBag
+                    ? `Searching the bag · ${bagItems(searchBag).length}`
+                    : 'Search'
+              }
+              entries={
+                searchStack
+                  ? [...searchStack.cards].reverse().map((card) => ({ key: card.iid, card }))
+                  : searchBag
+                    ? [...bagItems(searchBag)].reverse().map((i) => ({ key: itemKey(i), card: i.card, piece: i.piece }))
+                    : []
+              }
+              noun={searchBag ? ['thing', 'things'] : undefined}
+              canTakeOut={!searchBag}
               decks={decksById}
-              visible={!!searching && !!searchStack}
+              visible={!!searching && (!!searchStack || !!searchBag)}
               leaving={searchLeaving}
-              onReorder={(picked, to) => searchStack && commit(reorderStack(table, searchStack.id, picked, to))}
+              onReorder={(picked, to) => {
+                if (searchStack) commit(reorderStack(table, searchStack.id, picked, to));
+                else if (searchBag) commit(reorderBag(table, searchBag.id, picked, to));
+              }}
               onTakeOut={(iids, finger) => {
                 searchTake.set(iids);
                 setSearchLeaving(true);
@@ -3529,8 +3750,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 // Under the finger straight away, not just once it moves.
                 gestureState.get().api?.startTakeOut(finger);
               }}
-              cardActions={searchActions}
-              pickActions={searchPickActions}
+              cardActions={searchBag ? bagSearchActions : searchActions}
+              pickActions={searchBag ? bagPickActions : searchPickActions}
               onClose={endSearch}
               onClosed={() => setSearchMounted(false)}
             />

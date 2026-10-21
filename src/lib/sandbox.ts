@@ -50,9 +50,9 @@ export const HAND_COUNT = 4;
 
 /**
  * What a piece on the table is, besides cards: a counter (a number to count up and down), a die, a coin, a text
- * label, a first-player marker, a spinner, or a playing piece (a meeple, pawn, cube or disc: see PieceShape).
+ * label, a first-player marker, a spinner, a playing piece (a meeple, pawn, cube or disc: see PieceShape), a token\n * (round or square, plain or with a picture of the player's own), or a timer.
  */
-export type PieceKind = 'counter' | 'die' | 'coin' | 'text' | 'marker' | 'spinner' | 'meeple';
+export type PieceKind = 'counter' | 'die' | 'coin' | 'text' | 'marker' | 'spinner' | 'meeple' | 'token' | 'timer';
 
 /** A playing piece's shape. */
 export type PieceShape = 'meeple' | 'pawn' | 'cube' | 'disc';
@@ -81,6 +81,12 @@ export interface TablePiece {
   label?: string;
   /** A playing piece's shape. */
   shape?: PieceShape;
+  /** A token's picture (a saved picture's path), and whether it's square (round, otherwise). */
+  image?: string;
+  square?: boolean;
+  /** A running timer: when it runs out (ms since 1970). A paused one: how many seconds it had left. */
+  endsAt?: number;
+  left?: number;
   /** Its color (one of PIECE_COLORS), or none for its own (see defaultPieceColor). */
   color?: string;
   /** Drawn this much bigger (or smaller) than PIECE_SIZE; none is its own size. */
@@ -111,6 +117,8 @@ export function defaultPieceColor(p: Pick<TablePiece, 'kind' | 'sides'>): string
   if (p.kind === 'coin' || p.kind === 'marker') return PIECE_COLORS.Gold;
   if (p.kind === 'text' || p.kind === 'spinner') return PIECE_COLORS.Ivory;
   if (p.kind === 'meeple') return PIECE_COLORS.Red;
+  if (p.kind === 'token') return '#d9d2c4';
+  if (p.kind === 'timer') return '#14202a';
   const own: Record<number, string> = { 4: PIECE_COLORS.Green, 6: PIECE_COLORS.Ivory, 8: PIECE_COLORS.Blue, 10: PIECE_COLORS.Purple, 12: PIECE_COLORS.Pink, 20: PIECE_COLORS.Red };
   return own[p.sides ?? 6] ?? PIECE_COLORS.Ivory;
 }
@@ -445,6 +453,8 @@ export const PIECE_SIZE: Record<PieceKind, { w: number; h: number }> = {
   marker: { w: 64, h: 64 },
   spinner: { w: 120, h: 120 },
   meeple: { w: 46, h: 50 },
+  token: { w: 62, h: 62 },
+  timer: { w: 100, h: 100 },
 };
 
 /** A text label's lettering size (table units), and roughly how wide each letter is against it. */
@@ -487,6 +497,9 @@ export function newPiece(kind: PieceKind, id: string, at: { x: number; y: number
   if (kind === 'text') return { id, kind, ...spot, value: 0, label: 'Text' };
   if (kind === 'marker') return { id, kind, ...spot, value: 0, label: '1st' };
   if (kind === 'meeple') return { id, kind, ...spot, value: 0, shape };
+  // A token's number is how many it stands for (shown when more than one); a timer's, its time in seconds.
+  if (kind === 'token') return { id, kind, ...spot, value: 1 };
+  if (kind === 'timer') return { id, kind, ...spot, value: 60 };
   return { id, kind, ...spot, value: 0 };
 }
 
@@ -525,6 +538,37 @@ export function piecesInShape(t: SandboxTable, shape: { x: number; y: number }[]
     })
     .map((p) => p.id);
 }
+
+/** The longest a timer can be set for (99:59). */
+export const TIMER_MAX = 99 * 60 + 59;
+
+/**
+ * A timer tapped: running, it pauses (keeping what's left); paused or new, it starts; run out, it's set back to
+ * its full time.
+ */
+export function toggleTimer(t: SandboxTable, id: string, now: number = Date.now()): SandboxTable {
+  const p = t.pieces?.find((q) => q.id === id);
+  if (!p || p.kind !== 'timer') return t;
+  if (p.endsAt !== undefined) {
+    const left = Math.max(0, (p.endsAt - now) / 1000);
+    return setPiece(t, id, left > 0 ? { endsAt: undefined, left } : { endsAt: undefined, left: undefined });
+  }
+  return setPiece(t, id, { endsAt: now + (p.left ?? p.value) * 1000, left: undefined });
+}
+
+/** How long a timer's set for, from what's typed: minutes ("5"), or minutes and seconds ("1:30"). Null if neither. */
+export function parseTimerText(text: string): number | null {
+  const m = text.trim().match(/^(\d{1,2})(?::(\d{1,2}))?$/);
+  if (!m) return null;
+  const secs = Number(m[1]) * 60 + (m[2] ? Number(m[2]) : 0);
+  return secs > 0 ? Math.min(TIMER_MAX, secs) : null;
+}
+
+/** Seconds as m:ss (rounded up, so it shows 0:00 only once it's run out). */
+export const timerText = (secs: number) => {
+  const s = Math.ceil(Math.max(0, secs));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
 
 /** Takes a piece off the table. */
 export const removePiece = (t: SandboxTable, id: string): SandboxTable => ({ ...t, pieces: (t.pieces ?? []).filter((p) => p.id !== id) });

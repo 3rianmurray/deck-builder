@@ -2,7 +2,11 @@ import { Canvas, Circle, Group, Path, Shadow, Skia } from '@shopify/react-native
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
-import { defaultPieceColor, pieceSizeOf, rollDie, TEXT_SIZE } from '../lib/sandbox';
+import { Image } from 'expo-image';
+
+import * as haptics from '../lib/haptics';
+import { defaultPieceColor, pieceSizeOf, rollDie, TEXT_SIZE, timerText } from '../lib/sandbox';
+import { imageUri } from '../lib/storage';
 import type { TablePiece } from '../lib/sandbox';
 import { colors } from '../theme';
 import { prefersReducedMotion } from './CardView';
@@ -229,6 +233,10 @@ export const TablePieceView = memo(function TablePieceView({
         <Marker piece={piece} color={color} size={w} selected={selected} />
       ) : piece.kind === 'spinner' ? (
         <Spinner piece={piece} color={color} rollKey={rollKey} size={w} selected={selected} />
+      ) : piece.kind === 'token' ? (
+        <Token piece={piece} color={color} size={w} selected={selected} />
+      ) : piece.kind === 'timer' ? (
+        <Timer piece={piece} color={color} size={w} selected={selected} />
       ) : (
         <PlayingPiece piece={piece} color={color} w={w} h={h} selected={selected} />
       )}
@@ -758,6 +766,126 @@ function PlayingPiece({ piece, color, w, h, selected }: { piece: TablePiece; col
   );
 }
 
+/**
+ * A token: a raised disc (or rounded square) with the player's own picture on top, or plain in its color. One
+ * standing for several shows how many.
+ */
+function Token({ piece, color, size, selected }: { piece: TablePiece; color: string; size: number; selected: boolean }) {
+  const art = artFrame(size, size);
+  const c = art.at([0.5, 0.5]);
+  const depth = [art.len(0.04), art.len(0.06)] as const;
+  const outline: Pt[] = [
+    [0.02, 0.02],
+    [0.98, 0.02],
+    [0.98, 0.98],
+    [0.02, 0.98],
+  ];
+  const squareSide: Pt[] = outline.map((p) => [p[0] + 0.04, p[1] + 0.06]);
+  const body = piece.square ? null : cylinderPath(c, art.len(0.48), depth);
+  const inset = size * 0.1;
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <Canvas style={art.style}>
+        {piece.square ? (
+          <>
+            <Path path={roundedPath(art, squareSide, 0.14)} color={shade(color, -0.45)}>
+              {pieceShadow()}
+            </Path>
+            <Path path={roundedPath(art, squareSide, 0.14)} color={shade(color, -0.45)} />
+            <Path path={roundedPath(art, outline, 0.14)} color={color} />
+            {selected ? <Path path={roundedPath(art, outline, 0.14)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+          </>
+        ) : (
+          <>
+            <Path path={body!} color={shade(color, -0.45)}>
+              {pieceShadow()}
+            </Path>
+            <Path path={body!} color={shade(color, -0.45)} />
+            <Circle cx={c[0]} cy={c[1]} r={art.len(0.48)} color={color} />
+            {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+          </>
+        )}
+      </Canvas>
+      {piece.image ? (
+        <Image
+          source={{ uri: imageUri(piece.image) }}
+          style={{ position: 'absolute', left: inset, top: inset, width: size - inset * 2, height: size - inset * 2, borderRadius: piece.square ? size * 0.1 : size }}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+        />
+      ) : null}
+      {piece.value > 1 ? (
+        <View style={styles.tokenCount}>
+          <Text allowFontScaling={false} style={styles.tokenCountText}>
+            {piece.value}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * A timer: a dial with the time left, and a ring round it running down. Tapped, it starts or pauses (see
+ * toggleTimer); run out, it shows 0:00 in red and buzzes.
+ */
+function Timer({ piece, color, size, selected }: { piece: TablePiece; color: string; size: number; selected: boolean }) {
+  const running = piece.endsAt !== undefined;
+  // The time now, only while it's running (it's read on a clock, never while drawing).
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const tick = () => setNow(Date.now());
+    const first = setTimeout(tick, 0);
+    const clock = setInterval(tick, 250);
+    return () => {
+      clearTimeout(first);
+      clearInterval(clock);
+    };
+  }, [running]);
+  const left = running && now ? Math.max(0, (piece.endsAt! - now) / 1000) : (piece.left ?? piece.value);
+  const done = running && now > 0 && left <= 0;
+  // A buzz (twice) as it runs out.
+  const buzzed = useRef(false);
+  useEffect(() => {
+    if (done && !buzzed.current) {
+      buzzed.current = true;
+      haptics.warn();
+      const again = setTimeout(haptics.warn, 450);
+      return () => clearTimeout(again);
+    }
+    if (!done) buzzed.current = false;
+  }, [done]);
+  const art = artFrame(size, size);
+  const c = art.at([0.5, 0.5]);
+  const r = art.len(0.4);
+  const share = piece.value ? Math.min(1, left / piece.value) : 0;
+  const runDown = Skia.Path.Make();
+  runDown.addArc({ x: c[0] - r, y: c[1] - r, width: r * 2, height: r * 2 }, -90, 360 * share);
+  const ink = isLight(color) ? '#2c2c2a' : '#ffffff';
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <Canvas style={art.style}>
+        <Path path={cylinderPath(c, art.len(0.5), [art.len(0.03), art.len(0.04)])} color={shade(color, isLight(color) ? -0.4 : 0.15)}>
+          {pieceShadow()}
+        </Path>
+        <Path path={cylinderPath(c, art.len(0.5), [art.len(0.03), art.len(0.04)])} color={shade(color, isLight(color) ? -0.4 : 0.15)} />
+        <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={color} />
+        <Circle cx={c[0]} cy={c[1]} r={r} color={shade(color, isLight(color) ? -0.15 : 0.18)} style="stroke" strokeWidth={art.len(0.07)} />
+        <Path path={runDown} color={done ? '#e24b4a' : colors.accent} style="stroke" strokeWidth={art.len(0.07)} strokeCap="round" />
+        {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.52)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+      </Canvas>
+      <Text allowFontScaling={false} style={[styles.timerText, { color: done ? '#e24b4a' : ink, fontSize: size * 0.22, lineHeight: size, width: size }]}>
+        {timerText(left)}
+      </Text>
+      {!running && !done ? (
+        <Text allowFontScaling={false} style={[styles.timerHint, { color: ink, top: size * 0.66, width: size }]}>
+          {piece.left !== undefined ? 'paused' : 'tap to start'}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
 const styles = StyleSheet.create({
   piece: { position: 'absolute' },
 
@@ -794,6 +922,21 @@ const styles = StyleSheet.create({
   },
   dieValue: { position: 'absolute', textAlign: 'center', fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.25)', textShadowRadius: 2 },
   coinFace: { position: 'absolute', left: 0, top: 0, textAlign: 'center', fontWeight: '800' },
+  tokenCount: {
+    position: 'absolute',
+    right: -6,
+    top: -6,
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accent,
+  },
+  tokenCountText: { color: colors.accentText, fontSize: 14, fontWeight: '800' },
+  timerText: { position: 'absolute', left: 0, top: 0, textAlign: 'center', fontWeight: '800', fontVariant: ['tabular-nums'] },
+  timerHint: { position: 'absolute', left: 0, textAlign: 'center', fontSize: 9, fontWeight: '700', opacity: 0.7 },
   markerText: { position: 'absolute', left: 0, top: 0, textAlign: 'center', fontWeight: '800', paddingHorizontal: 8 },
   textBox: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
   textBoxOn: { borderWidth: 2, borderColor: colors.accent, borderStyle: 'dashed' },

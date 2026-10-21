@@ -50,6 +50,9 @@ import {
   pieceAt,
   PIECE_SHAPES,
   rollable,
+  toggleTimer,
+  parseTimerText,
+  timerText,
   cardSizeOf,
   matchStackSizes,
   scaleItems,
@@ -92,7 +95,9 @@ import {
   MAX_TABLE_CARDS,
   tableCardCount,
 } from '../lib/sandbox';
-import type { Camera, CardSize, PieceKind, PiecePart, PieceShape, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
+import type { Camera, CardSize, PieceKind, PiecePart, PieceShape, SandboxCard, SandboxStack, SandboxTable, Source, TablePiece } from '../lib/sandbox';
+import * as ImagePicker from 'expo-image-picker';
+import { tokenPicture } from '../lib/images';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
 import { offerTipAfterUses, offerTipSoon, tipLearned } from '../lib/tips';
 import { tourEvent } from '../lib/tour';
@@ -115,7 +120,7 @@ import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
 import { WoodRail } from './Tabletop';
 import { TABLE_THEMES, THEME_KEYS, themeOf } from '../lib/tableThemes';
-import { isSeeThrough, loadSettings, saveSettings } from '../lib/storage';
+import { importImage, isSeeThrough, loadSettings, saveSettings } from '../lib/storage';
 import { Text } from './Text';
 
 /** Steps of undo kept. */
@@ -137,6 +142,8 @@ const TAP_MS = 300;
 const HOLD_STACK_MS = 350;
 /** Holding a counter or die still this long opens its options. */
 const HOLD_PIECE_MS = 450;
+/** Where tokens' pictures are kept (as a deck's are, in a folder of their own). */
+const TOKEN_PICTURES = 'tokens';
 /** Stands in for the finger carrying cards taken out of the search, till the table's gesture says which it is. */
 const TAKE_OUT_FINGER = -7;
 /** How long a stack brought onto the table takes to fly in (and the camera to glide over to it). */
@@ -754,6 +761,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       rename('Text', piece.label ?? '', (label) => commit(setPiece(table, id, { label })));
       return;
     }
+    if (piece.kind === 'timer') {
+      // Starting and pausing it isn't undone (the time goes on regardless).
+      updateSandbox(toggleTimer(table, id));
+      haptics.tick();
+      return;
+    }
     if (piece.kind !== 'counter') {
       haptics.tick();
       return;
@@ -778,6 +791,24 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     commit(movePieces(table, drag.ids, { x: snapped.x - lead.x, y: snapped.y - lead.y }));
     haptics.drop();
   };
+  /**
+   * A picture from the player's photos, made square and saved for a token: put on a new token, or (given one)
+   * on that token instead. Nothing if none's chosen.
+   */
+  const pictureForToken = async (tokenId?: string) => {
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 });
+    const uri = result.canceled ? null : result.assets[0]?.uri;
+    if (!uri) return;
+    try {
+      const image = importImage(TOKEN_PICTURES, await tokenPicture(uri));
+      // The table as it is now (the picker took a while).
+      const now = latest.get();
+      if (tokenId && now.table) now.commit(setPiece(now.table, tokenId, { image }));
+      else now.addPieceToTable('token', undefined, undefined, { image });
+    } catch (e) {
+      Alert.alert('Couldn’t use that picture', e instanceof Error ? e.message : String(e));
+    }
+  };
   /** The picked-out dice lined up in a tight grid (the button by the roll one). */
   const gridPickedDice = () => {
     if (!table || pickedDice.length < 2) return;
@@ -785,13 +816,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     haptics.drop();
   };
   /** A new piece in the middle of what's in view (a little apart from the last few, so they don't hide each other). */
-  const addPieceToTable = (kind: PieceKind, sides?: number, shape?: PieceShape) => {
+  const addPieceToTable = (kind: PieceKind, sides?: number, shape?: PieceShape, extra?: Partial<TablePiece>) => {
     if (!table || !view) return;
     const mid = toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2);
     const nudge = ((table.pieces?.length ?? 0) % 5) * 24;
     const id = newId();
     // A die isn't put down on another.
-    commit(separateDice(addPiece(table, newPiece(kind, id, { x: mid.x + nudge, y: mid.y + nudge }, sides, shape)), [id]));
+    commit(separateDice(addPiece(table, { ...newPiece(kind, id, { x: mid.x + nudge, y: mid.y + nudge }, sides, shape), ...extra }), [id]));
     haptics.drop();
   };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
@@ -1013,10 +1044,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       dropPieces: (d: PieceDrag) => void;
       onDiceGridButton: (x: number, y: number) => boolean;
       gridPickedDice: () => void;
+      addPieceToTable: (kind: PieceKind, sides?: number, shape?: PieceShape, extra?: Partial<TablePiece>) => void;
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, addPieceToTable, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -2466,6 +2498,51 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           actions: [{ label: 'Change the shape…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceShape', id: piece.id }), 250) }, color, scale, takeOff],
         };
       }
+      if (piece.kind === 'token') {
+        return {
+          title: piece.value > 1 ? `Token × ${piece.value}` : 'Token',
+          tiles: [],
+          actions: [
+            {
+              label: 'How many it stands for…',
+              opensModal: true,
+              onPress: () =>
+                rename('How many', String(piece.value), (text) => {
+                  const n = parseInt(text.replace(/\D/g, ''), 10);
+                  if (n > 0) commit(setPiece(table, piece.id, { value: Math.min(999, n) }));
+                }),
+            },
+            { label: piece.image ? 'Change the picture…' : 'Add a picture…', opensModal: true, onPress: () => void pictureForToken(piece.id) },
+            ...(piece.image ? [{ label: 'Take the picture off', onPress: () => commit(setPiece(table, piece.id, { image: undefined })) }] : []),
+            { label: piece.square ? 'Make it round' : 'Make it square', onPress: () => commit(setPiece(table, piece.id, { square: !piece.square || undefined })) },
+            color,
+            scale,
+            takeOff,
+          ],
+        };
+      }
+      if (piece.kind === 'timer') {
+        return {
+          title: `Timer · ${timerText(piece.value)}`,
+          tiles: [],
+          actions: [
+            {
+              label: 'Set the time…',
+              opensModal: true,
+              onPress: () =>
+                rename('Minutes, or minutes:seconds', timerText(piece.value), (text) => {
+                  const secs = parseTimerText(text);
+                  if (secs) commit(setPiece(table, piece.id, { value: secs, endsAt: undefined, left: undefined }));
+                  else Alert.alert('That isn’t a time', 'Type minutes (like 5) or minutes and seconds (like 1:30).');
+                }),
+            },
+            { label: 'Reset', onPress: () => commit(setPiece(table, piece.id, { endsAt: undefined, left: undefined })) },
+            color,
+            scale,
+            takeOff,
+          ],
+        };
+      }
       if (piece.kind === 'coin' || piece.kind === 'spinner') {
         return { title: piece.kind === 'coin' ? 'Coin' : 'Spinner', tiles: [], actions: [color, scale, takeOff] };
       }
@@ -2565,6 +2642,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Text', onPress: () => addPieceToTable('text') },
           { label: 'First-player marker', onPress: () => addPieceToTable('marker') },
           { label: 'Spinner', onPress: () => addPieceToTable('spinner') },
+          { label: 'Timer', onPress: () => addPieceToTable('timer') },
+          { label: 'Token', onPress: () => addPieceToTable('token') },
+          // Its own screen, which iOS can only show once this menu has gone.
+          { label: 'Token from a picture…', opensModal: true, onPress: () => setTimeout(() => void pictureForToken(), 300) },
           { label: 'Meeples, pawns, cubes, discs…', onPress: () => setTimeout(() => setMenu({ kind: 'addShape' }), 250) },
         ],
       };

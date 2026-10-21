@@ -398,14 +398,14 @@ export function movePiece(t: SandboxTable, id: string, at: { x: number; y: numbe
 }
 
 /**
- * The pieces of a kind a lasso has caught: any lying inside the shape it's drawn (closed back to its start), or
- * that its line passes over.
+ * The pieces (of a kind, if given) a lasso has caught: any lying inside the shape it's drawn (closed back to its
+ * start), or that its line passes over.
  */
-export function piecesInShape(t: SandboxTable, shape: { x: number; y: number }[], kind: PieceKind): string[] {
+export function piecesInShape(t: SandboxTable, shape: { x: number; y: number }[], kind?: PieceKind): string[] {
   if (!shape.length) return [];
   return (t.pieces ?? [])
     .filter((p) => {
-      if (p.kind !== kind) return false;
+      if (kind && p.kind !== kind) return false;
       const { w, h } = PIECE_SIZE[p.kind];
       if (shape.some((q) => Math.abs(q.x - p.x) <= w / 2 && Math.abs(q.y - p.y) <= h / 2)) return true;
       return shape.length >= 3 && insideShape(p, shape);

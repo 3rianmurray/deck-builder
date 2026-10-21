@@ -216,8 +216,9 @@ type Menu =
   | { kind: 'piece'; id: string }
   | { kind: 'components' }
   | { kind: 'addDie' }
-  | { kind: 'dieKind'; id: string }
-  | { kind: 'pieceColor'; id: string };
+  /** For one counter or die, or (with no id) every one picked out. */
+  | { kind: 'dieKind'; id?: string }
+  | { kind: 'pieceColor'; id?: string };
 
 /** A card being carried by a finger. */
 interface Held {
@@ -666,9 +667,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [pieceDrag, setPieceDrag] = useState<{ id: string; x: number; y: number } | null>(null);
   /** Each die's latest roll here: how many so far (so it tumbles each time), and where it set off from. */
   const [rolls, setRolls] = useState<Record<string, { key: number; dx: number; dy: number }>>({});
-  /** Dice picked out with the lasso: tapping any of them (or the roll button) rolls them all. */
-  const [pickedDiceIds, setPickedDice] = useState<string[]>([]);
-  const pickedDice = pickedDiceIds.filter((id) => table?.pieces?.some((p) => p.id === id && p.kind === 'die'));
+  /** Counters and dice picked out with the lasso; the dice among them roll together (tap any, or the roll button). */
+  const [pickedPieceIds, setPickedPieces] = useState<string[]>([]);
+  const pickedPieces = pickedPieceIds.filter((id) => table?.pieces?.some((p) => p.id === id));
+  const pickedDice = pickedPieces.filter((id) => table?.pieces?.some((p) => p.id === id && p.kind === 'die'));
   /**
    * Rolls dice (one undo for them all): each lands on a new face a little way off, in a random direction, and
    * tumbles across to there.
@@ -687,7 +689,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** Letting the selection go lets the picked-out dice go too. */
   const selectStacks = (ids: string[]) => {
     setSelected(ids);
-    if (!ids.length) setPickedDice([]);
+    if (!ids.length) setPickedPieces([]);
   };
   /** A tap on a piece: a counter's − or + counts down or up (its number, its options); a die rolls. */
   const tapPiece = (id: string, part: PiecePart) => {
@@ -923,7 +925,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       endSearch: () => void;
       tapPiece: (id: string, part: PiecePart) => void;
       pickedDice: string[];
-      setPickedDice: (ids: string[]) => void;
+      pickedPieces: string[];
+      setPickedPieces: (ids: string[]) => void;
       onRollButton: (x: number, y: number) => boolean;
       rollDice: (ids: string[]) => void;
       setPieceDrag: (d: { id: string; x: number; y: number } | null) => void;
@@ -931,7 +934,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, tapPiece, setPieceDrag, dropPiece, pickedDice, setPickedDice, onRollButton, rollDice });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, tapPiece, setPieceDrag, dropPiece, pickedDice, pickedPieces, setPickedPieces, onRollButton, rollDice });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -959,7 +962,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       emptyTap: null as null | { x: number; y: number; at: number },
       /** The lasso's shape so far, on the table and on screen, and the selection it adds to. */
       lassoBase: [] as string[],
-      lassoDiceBase: [] as string[],
+      lassoPieceBase: [] as string[],
       /** A tap on empty table clears the selection a moment later, unless it's the first tap of a lasso. */
       clearTimer: null as null | ReturnType<typeof setTimeout>,
       lasso: [] as Pt[],
@@ -1321,8 +1324,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         if (onPiece) {
           const pressed = onPiece.piece.id;
           // Pressing one of the picked-out dice keeps them picked out (a tap rolls them all); anything else lets them go.
-          if (L.selected.length && !L.pickedDice.includes(pressed)) L.setSelected([]);
-          else if (L.pickedDice.length && !L.pickedDice.includes(pressed)) L.setPickedDice([]);
+          if (L.selected.length && !L.pickedPieces.includes(pressed)) L.setSelected([]);
+          else if (L.pickedPieces.length && !L.pickedPieces.includes(pressed)) L.setPickedPieces([]);
           touch.piece = { id: pressed, part: onPiece.part, origin: { x: onPiece.piece.x, y: onPiece.piece.y }, from: w, moved: false };
           touch.mode = 'piece';
           touch.onEmpty = false;
@@ -1332,7 +1335,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             touch.mode = 'button';
             touch.piece = null;
             haptics.lift();
-            latest.get().setMenu({ kind: 'piece', id: pressed });
+            // One of several picked out: the group's options. Otherwise its own.
+            const now = latest.get();
+            const group = now.pickedPieces.includes(pressed) && now.pickedPieces.length + now.selected.length > 1;
+            now.setMenu(group ? { kind: 'selection' } : { kind: 'piece', id: pressed });
           }, HOLD_PIECE_MS);
           return;
         }
@@ -1345,7 +1351,17 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           // A quick drag takes its top card; held a moment first, the whole stack comes (unless it's locked).
           touch.pressed = { kind: 'top', stackId: hit.stack.id };
           touch.mode = 'press';
-          if (!touch.groupPress) {
+          if (touch.groupPress) {
+            // Held still, one of the picked-out stacks: the group's options.
+            touch.holdTimer = setTimeout(() => {
+              touch.holdTimer = null;
+              if (touch.mode !== 'press' || !touch.groupPress) return;
+              touch.mode = 'button';
+              touch.lastTap = null;
+              haptics.lift();
+              latest.get().setMenu({ kind: 'selection' });
+            }, HOLD_PIECE_MS);
+          } else {
             const pressedStack = hit.stack.id;
             touch.holdTimer = setTimeout(() => {
               touch.holdTimer = null;
@@ -1374,7 +1390,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           touch.lasso = [w];
           touch.lassoScreen = [{ x: t.x, y: t.y }];
           touch.lassoBase = L.selected;
-          touch.lassoDiceBase = L.pickedDice;
+          touch.lassoPieceBase = L.pickedPieces;
           L.setLassoPath(touch.lassoScreen);
           haptics.lift();
           tipLearned('tables-lasso');
@@ -1489,11 +1505,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         L.setLassoPath(touch.lassoScreen);
         const caught = stacksInShape(L.table, touch.lasso, L.size);
         const picked = [...touch.lassoBase, ...caught.filter((id) => !touch.lassoBase.includes(id))];
-        const dice = [...touch.lassoDiceBase, ...piecesInShape(L.table, touch.lasso, 'die').filter((id) => !touch.lassoDiceBase.includes(id))];
-        const grew = picked.length > L.selected.length || dice.length > L.pickedDice.length;
+        const pieces = [...touch.lassoPieceBase, ...piecesInShape(L.table, touch.lasso).filter((id) => !touch.lassoPieceBase.includes(id))];
+        const grew = picked.length > L.selected.length || pieces.length > L.pickedPieces.length;
         if (picked.join() !== L.selected.join()) L.setSelected(picked);
-        // Dice too (set after the cards, which let them go when there are none).
-        if (picked.join() !== L.selected.join() || dice.join() !== L.pickedDice.join()) L.setPickedDice(dice);
+        // Counters and dice too (set after the cards, which let them go when there are none).
+        if (picked.join() !== L.selected.join() || pieces.join() !== L.pickedPieces.join()) L.setPickedPieces(pieces);
         if (grew) haptics.tick();
         return;
       }
@@ -1668,7 +1684,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       if (touch.onEmpty && lifted.includes(touch.first)) {
         const f = touch.fingers.get(touch.first);
         if (f && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) < TAP_SLOP && Date.now() - touch.firstDownAt < TAP_MS) {
-          if (L.selected.length || L.pickedDice.length) {
+          if (L.selected.length || L.pickedPieces.length) {
             if (touch.clearTimer) clearTimeout(touch.clearTimer);
             touch.clearTimer = setTimeout(() => {
               touch.clearTimer = null;
@@ -2252,19 +2268,39 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       };
     }
     if (menu.kind === 'selection') {
+      // Everything picked out: cards, and counters and dice.
       const n = chosen.length;
+      const pieces = (table.pieces ?? []).filter((p) => pickedPieces.includes(p.id));
+      const dice = pieces.filter((p) => p.kind === 'die');
+      const total = n + pieces.length;
       const allLocked = chosen.every((id) => table.stacks.find((s) => s.id === id)?.locked);
+      const takeAllOff = () => {
+        commit(pieces.reduce((t, p) => removePiece(t, p.id), n ? removeStacks(table, chosen) : table));
+        selectStacks([]);
+        haptics.drop();
+      };
       return {
-        title: n === 1 ? 'Selected' : `${n} selected`,
+        title: total === 1 ? 'Selected' : `${total} selected`,
         tiles: [],
         actions: [
-          { label: 'Turn left', onPress: () => commit(chosen.reduce((t, id) => turnStack(t, id, -90), table)) },
-          { label: 'Turn right', onPress: () => commit(chosen.reduce((t, id) => turnStack(t, id), table)) },
-          {
-            label: allLocked ? 'Unlock' : 'Lock in place',
-            onPress: () => commit(chosen.reduce((t, id) => setStack(t, id, { locked: !allLocked }), table)),
-          },
-          { label: n === 1 ? 'Take it off the table' : `Take all ${n} off the table`, destructive: true, onPress: trashSelection },
+          ...(dice.length
+            ? [
+                { label: dice.length === 1 ? 'Roll it' : `Roll all ${dice.length} dice`, onPress: () => rollDice(dice.map((d) => d.id)) },
+                { label: dice.length === 1 ? 'Change the die…' : 'Change the dice…', onPress: () => setTimeout(() => setMenu({ kind: 'dieKind' }), 250) },
+              ]
+            : []),
+          ...(pieces.length ? [{ label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor' }), 250) }] : []),
+          ...(n
+            ? [
+                { label: 'Turn left', onPress: () => commit(chosen.reduce((t, id) => turnStack(t, id, -90), table)) },
+                { label: 'Turn right', onPress: () => commit(chosen.reduce((t, id) => turnStack(t, id), table)) },
+                {
+                  label: allLocked ? 'Unlock' : 'Lock in place',
+                  onPress: () => commit(chosen.reduce((t, id) => setStack(t, id, { locked: !allLocked }), table)),
+                },
+              ]
+            : []),
+          { label: total === 1 ? 'Take it off the table' : `Take all ${total} off the table`, destructive: true, onPress: takeAllOff },
         ],
       };
     }
@@ -2308,25 +2344,28 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       };
     }
     if (menu.kind === 'dieKind') {
-      const piece = table.pieces?.find((p) => p.id === menu.id);
-      if (!piece) return null;
-      const sides = piece.sides ?? 6;
+      // One die, or every one picked out.
+      const dice = (table.pieces ?? []).filter((p) => p.kind === 'die' && (menu.id ? p.id === menu.id : pickedPieces.includes(p.id)));
+      if (!dice.length) return null;
+      const kinds = new Set(dice.map((d) => d.sides ?? 6));
       return {
-        title: 'Change the die',
+        title: dice.length === 1 ? 'Change the die' : `Change ${dice.length} dice`,
         tiles: [],
-        // Another kind of die: its number kept, if it has that face.
+        // Another kind of die: each keeps its number, if it has that face.
         actions: DIE_SIDES.map((n) => ({
-          label: `d${n}${n === sides ? '  ✓' : ''}`,
-          onPress: () => commit(setPiece(table, piece.id, { sides: n, value: Math.min(piece.value, n) })),
+          label: `d${n}${kinds.size === 1 && kinds.has(n) ? '  ✓' : ''}`,
+          onPress: () => commit(dice.reduce((t, d) => setPiece(t, d.id, { sides: n, value: Math.min(d.value, n) }), table)),
         })),
       };
     }
     if (menu.kind === 'pieceColor') {
-      const piece = table.pieces?.find((p) => p.id === menu.id);
-      if (!piece) return null;
-      const current = piece.color ?? defaultPieceColor(piece);
+      // One counter or die, or every one picked out.
+      const targets = (table.pieces ?? []).filter((p) => (menu.id ? p.id === menu.id : pickedPieces.includes(p.id)));
+      if (!targets.length) return null;
+      const colorsNow = new Set(targets.map((p) => p.color ?? defaultPieceColor(p)));
+      const current = colorsNow.size === 1 ? [...colorsNow][0] : undefined;
       const pick = (color: string | undefined) => {
-        commit(setPiece(table, piece.id, { color }));
+        commit(targets.reduce((t, p) => setPiece(t, p.id, { color }), table));
         haptics.tick();
         setMenu(null);
       };
@@ -2348,7 +2387,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ))}
           </View>
         ),
-        actions: piece.color ? [{ label: 'Its own color', onPress: () => pick(undefined) }] : [],
+        actions: targets.some((p) => p.color) ? [{ label: targets.length === 1 ? 'Its own color' : 'Their own colors', onPress: () => pick(undefined) }] : [],
       };
     }
     if (menu.kind === 'components') {
@@ -2478,7 +2517,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 lifted={pieceDrag?.id === p.id}
                 rollKey={rolls[p.id]?.key}
                 rollFrom={rolls[p.id]}
-                selected={pickedDice.includes(p.id)}
+                selected={pickedPieces.includes(p.id)}
               />
             ))}
             {/* A stack being shuffled: the riffle, played where it lies, turned as it is. */}

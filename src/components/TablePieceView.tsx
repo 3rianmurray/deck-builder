@@ -186,7 +186,7 @@ export const TablePieceView = memo(function TablePieceView({
   return (
     <View pointerEvents="none" style={[styles.piece, { left: x - w / 2, top: y - h / 2, width: w, height: h }, lifted && styles.lifted]}>
       {piece.kind === 'counter' ? (
-        <Counter piece={piece} color={color} />
+        <Counter piece={piece} color={color} selected={selected} />
       ) : (
         <Die piece={piece} color={color} rollKey={rollKey} rollFrom={rollFrom} size={w} selected={selected} />
       )}
@@ -194,10 +194,16 @@ export const TablePieceView = memo(function TablePieceView({
   );
 });
 
-function Counter({ piece, color }: { piece: TablePiece; color: string }) {
+function Counter({ piece, color, selected }: { piece: TablePiece; color: string; selected: boolean }) {
   const ink = isLight(color) ? '#2c2c2a' : '#ffffff';
   return (
-    <View style={[styles.counter, { backgroundColor: color, borderColor: shade(color, isLight(color) ? -0.25 : 0.3) }]}>
+    <View
+      style={[
+        styles.counter,
+        { backgroundColor: color, borderColor: shade(color, isLight(color) ? -0.25 : 0.3) },
+        // Picked out with the lasso: outlined in gold.
+        selected && { borderColor: colors.accent, borderWidth: 3 },
+      ]}>
       <View style={[styles.counterButton, { backgroundColor: shade(color, isLight(color) ? -0.12 : 0.16) }]}>
         <Text allowFontScaling={false} style={[styles.counterSign, { color: ink }]}>
           −

@@ -1870,6 +1870,19 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         if (!touch.piece.moved && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) <= TAP_SLOP) return;
         if (!touch.piece.moved) {
           clearHold();
+          // A locked piece (on its own) stays put: the drag moves the table instead.
+          const locked = latest.get().table?.pieces?.find((p) => p.id === touch.piece!.id && p.locked);
+          if (locked && touch.piece.group.length === 1 && touch.piece.group[0] === locked.id) {
+            touch.piece = null;
+            if (latest.get().cameraLocked) {
+              touch.mode = 'button';
+              return;
+            }
+            touch.mode = 'camera';
+            touch.camStart = readCamera();
+            touch.camFrom = [f.start];
+            return move(all);
+          }
           // A quick drag from a bag (alone) takes its top thing out, as from a stack; held first, the bag moves.
           const bag = latest.get().table?.pieces?.find((p) => p.id === touch.piece!.id && p.kind === 'bag');
           if (bag && !touch.piece.whole && touch.piece.group.length === 1 && (bag.supply || bagItems(bag).length)) return pullFromBag(bag, f.now);
@@ -2790,7 +2803,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         return {
           title: piece.label || 'Text',
           tiles: [],
-          actions: [{ label: 'Change the words…', opensModal: true, onPress: () => rename('Text', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))) }, color, scale, takeOff],
+          actions: [
+            { label: 'Change the words…', opensModal: true, onPress: () => rename('Text', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))) },
+            // Locked, it stays put: dragging it moves the table instead.
+            { label: piece.locked ? 'Unlock' : 'Lock in place', onPress: () => commit(setPiece(table, piece.id, { locked: !piece.locked || undefined })) },
+            color,
+            scale,
+            takeOff,
+          ],
         };
       }
       if (piece.kind === 'marker') {

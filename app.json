@@ -3,7 +3,7 @@
     "name": "Shufflevale",
     "slug": "card-table",
     "scheme": "shufflevale",
-    "version": "1.2.0",
+    "version": "1.4.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",

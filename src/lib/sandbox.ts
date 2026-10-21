@@ -46,6 +46,24 @@ export interface Camera {
 
 export const HAND_COUNT = 4;
 
+/** What a piece on the table is, besides cards: a counter (a number to count up and down), or a die. */
+export type PieceKind = 'counter' | 'die';
+
+/** A piece on the table that isn't a card: always upright on the table, above the cards. */
+export interface TablePiece {
+  id: string;
+  kind: PieceKind;
+  /** Its middle, in table units. */
+  x: number;
+  y: number;
+  /** A counter's number, or the face a die last landed on. */
+  value: number;
+  /** A die's number of faces (see DIE_SIDES). */
+  sides?: number;
+  /** What a counter counts (e.g. Life), shown under it. */
+  label?: string;
+}
+
 export interface SandboxTable {
   id: string;
   name: string;
@@ -68,6 +86,8 @@ export interface SandboxTable {
   hideCounts?: boolean;
   /** Cards taken off the table, kept to put back (newest last). */
   trash?: SandboxCard[];
+  /** Counters and dice, in drawing order (later ones on top), above every card. */
+  pieces?: TablePiece[];
   /** The camera as it was left, or none yet (it starts looking at the middle of the table). */
   camera?: Camera;
   /** The part of the table a ready-made layout lies in: the camera starts on it (and goes back to it on reset). */
@@ -299,6 +319,67 @@ export function stackAt(
   }
   return null;
 }
+// ---- Pieces: counters and dice ----
+
+/** The dice a die can be: how many faces. */
+export const DIE_SIDES = [4, 6, 8, 10, 12, 20] as const;
+
+/** A piece's size on the table, in table units (a standard card is CARD_W wide). */
+export const PIECE_SIZE: Record<PieceKind, { w: number; h: number }> = {
+  counter: { w: 150, h: 60 },
+  die: { w: 60, h: 60 },
+};
+
+/** How far into a counter, from each end, its − and + reach (the middle, its number, is neither). */
+export const COUNTER_BUTTON = 50;
+
+/** The part of a piece a point is on: a counter's − or +, or anywhere else on it. */
+export type PiecePart = 'minus' | 'plus' | 'body';
+
+/** The topmost piece under a table point, if any, and which part of it the point is on. */
+export function pieceAt(t: SandboxTable, x: number, y: number): { piece: TablePiece; part: PiecePart } | null {
+  const pieces = t.pieces ?? [];
+  for (let i = pieces.length - 1; i >= 0; i--) {
+    const p = pieces[i];
+    const { w, h } = PIECE_SIZE[p.kind];
+    const dx = x - p.x;
+    const dy = y - p.y;
+    if (Math.abs(dx) > w / 2 || Math.abs(dy) > h / 2) continue;
+    const part: PiecePart = p.kind !== 'counter' ? 'body' : dx < -w / 2 + COUNTER_BUTTON ? 'minus' : dx > w / 2 - COUNTER_BUTTON ? 'plus' : 'body';
+    return { piece: p, part };
+  }
+  return null;
+}
+
+/** A new piece at a table point: a counter at 0, or a d6 showing a 6 (or a die of `sides`, showing its highest). */
+export function newPiece(kind: PieceKind, id: string, at: { x: number; y: number }, sides = 6): TablePiece {
+  const spot = { x: Math.round(at.x), y: Math.round(at.y) };
+  return kind === 'counter' ? { id, kind, ...spot, value: 0 } : { id, kind, ...spot, value: sides, sides };
+}
+
+/** Puts a piece on the table, on top of the others. */
+export const addPiece = (t: SandboxTable, piece: TablePiece): SandboxTable => ({ ...t, pieces: [...(t.pieces ?? []), piece] });
+
+/** Changes a piece (its place, number, faces or label). */
+export const setPiece = (t: SandboxTable, id: string, changes: Partial<Omit<TablePiece, 'id' | 'kind'>>): SandboxTable => ({
+  ...t,
+  pieces: (t.pieces ?? []).map((p) => (p.id === id ? { ...p, ...changes } : p)),
+});
+
+/** Moves a piece to a new place, and on top of the others (as it was just touched). */
+export function movePiece(t: SandboxTable, id: string, at: { x: number; y: number }): SandboxTable {
+  const pieces = t.pieces ?? [];
+  const piece = pieces.find((p) => p.id === id);
+  if (!piece) return t;
+  return { ...t, pieces: [...pieces.filter((p) => p.id !== id), { ...piece, x: Math.round(at.x), y: Math.round(at.y) }] };
+}
+
+/** Takes a piece off the table. */
+export const removePiece = (t: SandboxTable, id: string): SandboxTable => ({ ...t, pieces: (t.pieces ?? []).filter((p) => p.id !== id) });
+
+/** A die's roll: any of its faces, each as likely. */
+export const rollDie = (sides: number, random: () => number = Math.random) => 1 + Math.min(sides - 1, Math.floor(random() * sides));
+
 /** Whether cards can go onto a stack: not if any of its cards never stacks. */
 export const stackable = (s: SandboxStack) => !s.cards.some((c) => c.solo);
 

@@ -6,7 +6,7 @@ import { Image } from 'expo-image';
 
 import * as haptics from '../lib/haptics';
 import { defaultPieceColor, pieceSizeOf, rollDie, TEXT_SIZE, timerText } from '../lib/sandbox';
-import { imageUri } from '../lib/storage';
+import { imageUri, isSeeThrough } from '../lib/storage';
 import type { TablePiece } from '../lib/sandbox';
 import { colors } from '../theme';
 import { prefersReducedMotion } from './CardView';
@@ -815,8 +815,16 @@ function Token({ piece, color, size, selected }: { piece: TablePiece; color: str
       {piece.image ? (
         <Image
           source={{ uri: imageUri(piece.image) }}
-          style={{ position: 'absolute', left: inset, top: inset, width: size - inset * 2, height: size - inset * 2, borderRadius: piece.square ? size * 0.1 : size }}
-          contentFit="cover"
+          // A cut-out sits whole on the token, as a sticker would; any other picture fills its face.
+          style={{
+            position: 'absolute',
+            left: inset,
+            top: inset,
+            width: size - inset * 2,
+            height: size - inset * 2,
+            borderRadius: isSeeThrough(piece.image) ? 0 : piece.square ? size * 0.1 : size,
+          }}
+          contentFit={isSeeThrough(piece.image) ? 'contain' : 'cover'}
           cachePolicy="memory-disk"
         />
       ) : null}

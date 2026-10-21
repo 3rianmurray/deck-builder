@@ -107,6 +107,7 @@ import {
   tableCardCount,
 } from '../lib/sandbox';
 import type { Camera, CardSize, PieceKind, PiecePart, PieceShape, SandboxCard, SandboxStack, SandboxTable, Source, TablePiece } from '../lib/sandbox';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { tokenPicture } from '../lib/images';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
@@ -253,6 +254,8 @@ type Menu =
   | { kind: 'pieceShape'; id?: string }
   | { kind: 'addShape' }
   | { kind: 'addSpot' }
+  /** Where a token's picture comes from: for a new token, or (with an id) to change one's. */
+  | { kind: 'tokenSource'; id?: string }
   /** Scaling stacks and pieces (changing as the slider moves). */
   | { kind: 'scale'; stacks: string[]; pieces: string[] };
 
@@ -263,6 +266,9 @@ interface PieceDrag {
   dx: number;
   dy: number;
 }
+
+/** Where a token's picture comes from. */
+type TokenSource = 'photos' | 'files' | 'camera';
 
 /** A card being carried by a finger. */
 interface Held {
@@ -824,12 +830,29 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     haptics.drop();
   };
   /**
-   * A picture from the player's photos, made square and saved for a token: put on a new token, or (given one)
-   * on that token instead. Nothing if none's chosen.
+   * A picture for a token, from Photos, Files or the camera, made into a token's (see tokenPicture: a cut-out
+   * stays see-through) and saved: put on a new token, or (given one) on that token instead. Nothing if none's
+   * chosen.
    */
-  const pictureForToken = async (tokenId?: string) => {
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 });
-    const uri = result.canceled ? null : result.assets[0]?.uri;
+  const pictureForToken = async (source: TokenSource, tokenId?: string) => {
+    let uri: string | undefined;
+    if (source === 'files') {
+      const doc = await DocumentPicker.getDocumentAsync({ type: 'image/*', copyToCacheDirectory: true });
+      uri = doc.canceled ? undefined : doc.assets[0]?.uri;
+    } else if (source === 'camera') {
+      const allowed = await ImagePicker.requestCameraPermissionsAsync();
+      if (!allowed.granted) {
+        Alert.alert('Camera not allowed', 'Shufflevale can use the camera once it’s allowed in Settings → Shufflevale.');
+        return;
+      }
+      // Framed square as it's taken.
+      const shot = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 });
+      uri = shot.canceled ? undefined : shot.assets[0]?.uri;
+    } else {
+      // Not edited here, so a cut-out (a subject saved from Photos) keeps its see-through background.
+      const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
+      uri = picked.canceled ? undefined : picked.assets[0]?.uri;
+    }
     if (!uri) return;
     try {
       const image = importImage(TOKEN_PICTURES, await tokenPicture(uri));
@@ -2613,7 +2636,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   if (n > 0) commit(setPiece(table, piece.id, { value: Math.min(999, n) }));
                 }),
             },
-            { label: piece.image ? 'Change the picture…' : 'Add a picture…', opensModal: true, onPress: () => void pictureForToken(piece.id) },
+            { label: piece.image ? 'Change the picture…' : 'Add a picture…', onPress: () => setTimeout(() => setMenu({ kind: 'tokenSource', id: piece.id }), 250) },
             ...(piece.image ? [{ label: 'Take the picture off', onPress: () => commit(setPiece(table, piece.id, { image: undefined })) }] : []),
             { label: piece.square ? 'Make it round' : 'Make it square', onPress: () => commit(setPiece(table, piece.id, { square: !piece.square || undefined })) },
             color,
@@ -2821,8 +2844,21 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Card spot…', onPress: () => setTimeout(() => setMenu({ kind: 'addSpot' }), 250) },
           { label: 'Token', onPress: () => addPieceToTable('token') },
           // Its own screen, which iOS can only show once this menu has gone.
-          { label: 'Token from a picture…', opensModal: true, onPress: () => setTimeout(() => void pictureForToken(), 300) },
+          { label: 'Token from a picture…', onPress: () => setTimeout(() => setMenu({ kind: 'tokenSource' }), 250) },
           { label: 'Meeples, pawns, cubes, discs…', onPress: () => setTimeout(() => setMenu({ kind: 'addShape' }), 250) },
+        ],
+      };
+    }
+    if (menu.kind === 'tokenSource') {
+      // Each its own screen, which iOS can only show once this menu has gone.
+      const from = (source: TokenSource) => () => setTimeout(() => void pictureForToken(source, menu.id), 300);
+      return {
+        title: menu.id ? 'Change the picture' : 'Token from a picture',
+        tiles: [],
+        actions: [
+          { label: 'Photos', opensModal: true, onPress: from('photos') },
+          { label: 'Files', opensModal: true, onPress: from('files') },
+          { label: 'Take a photo', opensModal: true, onPress: from('camera') },
         ],
       };
     }
@@ -3511,7 +3547,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot' || menu?.kind === 'tokenSource')}
         title={sheet?.title}
         banner={sheet && 'banner' in sheet ? sheet.banner : undefined}
         actions={sheet?.actions ?? []}

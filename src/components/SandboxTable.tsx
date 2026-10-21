@@ -160,6 +160,8 @@ const TOKEN_PICTURES = 'tokens';
 const ZONE_GRIP_REACH = 28;
 /** A card spot's size against its deck's cards: a little room round them. */
 const SPOT_ROOM = 1.12;
+/** How many dice can be added at once (from the Add a die menu). */
+const DIE_COUNTS = [1, 2, 3, 4, 5, 6, 8, 10];
 /** Stands in for the finger carrying cards taken out of the search, till the table's gesture says which it is. */
 const TAKE_OUT_FINGER = -7;
 /** How long a stack brought onto the table takes to fly in (and the camera to glide over to it). */
@@ -887,6 +889,23 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const id = newId();
     // A die isn't put down on another.
     commit(separateDice(addPiece(table, { ...newPiece(kind, id, { x: mid.x + nudge, y: mid.y + nudge }, sides, shape), ...extra }), [id]));
+    haptics.drop();
+  };
+  /** How many dice the Add a die menu adds at once (kept for next time). */
+  const [dieCount, setDieCount] = useState(1);
+  /**
+   * Dice added in the middle of what's in view: one as any piece is; several lined up in a tight grid, and picked
+   * out, ready to roll together.
+   */
+  const addDice = (sides: number, count: number) => {
+    if (count <= 1) return addPieceToTable('die', sides);
+    if (!table || !view) return;
+    const mid = toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2);
+    const ids = Array.from({ length: count }, () => newId());
+    const added = ids.reduce((t, id, i) => addPiece(t, newPiece('die', id, { x: mid.x + i, y: mid.y }, sides)), table);
+    commit(gridDice(added, ids));
+    setSelected([]);
+    setPickedPieces(ids);
     haptics.drop();
   };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
@@ -2890,9 +2909,28 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (menu.kind === 'addDie') {
       const names: Record<number, string> = { 4: 'four', 6: 'six', 8: 'eight', 10: 'ten', 12: 'twelve', 20: 'twenty' };
       return {
-        title: 'Add a die',
+        title: dieCount === 1 ? 'Add a die' : `Add ${dieCount} dice`,
         tiles: [],
-        actions: DIE_SIDES.map((n) => ({ label: `d${n}  ·  ${names[n]} sides`, onPress: () => addPieceToTable('die', n) })),
+        // How many first (it's kept for next time), then which kind.
+        banner: (
+          <View style={styles.dieCounts}>
+            {DIE_COUNTS.map((n) => (
+              <Pressable
+                key={n}
+                onPress={() => {
+                  setDieCount(n);
+                  haptics.tick();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`${n} at once`}
+                accessibilityState={{ selected: dieCount === n }}
+                style={[styles.dieCount, dieCount === n && styles.dieCountOn]}>
+                <Text style={[styles.dieCountText, dieCount === n && { color: colors.accentText }]}>{n}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ),
+        actions: DIE_SIDES.map((n) => ({ label: `${dieCount === 1 ? '' : `${dieCount} × `}d${n}  ·  ${names[n]} sides`, onPress: () => addDice(n, dieCount) })),
       };
     }
     if (menu.kind === 'addDeck') {
@@ -3941,6 +3979,11 @@ const styles = StyleSheet.create({
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
   // A counter's or die's colors to pick from (see the pieceColor menu).
   swatches: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 14, paddingVertical: 8, paddingHorizontal: 12 },
+  // How many dice to add at once (see the addDie menu).
+  dieCounts: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 12 },
+  dieCount: { minWidth: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)' },
+  dieCountOn: { backgroundColor: colors.accent },
+  dieCountText: { color: colors.text, fontSize: 17, fontWeight: '700' },
   swatch: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
   swatchOn: { borderWidth: 3, borderColor: colors.accent },
   // The grid's lines, shown for now (for trying the grid out).

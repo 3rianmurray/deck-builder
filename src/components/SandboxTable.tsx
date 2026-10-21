@@ -43,7 +43,9 @@ import {
   DIE_SIDES,
   defaultPieceColor,
   PIECE_COLORS,
-  movePiece,
+  movePieces,
+  gridDice,
+  separateDice,
   newPiece,
   pieceAt,
   cardSizeOf,
@@ -227,6 +229,14 @@ type Menu =
   /** Scaling stacks and pieces (changing as the slider moves). */
   | { kind: 'scale'; stacks: string[]; pieces: string[] };
 
+/** Counters and dice being dragged: the one under the finger, all of them, and how far they've gone (table units). */
+interface PieceDrag {
+  lead: string;
+  ids: string[];
+  dx: number;
+  dy: number;
+}
+
 /** A card being carried by a finger. */
 interface Held {
   /** Where each was taken from (the first picked up, then any tapped with another finger). */
@@ -280,6 +290,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       ],
     };
   });
+  /** Counters and dice picked out with dragged cards follow them (as far as they've gone; they don't turn). */
+  const pieceGroupStyle = useAnimatedStyle(() => ({ transform: [{ translateX: groupDX.value }, { translateY: groupDY.value }] }));
   /** Cards flying into a stack just gathered (each the top of a stack that was picked out). */
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   /** Where carried cards would go into the hand, while they're over it: a gap opens there. */
@@ -694,7 +706,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
   // ---- Pieces: counters and dice ----
   /** A piece being dragged: where it's drawn for now (it's put down where it's let go). */
-  const [pieceDrag, setPieceDrag] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [pieceDrag, setPieceDrag] = useState<PieceDrag | null>(null);
   /** Each die's latest roll here: how many so far (so it tumbles each time), and where it set off from. */
   const [rolls, setRolls] = useState<Record<string, { key: number; dx: number; dy: number }>>({});
   /** Counters and dice picked out with the lasso; the dice among them roll together (tap any, or the roll button). */
@@ -737,11 +749,23 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     commit(setPiece(table, id, { value: piece.value + (part === 'plus' ? 1 : -1) }));
     haptics.tick();
   };
-  /** A dragged piece let go: it stays there (on the grid, if snapping's on), on top of the others. */
-  const dropPiece = (id: string, at: { x: number; y: number }) => {
+  /**
+   * Dragged pieces let go: they stay there, on top of the others (the one dragged on the grid, if snapping's on, and
+   * the rest as far as it went). Dice that land on others are moved off them.
+   */
+  const dropPieces = (drag: PieceDrag) => {
     setPieceDrag(null);
-    if (!table) return;
-    commit(movePiece(table, id, gridOn ? snapToGrid({ ...at, angle: 0 }, gridStep) : at));
+    const lead = table?.pieces?.find((p) => p.id === drag.lead);
+    if (!table || !lead) return;
+    const to = { x: lead.x + drag.dx, y: lead.y + drag.dy };
+    const snapped = gridOn ? snapToGrid({ ...to, angle: 0 }, gridStep) : to;
+    commit(movePieces(table, drag.ids, { x: snapped.x - lead.x, y: snapped.y - lead.y }));
+    haptics.drop();
+  };
+  /** The picked-out dice lined up in a tight grid (the button by the roll one). */
+  const gridPickedDice = () => {
+    if (!table || pickedDice.length < 2) return;
+    commit(gridDice(table, pickedDice));
     haptics.drop();
   };
   /** A new piece in the middle of what's in view (a little apart from the last few, so they don't hide each other). */
@@ -749,7 +773,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (!table || !view) return;
     const mid = toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2);
     const nudge = ((table.pieces?.length ?? 0) % 5) * 24;
-    commit(addPiece(table, newPiece(kind, newId(), { x: mid.x + nudge, y: mid.y + nudge }, sides)));
+    const id = newId();
+    // A die isn't put down on another.
+    commit(separateDice(addPiece(table, newPiece(kind, id, { x: mid.x + nudge, y: mid.y + nudge }, sides)), [id]));
     haptics.drop();
   };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
@@ -771,7 +797,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // Nothing left to move (e.g. trashed mid-drag), or not moved at all.
     if (!table || !chosen.length || (!by.x && !by.y && !turn)) return;
     const place = gridOn ? (p: { x: number; y: number; angle: number }) => snapToGrid(p, gridStep) : undefined;
-    commit(turn ? rotateStacks(table, chosen, gestureState.get().groupFrom, turn, by, place) : moveStacks(table, chosen, by, place));
+    const moved = turn ? rotateStacks(table, chosen, gestureState.get().groupFrom, turn, by, place) : moveStacks(table, chosen, by, place);
+    // Counters and dice picked out with them come too (as far as the finger went).
+    commit(pickedPieces.length && (by.x || by.y) ? movePieces(moved, pickedPieces, by) : moved);
     tourEvent('tables-moved');
     haptics.drop();
   };
@@ -852,10 +880,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     if (on(moreButton)) return 'more';
     return null;
   };
-  /** The roll button, while dice are picked out: where the selection's column of buttons would start, or above it. */
-  const rollButton = chosen.length ? slot(2 + (canShuffle ? 1 : 0) + (chosen.length > 1 ? 1 : 0)) : flipButton;
-  const onRollButton = (x: number, y: number) =>
-    pickedDice.length > 0 && !held && !groupMoving && !toolsOpen && Math.hypot(x - (rollButton.x + FLIP_SIZE / 2), y - (rollButton.y + FLIP_SIZE / 2)) <= FLIP_SIZE / 2 + 8;
+  // While dice are picked out: the roll button, where the selection's column of buttons would start (or above the
+  // cards' buttons, if cards are picked out too), and with two or more, one above it to line them up in a grid.
+  const rollSlot = chosen.length ? 2 + (canShuffle ? 1 : 0) + (chosen.length > 1 ? 1 : 0) : 0;
+  const rollButton = slot(rollSlot);
+  const diceGridButton = slot(rollSlot + 1);
+  const diceButtonsLive = !held && !groupMoving && !toolsOpen;
+  const onButton = (b: { x: number; y: number }, x: number, y: number) => Math.hypot(x - (b.x + FLIP_SIZE / 2), y - (b.y + FLIP_SIZE / 2)) <= FLIP_SIZE / 2 + 8;
+  const onRollButton = (x: number, y: number) => pickedDice.length > 0 && diceButtonsLive && onButton(rollButton, x, y);
+  const onDiceGridButton = (x: number, y: number) => pickedDice.length > 1 && diceButtonsLive && onButton(diceGridButton, x, y);
   /** The shuffle button: each picked-out stack shuffled where it lies (one undo), with the riffle played on one. */
   const shuffleSelection = () => {
     if (!table) return;
@@ -959,12 +992,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       setPickedPieces: (ids: string[]) => void;
       onRollButton: (x: number, y: number) => boolean;
       rollDice: (ids: string[]) => void;
-      setPieceDrag: (d: { id: string; x: number; y: number } | null) => void;
-      dropPiece: (id: string, at: { x: number; y: number }) => void;
+      setPieceDrag: (d: PieceDrag | null) => void;
+      dropPieces: (d: PieceDrag) => void;
+      onDiceGridButton: (x: number, y: number) => boolean;
+      gridPickedDice: () => void;
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, tapPiece, setPieceDrag, dropPiece, pickedDice, pickedPieces, setPickedPieces, onRollButton, rollDice });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedPieces, setPickedPieces, onRollButton, rollDice });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -972,7 +1007,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const s = {
       mode: 'none' as 'none' | 'camera' | 'press' | 'carry' | 'handPress' | 'lasso' | 'group' | 'button' | 'piece',
       /** The counter or die pressed: which part, where it lay and where the finger landed (on the table), and whether it's been dragged. */
-      piece: null as null | { id: string; part: PiecePart; origin: Pt; from: Pt; moved: boolean },
+      piece: null as null | { id: string; part: PiecePart; group: string[]; from: Pt; moved: boolean },
       /** Waiting to see if a press on a stack is held (the whole stack comes) rather than dragged (its top card). */
       holdTimer: null as null | ReturnType<typeof setTimeout>,
       /** The press is on a selected stack: a drag moves the whole group. */
@@ -1333,6 +1368,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           L.rollDice(L.pickedDice);
           return;
         }
+        if (L.onDiceGridButton(t.x, t.y)) {
+          touch.mode = 'button';
+          L.gridPickedDice();
+          return;
+        }
         // The selection's buttons (flip, gather, take off the table), showing while cards are picked out.
         if (L.selected.length) {
           const b = L.selectionButtonAt(t.x, t.y);
@@ -1356,7 +1396,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           // Pressing one of the picked-out dice keeps them picked out (a tap rolls them all); anything else lets them go.
           if (L.selected.length && !L.pickedPieces.includes(pressed)) L.setSelected([]);
           else if (L.pickedPieces.length && !L.pickedPieces.includes(pressed)) L.setPickedPieces([]);
-          touch.piece = { id: pressed, part: onPiece.part, origin: { x: onPiece.piece.x, y: onPiece.piece.y }, from: w, moved: false };
+          // One of several picked out: a drag takes them all.
+          const group = L.pickedPieces.includes(pressed) && L.pickedPieces.length > 1 ? L.pickedPieces : [pressed];
+          touch.piece = { id: pressed, part: onPiece.part, group, from: w, moved: false };
           touch.mode = 'piece';
           touch.onEmpty = false;
           touch.holdTimer = setTimeout(() => {
@@ -1515,8 +1557,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           haptics.lift();
         }
         const w = toTable(readCamera(), f.now.x, f.now.y);
-        const { id, origin, from } = touch.piece;
-        latest.get().setPieceDrag({ id, x: origin.x + w.x - from.x, y: origin.y + w.y - from.y });
+        const { id, group, from } = touch.piece;
+        latest.get().setPieceDrag({ lead: id, ids: group, dx: w.x - from.x, dy: w.y - from.y });
         return;
       }
       if (touch.mode === 'lasso') {
@@ -1673,7 +1715,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         touch.piece = null;
         if (pressed?.moved && f) {
           const w = toTable(readCamera(), f.now.x, f.now.y);
-          L.dropPiece(pressed.id, { x: pressed.origin.x + w.x - pressed.from.x, y: pressed.origin.y + w.y - pressed.from.y });
+          L.dropPieces({ lead: pressed.id, ids: pressed.group, dx: w.x - pressed.from.x, dy: w.y - pressed.from.y });
         } else if (pressed) {
           L.tapPiece(pressed.id, pressed.part);
         }
@@ -2318,6 +2360,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ? [
                 { label: dice.length === 1 ? 'Roll it' : `Roll all ${dice.length} dice`, onPress: () => rollDice(dice.map((d) => d.id)) },
                 { label: dice.length === 1 ? 'Change the die…' : 'Change the dice…', onPress: () => setTimeout(() => setMenu({ kind: 'dieKind' }), 250) },
+                {
+                  // All of them one way: rolling in place if any rolls across.
+                  label: dice.every((d) => d.rollInPlace) ? 'Roll across the table' : 'Roll in place',
+                  onPress: () => {
+                    const inPlace = !dice.every((d) => d.rollInPlace);
+                    commit(dice.reduce((t, d) => setPiece(t, d.id, { rollInPlace: inPlace || undefined }), table));
+                  },
+                },
               ]
             : []),
           ...(pieces.length ? [{ label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor' }), 250) }] : []),
@@ -2371,6 +2421,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         tiles: [],
         actions: [
           { label: 'Change the die…', onPress: () => setTimeout(() => setMenu({ kind: 'dieKind', id: piece.id }), 250) },
+          {
+            label: piece.rollInPlace ? 'Roll across the table' : 'Roll in place',
+            onPress: () => commit(setPiece(table, piece.id, { rollInPlace: !piece.rollInPlace || undefined })),
+          },
           { label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor', id: piece.id }), 250) },
           { label: 'Scale…', onPress: () => openScale([], [piece.id]) },
           takeOff,
@@ -2553,17 +2607,28 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               ),
             )}
             {/* Counters and dice, above every card. */}
-            {(table.pieces ?? []).map((p) => (
-              <TablePieceView
-                key={p.id}
-                piece={p}
-                at={pieceDrag?.id === p.id ? pieceDrag : undefined}
-                lifted={pieceDrag?.id === p.id}
-                rollKey={rolls[p.id]?.key}
-                rollFrom={rolls[p.id]}
-                selected={pickedPieces.includes(p.id)}
-              />
-            ))}
+            {(table.pieces ?? []).map((p) => {
+              const dragged = !!pieceDrag?.ids.includes(p.id);
+              const view = (
+                <TablePieceView
+                  key={p.id}
+                  piece={p}
+                  at={dragged && pieceDrag ? { x: p.x + pieceDrag.dx, y: p.y + pieceDrag.dy } : undefined}
+                  lifted={dragged}
+                  rollKey={rolls[p.id]?.key}
+                  rollFrom={rolls[p.id]}
+                  selected={pickedPieces.includes(p.id)}
+                />
+              );
+              // Picked out with cards that are being dragged: they go along with them.
+              return groupMoving && pickedPieces.includes(p.id) ? (
+                <Animated.View key={p.id} style={[styles.pieceGroup, pieceGroupStyle]}>
+                  {view}
+                </Animated.View>
+              ) : (
+                view
+              );
+            })}
             {/* A stack being shuffled: the riffle, played where it lies, turned as it is. */}
             {riffling && riffleStack && riffleDeck ? (
               <View
@@ -2916,6 +2981,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               pointerEvents="none"
               style={[styles.flipButton, { left: rollButton.x, top: rollButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && styles.waiting]}>
               <SymbolView name={{ ios: 'dice', android: 'casino', web: 'casino' }} size={26} weight="semibold" tintColor={colors.accentText} />
+            </View>
+          ) : null}
+          {/* With two or more dice picked out: one to line them up in a tight grid. */}
+          {!held && !groupMoving && pickedDice.length > 1 ? (
+            <View
+              pointerEvents="none"
+              style={[styles.flipButton, { left: diceGridButton.x, top: diceGridButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && styles.waiting]}>
+              <SymbolView name={{ ios: 'square.grid.2x2', android: 'grid_view', web: 'grid_view' }} size={24} weight="semibold" tintColor={colors.accentText} />
             </View>
           ) : null}
 
@@ -3536,6 +3609,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
   },
   held: { position: 'absolute' },
+  // Counters and dice moving with dragged cards: laid out on the table's terms, as the rest are.
+  pieceGroup: { position: 'absolute', left: 0, top: 0 },
   hidden: { opacity: 0 },
   /** The selection's buttons while the tools lie over them: dimmed, and doing nothing till they're put away. */
   waiting: { opacity: 0.5 },

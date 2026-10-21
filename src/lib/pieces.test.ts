@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice } from './sandbox.ts';
+import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE } from './sandbox.ts';
 
 const table = () => newSandbox('t', 'Test', 0);
 
@@ -61,4 +61,52 @@ test('a lasso catches dice it goes round or over, and not counters', () => {
   const loop = [{ x: 0, y: 0 }, { x: 250, y: 0 }, { x: 250, y: 250 }, { x: 0, y: 250 }];
   assert.deepEqual(piecesInShape(t, loop, 'die'), ['in']);
   assert.deepEqual(piecesInShape(t, [{ x: 505, y: 495 }], 'die'), ['out']);
+});
+
+const overlaps = (t: ReturnType<typeof table>) => {
+  const d = (t.pieces ?? []).filter((p) => p.kind === 'die');
+  return d.some((a, i) => d.slice(i + 1).some((b) => Math.abs(a.x - b.x) < PIECE_SIZE.die.w && Math.abs(a.y - b.y) < PIECE_SIZE.die.w));
+};
+
+test('dice are pushed off each other the shortest way; ones not allowed to move stay put', () => {
+  let t = addPiece(table(), newPiece('die', 'a', { x: 500, y: 500 }));
+  t = addPiece(t, newPiece('die', 'b', { x: 520, y: 505 }));
+  const apart = separateDice(t, ['b']);
+  assert.equal(overlaps(apart), false);
+  assert.deepEqual([apart.pieces![0].x, apart.pieces![0].y], [500, 500]);
+  assert.equal(apart.pieces![1].x, 500 + PIECE_SIZE.die.w + DICE_SPACE);
+  assert.equal(apart.pieces![1].y, 505);
+  // Already apart: left as it was.
+  assert.equal(separateDice(apart, ['a', 'b']), apart);
+});
+
+test('thrown dice never land on each other, and one that rolls in place stays put', () => {
+  let t = table();
+  for (let i = 0; i < 8; i++) t = addPiece(t, newPiece('die', `d${i}`, { x: 1000 + (i % 4) * 66, y: 1000 + Math.floor(i / 4) * 66 }));
+  t = setPiece(t, 'd0', { rollInPlace: true });
+  let r = 0.1;
+  const random = () => (r = (r * 9301 + 49297) % 233280 / 233280);
+  const { table: thrown, from } = throwDice(t, t.pieces!.map((p) => p.id), random);
+  assert.equal(overlaps(thrown), false);
+  assert.deepEqual(from.d0, { dx: 0, dy: 0 });
+});
+
+test('a group of pieces moves together, and dice dropped on others are moved off them', () => {
+  let t = addPiece(addPiece(table(), newPiece('die', 'a', { x: 100, y: 100 })), newPiece('die', 'b', { x: 200, y: 100 }));
+  t = addPiece(t, newPiece('die', 'still', { x: 400, y: 400 }));
+  const moved = movePieces(t, ['a', 'b'], { x: 300, y: 300 });
+  assert.equal(overlaps(moved), false);
+  assert.deepEqual(moved.pieces!.find((p) => p.id === 'still'), t.pieces![2]);
+  assert.deepEqual(moved.pieces!.find((p) => p.id === 'b'), { ...t.pieces![1], x: 500, y: 400 });
+});
+
+test('picked-out dice line up in a near-square grid round where they were', () => {
+  let t = table();
+  for (const [i, x] of [300, 900, 600, 1200, 100].entries()) t = addPiece(t, newPiece('die', `d${i}`, { x, y: 500 + i * 37 }));
+  const g = gridDice(t, t.pieces!.map((p) => p.id));
+  const xs = new Set(g.pieces!.map((p) => p.x));
+  const ys = new Set(g.pieces!.map((p) => p.y));
+  assert.equal(xs.size, 3);
+  assert.equal(ys.size, 2);
+  assert.equal(overlaps(g), false);
 });

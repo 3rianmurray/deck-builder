@@ -48,6 +48,8 @@ import {
   separateDice,
   newPiece,
   pieceAt,
+  PIECE_SHAPES,
+  rollable,
   cardSizeOf,
   matchStackSizes,
   scaleItems,
@@ -90,7 +92,7 @@ import {
   MAX_TABLE_CARDS,
   tableCardCount,
 } from '../lib/sandbox';
-import type { Camera, CardSize, PieceKind, PiecePart, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
+import type { Camera, CardSize, PieceKind, PiecePart, PieceShape, SandboxCard, SandboxStack, SandboxTable, Source } from '../lib/sandbox';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
 import { offerTipAfterUses, offerTipSoon, tipLearned } from '../lib/tips';
 import { tourEvent } from '../lib/tour';
@@ -226,6 +228,8 @@ type Menu =
   /** For one counter or die, or (with no id) every one picked out. */
   | { kind: 'dieKind'; id?: string }
   | { kind: 'pieceColor'; id?: string }
+  | { kind: 'pieceShape'; id?: string }
+  | { kind: 'addShape' }
   /** Scaling stacks and pieces (changing as the slider moves). */
   | { kind: 'scale'; stacks: string[]; pieces: string[] };
 
@@ -713,6 +717,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [pickedPieceIds, setPickedPieces] = useState<string[]>([]);
   const pickedPieces = pickedPieceIds.filter((id) => table?.pieces?.some((p) => p.id === id));
   const pickedDice = pickedPieces.filter((id) => table?.pieces?.some((p) => p.id === id && p.kind === 'die'));
+  /** The picked-out dice, coins and spinners: the roll button (or a tap on any of them) rolls, flips and spins them all. */
+  const pickedRollables = pickedPieces.filter((id) => table?.pieces?.some((p) => p.id === id && rollable(p)));
   /**
    * Rolls dice (one undo for them all): each lands on a new face a little way off, in a random direction, and
    * tumbles across to there.
@@ -733,13 +739,23 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setSelected(ids);
     if (!ids.length) setPickedPieces([]);
   };
-  /** A tap on a piece: a counter's − or + counts down or up (its number, its options); a die rolls. */
+  /**
+   * A tap on a piece: a die rolls, a coin flips, a spinner spins (all the picked-out ones, if it's one of them); a
+   * text label's words can be changed; a counter's − or + counts down or up (its number: its options).
+   */
   const tapPiece = (id: string, part: PiecePart) => {
     const piece = table?.pieces?.find((p) => p.id === id);
     if (!table || !piece) return;
-    if (piece.kind === 'die') {
-      // One of the picked-out dice: they all roll.
-      rollDice(pickedDice.includes(id) ? pickedDice : [id]);
+    if (rollable(piece)) {
+      rollDice(pickedRollables.includes(id) ? pickedRollables : [id]);
+      return;
+    }
+    if (piece.kind === 'text') {
+      rename('Text', piece.label ?? '', (label) => commit(setPiece(table, id, { label })));
+      return;
+    }
+    if (piece.kind !== 'counter') {
+      haptics.tick();
       return;
     }
     if (part === 'body') {
@@ -769,13 +785,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     haptics.drop();
   };
   /** A new piece in the middle of what's in view (a little apart from the last few, so they don't hide each other). */
-  const addPieceToTable = (kind: PieceKind, sides?: number) => {
+  const addPieceToTable = (kind: PieceKind, sides?: number, shape?: PieceShape) => {
     if (!table || !view) return;
     const mid = toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2);
     const nudge = ((table.pieces?.length ?? 0) % 5) * 24;
     const id = newId();
     // A die isn't put down on another.
-    commit(separateDice(addPiece(table, newPiece(kind, id, { x: mid.x + nudge, y: mid.y + nudge }, sides)), [id]));
+    commit(separateDice(addPiece(table, newPiece(kind, id, { x: mid.x + nudge, y: mid.y + nudge }, sides, shape)), [id]));
     haptics.drop();
   };
   /** Opens (or moves, or closes) the gap in the hand's row, the cards sliding over to make room. */
@@ -887,7 +903,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const diceGridButton = slot(rollSlot + 1);
   const diceButtonsLive = !held && !groupMoving && !toolsOpen;
   const onButton = (b: { x: number; y: number }, x: number, y: number) => Math.hypot(x - (b.x + FLIP_SIZE / 2), y - (b.y + FLIP_SIZE / 2)) <= FLIP_SIZE / 2 + 8;
-  const onRollButton = (x: number, y: number) => pickedDice.length > 0 && diceButtonsLive && onButton(rollButton, x, y);
+  const onRollButton = (x: number, y: number) => pickedRollables.length > 0 && diceButtonsLive && onButton(rollButton, x, y);
   const onDiceGridButton = (x: number, y: number) => pickedDice.length > 1 && diceButtonsLive && onButton(diceGridButton, x, y);
   /** The shuffle button: each picked-out stack shuffled where it lies (one undo), with the riffle played on one. */
   const shuffleSelection = () => {
@@ -988,6 +1004,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       endSearch: () => void;
       tapPiece: (id: string, part: PiecePart) => void;
       pickedDice: string[];
+      pickedRollables: string[];
       pickedPieces: string[];
       setPickedPieces: (ids: string[]) => void;
       onRollButton: (x: number, y: number) => boolean;
@@ -999,7 +1016,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedPieces, setPickedPieces, onRollButton, rollDice });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -1365,7 +1382,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // The roll button, while dice are picked out.
         if (L.onRollButton(t.x, t.y)) {
           touch.mode = 'button';
-          L.rollDice(L.pickedDice);
+          L.rollDice(L.pickedRollables);
           return;
         }
         if (L.onDiceGridButton(t.x, t.y)) {
@@ -2370,6 +2387,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 },
               ]
             : []),
+          // Coins and spinners (alone, or with dice): one to flip and spin them all, dice and all.
+          ...(pieces.some((p) => p.kind === 'coin' || p.kind === 'spinner')
+            ? [{ label: dice.length ? 'Roll, flip and spin them all' : 'Flip and spin them all', onPress: () => rollDice(pieces.filter(rollable).map((p) => p.id)) }]
+            : []),
+          ...(pieces.some((p) => p.kind === 'meeple') ? [{ label: 'Change the shape…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceShape' }), 250) }] : []),
           ...(pieces.length ? [{ label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor' }), 250) }] : []),
           ...(n
             ? [
@@ -2416,6 +2438,37 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           ],
         };
       }
+      const color = { label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor', id: piece.id }), 250) };
+      const scale = { label: 'Scale…', onPress: () => openScale([], [piece.id]) };
+      if (piece.kind === 'text') {
+        return {
+          title: piece.label || 'Text',
+          tiles: [],
+          actions: [{ label: 'Change the words…', opensModal: true, onPress: () => rename('Text', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))) }, color, scale, takeOff],
+        };
+      }
+      if (piece.kind === 'marker') {
+        return {
+          title: piece.label || 'Marker',
+          tiles: [],
+          actions: [
+            { label: 'Change what it says…', opensModal: true, onPress: () => rename('Marker', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))) },
+            color,
+            scale,
+            takeOff,
+          ],
+        };
+      }
+      if (piece.kind === 'meeple') {
+        return {
+          title: PIECE_SHAPES.find((s) => s.shape === (piece.shape ?? 'meeple'))?.name ?? 'Piece',
+          tiles: [],
+          actions: [{ label: 'Change the shape…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceShape', id: piece.id }), 250) }, color, scale, takeOff],
+        };
+      }
+      if (piece.kind === 'coin' || piece.kind === 'spinner') {
+        return { title: piece.kind === 'coin' ? 'Coin' : 'Spinner', tiles: [], actions: [color, scale, takeOff] };
+      }
       return {
         title: `d${piece.sides ?? 6}`,
         tiles: [],
@@ -2429,6 +2482,20 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Scale…', onPress: () => openScale([], [piece.id]) },
           takeOff,
         ],
+      };
+    }
+    if (menu.kind === 'pieceShape') {
+      // One playing piece, or every one picked out.
+      const targets = (table.pieces ?? []).filter((p) => p.kind === 'meeple' && (menu.id ? p.id === menu.id : pickedPieces.includes(p.id)));
+      if (!targets.length) return null;
+      const shapes = new Set(targets.map((p) => p.shape ?? 'meeple'));
+      return {
+        title: 'Shape',
+        tiles: [],
+        actions: PIECE_SHAPES.map(({ shape, name }) => ({
+          label: `${name}${shapes.size === 1 && shapes.has(shape) ? '  ✓' : ''}`,
+          onPress: () => commit(targets.reduce((t, p) => setPiece(t, p.id, { shape }), table)),
+        })),
       };
     }
     if (menu.kind === 'dieKind') {
@@ -2494,7 +2561,19 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         actions: [
           { label: 'Counter', onPress: () => addPieceToTable('counter') },
           { label: 'Dice…', onPress: () => setTimeout(() => setMenu({ kind: 'addDie' }), 250) },
+          { label: 'Coin', onPress: () => addPieceToTable('coin') },
+          { label: 'Text', onPress: () => addPieceToTable('text') },
+          { label: 'First-player marker', onPress: () => addPieceToTable('marker') },
+          { label: 'Spinner', onPress: () => addPieceToTable('spinner') },
+          { label: 'Meeples, pawns, cubes, discs…', onPress: () => setTimeout(() => setMenu({ kind: 'addShape' }), 250) },
         ],
+      };
+    }
+    if (menu.kind === 'addShape') {
+      return {
+        title: 'Add a piece',
+        tiles: [],
+        actions: PIECE_SHAPES.map(({ shape, name }) => ({ label: name, onPress: () => addPieceToTable('meeple', undefined, shape) })),
       };
     }
     if (menu.kind === 'addDie') {
@@ -2976,7 +3055,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           ) : null}
 
           {/* With dice picked out: one to roll them all (above the selection's other buttons, if cards are picked out too). */}
-          {!held && !groupMoving && pickedDice.length ? (
+          {!held && !groupMoving && pickedRollables.length ? (
             <View
               pointerEvents="none"
               style={[styles.flipButton, { left: rollButton.x, top: rollButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && styles.waiting]}>
@@ -3151,7 +3230,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape')}
         title={sheet?.title}
         banner={sheet && 'banner' in sheet ? sheet.banner : undefined}
         actions={sheet?.actions ?? []}

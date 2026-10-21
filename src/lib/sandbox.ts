@@ -48,8 +48,20 @@ export interface Camera {
 
 export const HAND_COUNT = 4;
 
-/** What a piece on the table is, besides cards: a counter (a number to count up and down), or a die. */
-export type PieceKind = 'counter' | 'die';
+/**
+ * What a piece on the table is, besides cards: a counter (a number to count up and down), a die, a coin, a text
+ * label, a first-player marker, a spinner, or a playing piece (a meeple, pawn, cube or disc: see PieceShape).
+ */
+export type PieceKind = 'counter' | 'die' | 'coin' | 'text' | 'marker' | 'spinner' | 'meeple';
+
+/** A playing piece's shape. */
+export type PieceShape = 'meeple' | 'pawn' | 'cube' | 'disc';
+export const PIECE_SHAPES: { shape: PieceShape; name: string }[] = [
+  { shape: 'meeple', name: 'Meeple' },
+  { shape: 'pawn', name: 'Pawn' },
+  { shape: 'cube', name: 'Cube' },
+  { shape: 'disc', name: 'Disc' },
+];
 
 /** A piece on the table that isn't a card: always upright on the table, above the cards. */
 export interface TablePiece {
@@ -58,12 +70,17 @@ export interface TablePiece {
   /** Its middle, in table units. */
   x: number;
   y: number;
-  /** A counter's number, or the face a die last landed on. */
+  /**
+   * A counter's number; the face a die last landed on; a coin's side (1 heads, 2 tails); where a spinner's arrow
+   * points (degrees clockwise from up).
+   */
   value: number;
   /** A die's number of faces (see DIE_SIDES). */
   sides?: number;
-  /** What a counter counts (e.g. Life), shown under it. */
+  /** What a counter counts (e.g. Life), shown under it; a text label's words; what a marker says (e.g. 1st). */
   label?: string;
+  /** A playing piece's shape. */
+  shape?: PieceShape;
   /** Its color (one of PIECE_COLORS), or none for its own (see defaultPieceColor). */
   color?: string;
   /** Drawn this much bigger (or smaller) than PIECE_SIZE; none is its own size. */
@@ -84,11 +101,16 @@ export const PIECE_COLORS = {
   Blue: '#378add',
   Purple: '#7f77dd',
   Pink: '#d4537e',
+  Gold: '#d4a72c',
+  Silver: '#b9bcc2',
 } as const;
 
 /** A piece's own color, when none's been chosen: dark for a counter, ivory for a d6, and its own for each other die. */
 export function defaultPieceColor(p: Pick<TablePiece, 'kind' | 'sides'>): string {
   if (p.kind === 'counter') return '#14202a';
+  if (p.kind === 'coin' || p.kind === 'marker') return PIECE_COLORS.Gold;
+  if (p.kind === 'text' || p.kind === 'spinner') return PIECE_COLORS.Ivory;
+  if (p.kind === 'meeple') return PIECE_COLORS.Red;
   const own: Record<number, string> = { 4: PIECE_COLORS.Green, 6: PIECE_COLORS.Ivory, 8: PIECE_COLORS.Blue, 10: PIECE_COLORS.Purple, 12: PIECE_COLORS.Pink, 20: PIECE_COLORS.Red };
   return own[p.sides ?? 6] ?? PIECE_COLORS.Ivory;
 }
@@ -328,7 +350,7 @@ export function cardSizeOf(c: SandboxCard, size: CardSize): { w: number; h: numb
 
 /** A piece's size on the table, at its scale. */
 export function pieceSizeOf(p: TablePiece): { w: number; h: number } {
-  const base = PIECE_SIZE[p.kind];
+  const base = p.kind === 'text' ? textSize(p.label ?? '') : PIECE_SIZE[p.kind];
   const k = p.scale ?? 1;
   return k === 1 ? base : { w: base.w * k, h: base.h * k };
 }
@@ -417,7 +439,23 @@ export const DIE_SIDES = [4, 6, 8, 10, 12, 20] as const;
 export const PIECE_SIZE: Record<PieceKind, { w: number; h: number }> = {
   counter: { w: 150, h: 60 },
   die: { w: 60, h: 60 },
+  coin: { w: 58, h: 58 },
+  // A text label's height (its width goes by its words: see textSize).
+  text: { w: 0, h: 40 },
+  marker: { w: 64, h: 64 },
+  spinner: { w: 120, h: 120 },
+  meeple: { w: 46, h: 50 },
 };
+
+/** A text label's lettering size (table units), and roughly how wide each letter is against it. */
+export const TEXT_SIZE = 24;
+const TEXT_LETTER = 0.56;
+const TEXT_MAX_W = 700;
+/** How much room a text label takes: its words on one line, with a little room round them. */
+export const textSize = (label: string) => ({
+  w: Math.min(TEXT_MAX_W, Math.max(60, Math.round(label.length * TEXT_SIZE * TEXT_LETTER + 28))),
+  h: PIECE_SIZE.text.h,
+});
 
 /** How far into a counter, from each end, its − and + reach (the middle, its number, is neither). */
 export const COUNTER_BUTTON = 50;
@@ -442,10 +480,18 @@ export function pieceAt(t: SandboxTable, x: number, y: number): { piece: TablePi
 }
 
 /** A new piece at a table point: a counter at 0, or a d6 showing a 6 (or a die of `sides`, showing its highest). */
-export function newPiece(kind: PieceKind, id: string, at: { x: number; y: number }, sides = 6): TablePiece {
+export function newPiece(kind: PieceKind, id: string, at: { x: number; y: number }, sides = 6, shape: PieceShape = 'meeple'): TablePiece {
   const spot = { x: Math.round(at.x), y: Math.round(at.y) };
-  return kind === 'counter' ? { id, kind, ...spot, value: 0 } : { id, kind, ...spot, value: sides, sides };
+  if (kind === 'die') return { id, kind, ...spot, value: sides, sides };
+  if (kind === 'coin') return { id, kind, ...spot, value: 1 };
+  if (kind === 'text') return { id, kind, ...spot, value: 0, label: 'Text' };
+  if (kind === 'marker') return { id, kind, ...spot, value: 0, label: '1st' };
+  if (kind === 'meeple') return { id, kind, ...spot, value: 0, shape };
+  return { id, kind, ...spot, value: 0 };
 }
+
+/** The pieces that are rolled (or flipped, or spun) by a tap: dice, coins and spinners. */
+export const rollable = (p: TablePiece) => p.kind === 'die' || p.kind === 'coin' || p.kind === 'spinner';
 
 /** Puts a piece on the table, on top of the others. */
 export const addPiece = (t: SandboxTable, piece: TablePiece): SandboxTable => ({ ...t, pieces: [...(t.pieces ?? []), piece] });
@@ -497,6 +543,11 @@ const THROW_EDGE = 40;
  */
 export function throwDice(t: SandboxTable, ids: string[], random: () => number = Math.random) {
   let table = t;
+  // Coins flip and spinners spin, where they lie.
+  for (const p of (t.pieces ?? []).filter((q) => ids.includes(q.id))) {
+    if (p.kind === 'coin') table = setPiece(table, p.id, { value: random() < 0.5 ? 1 : 2 });
+    if (p.kind === 'spinner') table = setPiece(table, p.id, { value: Math.floor(random() * 360) });
+  }
   const dice = (t.pieces ?? []).filter((p) => p.kind === 'die' && ids.includes(p.id));
   for (const d of dice) {
     // One that rolls in place stays where it is; the rest go a little way off.
@@ -516,9 +567,9 @@ export function throwDice(t: SandboxTable, ids: string[], random: () => number =
     dice.filter((d) => !d.rollInPlace).map((d) => d.id),
   );
   const from: Record<string, { dx: number; dy: number }> = {};
-  for (const d of dice) {
-    const now = table.pieces!.find((p) => p.id === d.id)!;
-    from[d.id] = { dx: now.x - d.x, dy: now.y - d.y };
+  for (const p of (t.pieces ?? []).filter((q) => ids.includes(q.id) && rollable(q))) {
+    const now = table.pieces!.find((q) => q.id === p.id)!;
+    from[p.id] = { dx: now.x - p.x, dy: now.y - p.y };
   }
   return { table, from };
 }

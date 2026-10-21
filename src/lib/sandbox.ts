@@ -68,6 +68,8 @@ export interface TablePiece {
   color?: string;
   /** Drawn this much bigger (or smaller) than PIECE_SIZE; none is its own size. */
   scale?: number;
+  /** A die that rolls where it lies (spinning and bouncing), rather than tumbling across the table. */
+  rollInPlace?: boolean;
 }
 
 /** The colors a counter or die can be, by name. */
@@ -495,16 +497,119 @@ const THROW_EDGE = 40;
  */
 export function throwDice(t: SandboxTable, ids: string[], random: () => number = Math.random) {
   let table = t;
-  const from: Record<string, { dx: number; dy: number }> = {};
-  for (const d of (t.pieces ?? []).filter((p) => p.kind === 'die' && ids.includes(p.id))) {
+  const dice = (t.pieces ?? []).filter((p) => p.kind === 'die' && ids.includes(p.id));
+  for (const d of dice) {
+    // One that rolls in place stays where it is; the rest go a little way off.
+    if (d.rollInPlace) {
+      table = setPiece(table, d.id, { value: rollDie(d.sides ?? 6, random) });
+      continue;
+    }
     const a = random() * Math.PI * 2;
     const dist = THROW_MIN + random() * (THROW_MAX - THROW_MIN);
     const x = Math.round(Math.min(TABLE_W - THROW_EDGE, Math.max(THROW_EDGE, d.x + Math.cos(a) * dist)));
     const y = Math.round(Math.min(TABLE_H - THROW_EDGE, Math.max(THROW_EDGE, d.y + Math.sin(a) * dist)));
-    from[d.id] = { dx: x - d.x, dy: y - d.y };
     table = setPiece(table, d.id, { value: rollDie(d.sides ?? 6, random), x, y });
   }
+  // None lands on another (those rolling in place stay put; the others come to rest beside them).
+  table = separateDice(
+    table,
+    dice.filter((d) => !d.rollInPlace).map((d) => d.id),
+  );
+  const from: Record<string, { dx: number; dy: number }> = {};
+  for (const d of dice) {
+    const now = table.pieces!.find((p) => p.id === d.id)!;
+    from[d.id] = { dx: now.x - d.x, dy: now.y - d.y };
+  }
   return { table, from };
+}
+
+/** The room kept between dice that lie side by side (table units). */
+export const DICE_SPACE = 4;
+
+/**
+ * Dice moved apart so none lies on another: each die among `movable` that overlaps another die is pushed off it
+ * the shortest way (side to side or up and down), and two movable ones that overlap are each pushed half way.
+ * Dice not among them stay where they are. Kept on the table.
+ */
+export function separateDice(t: SandboxTable, movable: string[]): SandboxTable {
+  const pieces = t.pieces ?? [];
+  const dice = pieces.filter((p) => p.kind === 'die');
+  const can = new Set(movable.filter((id) => dice.some((d) => d.id === id)));
+  if (!can.size || dice.length < 2) return t;
+  const at = new Map(dice.map((d) => [d.id, { x: d.x, y: d.y }]));
+  for (let pass = 0; pass < 12; pass++) {
+    let moved = false;
+    for (let i = 0; i < dice.length; i++) {
+      for (let j = i + 1; j < dice.length; j++) {
+        const a = dice[i];
+        const b = dice[j];
+        const ma = can.has(a.id);
+        const mb = can.has(b.id);
+        if (!ma && !mb) continue;
+        const pa = at.get(a.id)!;
+        const pb = at.get(b.id)!;
+        const need = (pieceSizeOf(a).w + pieceSizeOf(b).w) / 2 + DICE_SPACE;
+        const dx = pa.x - pb.x;
+        const dy = pa.y - pb.y;
+        const ox = need - Math.abs(dx);
+        const oy = need - Math.abs(dy);
+        if (ox <= 0 || oy <= 0) continue;
+        // The shortest way out; one lying exactly on another goes right.
+        const push = ox < oy ? { x: (dx < 0 ? -1 : 1) * ox, y: 0 } : { x: 0, y: (dy < 0 ? -1 : 1) * oy };
+        const share = ma && mb ? 0.5 : 1;
+        if (ma) at.set(a.id, { x: pa.x + push.x * share, y: pa.y + push.y * share });
+        if (mb) at.set(b.id, { x: pb.x - push.x * share, y: pb.y - push.y * share });
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  let changed = false;
+  const next = pieces.map((p) => {
+    const q = at.get(p.id);
+    if (!q || !can.has(p.id)) return p;
+    const x = Math.round(Math.min(TABLE_W - THROW_EDGE, Math.max(THROW_EDGE, q.x)));
+    const y = Math.round(Math.min(TABLE_H - THROW_EDGE, Math.max(THROW_EDGE, q.y)));
+    if (x === p.x && y === p.y) return p;
+    changed = true;
+    return { ...p, x, y };
+  });
+  return changed ? { ...t, pieces: next } : t;
+}
+
+/** Moves pieces by the same amount each (a group dragged together), on top of the others. Dice end up apart. */
+export function movePieces(t: SandboxTable, ids: string[], by: { x: number; y: number }): SandboxTable {
+  const pieces = t.pieces ?? [];
+  const moving = pieces.filter((p) => ids.includes(p.id)).map((p) => ({ ...p, x: Math.round(p.x + by.x), y: Math.round(p.y + by.y) }));
+  if (!moving.length) return t;
+  return separateDice({ ...t, pieces: [...pieces.filter((p) => !ids.includes(p.id)), ...moving] }, ids);
+}
+
+/**
+ * Dice lined up in a tight grid (rows of as many as make it near square), in the order they lay (top to bottom,
+ * left to right), round where they were on the whole. Other dice in the way move aside.
+ */
+export function gridDice(t: SandboxTable, ids: string[]): SandboxTable {
+  const dice = (t.pieces ?? []).filter((p) => p.kind === 'die' && ids.includes(p.id));
+  if (dice.length < 2) return t;
+  const cell = Math.max(...dice.map((d) => pieceSizeOf(d).w)) + DICE_SPACE;
+  const cols = Math.ceil(Math.sqrt(dice.length));
+  const rows = Math.ceil(dice.length / cols);
+  const mid = { x: dice.reduce((s, d) => s + d.x, 0) / dice.length, y: dice.reduce((s, d) => s + d.y, 0) / dice.length };
+  // Read in rows: those within half a die of each other's height count as one row.
+  const order = [...dice].sort((a, b) => (Math.abs(a.y - b.y) < cell / 2 ? a.x - b.x : a.y - b.y));
+  const placed = new Map(
+    order.map((d, i) => [
+      d.id,
+      {
+        x: Math.round(mid.x + ((i % cols) - (cols - 1) / 2) * cell),
+        y: Math.round(mid.y + (Math.floor(i / cols) - (rows - 1) / 2) * cell),
+      },
+    ]),
+  );
+  const pieces = (t.pieces ?? []).map((p) => (placed.has(p.id) ? { ...p, ...placed.get(p.id)! } : p));
+  const others = pieces.filter((p) => p.kind === 'die' && !placed.has(p.id)).map((p) => p.id);
+  return separateDice({ ...t, pieces }, others);
 }
 
 /** Whether cards can go onto a stack: not if any of its cards never stacks. */

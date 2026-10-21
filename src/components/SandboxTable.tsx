@@ -2827,26 +2827,29 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       };
     }
     if (menu.kind === 'components') {
+      // A tile each, three to a row, with its name under it: what rolls, then what counts, then pieces, then the
+      // table's layout. Those with more to choose (which die, which deck, which picture) open another menu.
+      const next = (m: Menu) => () => setTimeout(() => setMenu(m), 250);
+      const icon = (ios: string, android: string) => ({ ios, android, web: android }) as SheetTile['icon'];
       return {
         title: 'Add to the table',
-        tiles: [],
-        actions: [
-          { label: 'Counter', onPress: () => addPieceToTable('counter') },
-          { label: 'Dice…', onPress: () => setTimeout(() => setMenu({ kind: 'addDie' }), 250) },
-          { label: 'Coin', onPress: () => addPieceToTable('coin') },
-          { label: 'Text', onPress: () => addPieceToTable('text') },
-          { label: 'First-player marker', onPress: () => addPieceToTable('marker') },
-          { label: 'Spinner', onPress: () => addPieceToTable('spinner') },
-          { label: 'Timer', onPress: () => addPieceToTable('timer') },
-          { label: 'Zone', onPress: () => addPieceToTable('zone') },
-          { label: 'Bag', onPress: () => addPieceToTable('bag') },
-          { label: 'Track', onPress: () => addPieceToTable('track') },
-          { label: 'Card spot…', onPress: () => setTimeout(() => setMenu({ kind: 'addSpot' }), 250) },
-          { label: 'Token', onPress: () => addPieceToTable('token') },
-          // Its own screen, which iOS can only show once this menu has gone.
-          { label: 'Token from a picture…', onPress: () => setTimeout(() => setMenu({ kind: 'tokenSource' }), 250) },
-          { label: 'Meeples, pawns, cubes, discs…', onPress: () => setTimeout(() => setMenu({ kind: 'addShape' }), 250) },
+        tiles: [
+          { label: 'Dice', icon: icon('dice', 'casino'), onPress: next({ kind: 'addDie' }) },
+          { label: 'Coin', icon: icon('centsign.circle', 'toll'), onPress: () => addPieceToTable('coin') },
+          { label: 'Spinner', icon: icon('arrow.clockwise.circle', 'autorenew'), onPress: () => addPieceToTable('spinner') },
+          { label: 'Counter', icon: icon('plus.forwardslash.minus', 'exposure'), onPress: () => addPieceToTable('counter') },
+          { label: 'Timer', icon: icon('timer', 'timer'), onPress: () => addPieceToTable('timer') },
+          { label: 'Track', icon: icon('number.square', 'pin'), onPress: () => addPieceToTable('track') },
+          { label: 'Pieces', icon: icon('figure.stand', 'person'), onPress: next({ kind: 'addShape' }) },
+          { label: '1st player', icon: icon('star.circle', 'stars'), onPress: () => addPieceToTable('marker') },
+          { label: 'Token', icon: icon('circle.circle', 'radio_button_checked'), onPress: () => addPieceToTable('token') },
+          { label: 'Picture token', icon: icon('photo.circle', 'add_photo_alternate'), onPress: next({ kind: 'tokenSource' }) },
+          { label: 'Bag', icon: icon('bag', 'shopping_bag'), onPress: () => addPieceToTable('bag') },
+          { label: 'Text', icon: icon('textformat', 'title'), onPress: () => addPieceToTable('text') },
+          { label: 'Zone', icon: icon('rectangle.dashed', 'crop_free'), onPress: () => addPieceToTable('zone') },
+          { label: 'Card spot', icon: icon('rectangle.portrait', 'crop_portrait'), onPress: next({ kind: 'addSpot' }) },
         ],
+        actions: [],
       };
     }
     if (menu.kind === 'tokenSource') {
@@ -3550,6 +3553,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot' || menu?.kind === 'tokenSource')}
         title={sheet?.title}
         banner={sheet && 'banner' in sheet ? sheet.banner : undefined}
+        tiles={sheet?.tiles}
         actions={sheet?.actions ?? []}
         // Scaling is kept as it's made: put away, it's done (and one undo).
         closeLabel={menu?.kind === 'scale' ? 'Done' : undefined}

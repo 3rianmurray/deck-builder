@@ -50,9 +50,9 @@ export const HAND_COUNT = 4;
 
 /**
  * What a piece on the table is, besides cards: a counter (a number to count up and down), a die, a coin, a text
- * label, a first-player marker, a spinner, a playing piece (a meeple, pawn, cube or disc: see PieceShape), a token\n * (round or square, plain or with a picture of the player's own), a timer, or a zone (an area marked out on the cloth,\n * under the cards; a card spot is one that cards snap into).
+ * label, a first-player marker, a spinner, a playing piece (a meeple, pawn, cube or disc: see PieceShape), a token\n * (round or square, plain or with a picture of the player's own), a timer, or a zone (an area marked out on the cloth,\n * under the cards; a card spot is one that cards snap into), a bag (cards dropped in, drawn out at random), or a\n * track (a row of numbered spaces with a marker).
  */
-export type PieceKind = 'counter' | 'die' | 'coin' | 'text' | 'marker' | 'spinner' | 'meeple' | 'token' | 'timer' | 'zone';
+export type PieceKind = 'counter' | 'die' | 'coin' | 'text' | 'marker' | 'spinner' | 'meeple' | 'token' | 'timer' | 'zone' | 'bag' | 'track';
 
 /** A playing piece's shape. */
 export type PieceShape = 'meeple' | 'pawn' | 'cube' | 'disc';
@@ -97,6 +97,11 @@ export interface TablePiece {
   snap?: boolean;
   /** A zone that stays put: the table under it works as if it weren't there (a hold still gives its options). */
   locked?: boolean;
+  /** The cards in a bag (in no order that matters: one's drawn at random). */
+  cards?: SandboxCard[];
+  /** A track's number of spaces, and the number its first space shows (its marker's space is its value, from 0). */
+  spaces?: number;
+  first?: number;
   /** Its color (one of PIECE_COLORS), or none for its own (see defaultPieceColor). */
   color?: string;
   /** Drawn this much bigger (or smaller) than PIECE_SIZE; none is its own size. */
@@ -130,6 +135,8 @@ export function defaultPieceColor(p: Pick<TablePiece, 'kind' | 'sides'>): string
   if (p.kind === 'token') return '#d9d2c4';
   if (p.kind === 'timer') return '#14202a';
   if (p.kind === 'zone') return PIECE_COLORS.Ivory;
+  if (p.kind === 'bag') return '#8a5a3c';
+  if (p.kind === 'track') return '#14202a';
   const own: Record<number, string> = { 4: PIECE_COLORS.Green, 6: PIECE_COLORS.Ivory, 8: PIECE_COLORS.Blue, 10: PIECE_COLORS.Purple, 12: PIECE_COLORS.Pink, 20: PIECE_COLORS.Red };
   return own[p.sides ?? 6] ?? PIECE_COLORS.Ivory;
 }
@@ -369,7 +376,14 @@ export function cardSizeOf(c: SandboxCard, size: CardSize): { w: number; h: numb
 
 /** A piece's size on the table, at its scale. */
 export function pieceSizeOf(p: TablePiece): { w: number; h: number } {
-  const base = p.kind === 'text' ? textSize(p.label ?? '') : p.kind === 'zone' ? { w: p.w ?? PIECE_SIZE.zone.w, h: p.h ?? PIECE_SIZE.zone.h } : PIECE_SIZE[p.kind];
+  const base =
+    p.kind === 'text'
+      ? textSize(p.label ?? '')
+      : p.kind === 'zone'
+        ? { w: p.w ?? PIECE_SIZE.zone.w, h: p.h ?? PIECE_SIZE.zone.h }
+        : p.kind === 'track'
+          ? trackSize(p.spaces ?? 10)
+          : PIECE_SIZE[p.kind];
   const k = p.scale ?? 1;
   return k === 1 ? base : { w: base.w * k, h: base.h * k };
 }
@@ -468,7 +482,16 @@ export const PIECE_SIZE: Record<PieceKind, { w: number; h: number }> = {
   timer: { w: 100, h: 100 },
   // A new zone's size (each has its own: see TablePiece.w and h).
   zone: { w: 320, h: 220 },
+  bag: { w: 84, h: 96 },
+  // A track's height (its width goes by its spaces: see trackSize).
+  track: { w: 0, h: 56 },
 };
+
+/** How wide each of a track's spaces is, the room at its ends, and how many it can have. */
+export const TRACK_SPACE = 44;
+const TRACK_END = 8;
+export const TRACK_MAX = 50;
+export const trackSize = (spaces: number) => ({ w: spaces * TRACK_SPACE + TRACK_END * 2, h: PIECE_SIZE.track.h });
 
 /** The smallest a zone can be made, on each side. */
 export const ZONE_MIN = 40;
@@ -557,6 +580,8 @@ export function newPiece(kind: PieceKind, id: string, at: { x: number; y: number
   if (kind === 'token') return { id, kind, ...spot, value: 1 };
   if (kind === 'timer') return { id, kind, ...spot, value: 60 };
   if (kind === 'zone') return { id, kind, ...spot, value: 0, label: 'Zone', w: PIECE_SIZE.zone.w, h: PIECE_SIZE.zone.h };
+  if (kind === 'bag') return { id, kind, ...spot, value: 0, cards: [] };
+  if (kind === 'track') return { id, kind, ...spot, value: 0, spaces: 10, first: 1 };
   return { id, kind, ...spot, value: 0 };
 }
 
@@ -627,6 +652,49 @@ export const timerText = (secs: number) => {
   const s = Math.ceil(Math.max(0, secs));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
+
+/** The bag under a table point, if any (for cards dropped onto it). */
+export const bagAt = (t: SandboxTable, x: number, y: number) =>
+  [...(t.pieces ?? [])].reverse().find((p) => p.kind === 'bag' && onPiece(p, x, y)) ?? null;
+
+/** Cards dropped into a bag. */
+export const putInBag = (t: SandboxTable, bagId: string, cards: SandboxCard[]): SandboxTable => ({
+  ...t,
+  pieces: (t.pieces ?? []).map((p) => (p.id === bagId ? { ...p, cards: [...(p.cards ?? []), ...cards.map(({ scale: _, ...c }) => c)] } : p)),
+});
+
+/**
+ * A card drawn from a bag at random, laid beside it (face down, or up), onto any card already lying there.
+ * The table as it was if the bag's empty.
+ */
+export function drawFromBag(t: SandboxTable, bagId: string, id: string, faceUp = false, random: () => number = Math.random): SandboxTable {
+  const bag = t.pieces?.find((p) => p.id === bagId);
+  const inside = bag?.cards ?? [];
+  if (!bag || !inside.length) return t;
+  const i = Math.min(inside.length - 1, Math.floor(random() * inside.length));
+  const card = { ...inside[i], faceUp };
+  const emptier = { ...t, pieces: t.pieces!.map((p) => (p.id === bagId ? { ...p, cards: inside.filter((_, j) => j !== i) } : p)) };
+  const at = { x: bag.x + pieceSizeOf(bag).w / 2 + CARD_W * 0.7, y: bag.y, angle: 0 };
+  const there = emptier.stacks.find((s) => Math.hypot(s.x - at.x, s.y - at.y) < 1);
+  return putOnTable(emptier, [card], at, id, there);
+}
+
+/** Everything in a bag laid beside it as one face-down stack (shuffled). */
+export function emptyBag(t: SandboxTable, bagId: string, id: string, random: () => number = Math.random): SandboxTable {
+  const bag = t.pieces?.find((p) => p.id === bagId);
+  if (!bag?.cards?.length) return t;
+  const at = { x: bag.x + pieceSizeOf(bag).w / 2 + CARD_W * 0.7, y: bag.y, angle: 0 };
+  const emptier = { ...t, pieces: t.pieces!.map((p) => (p.id === bagId ? { ...p, cards: [] } : p)) };
+  return putOnTable(emptier, shuffled(bag.cards, random).map((c) => ({ ...c, faceUp: false })), at, id);
+}
+
+/** Which of a track's spaces a table point is over (0 the first), within its spaces. */
+export function trackSpaceAt(p: TablePiece, x: number): number {
+  const k = p.scale ?? 1;
+  const spaces = p.spaces ?? 10;
+  const left = p.x - (trackSize(spaces).w * k) / 2 + TRACK_END * k;
+  return Math.min(spaces - 1, Math.max(0, Math.floor((x - left) / (TRACK_SPACE * k))));
+}
 
 /** Takes a piece off the table. */
 export const removePiece = (t: SandboxTable, id: string): SandboxTable => ({ ...t, pieces: (t.pieces ?? []).filter((p) => p.id !== id) });
@@ -1072,7 +1140,8 @@ export const MAX_TABLE_CARDS = 1000;
 
 /** How many cards a table holds: on it, in its hands and in its trash. */
 export function tableCardCount(t: SandboxTable): number {
-  return t.stacks.reduce((n, s) => n + s.cards.length, 0) + t.hands.reduce((n, h) => n + h.length, 0) + (t.trash?.length ?? 0);
+  const inBags = (t.pieces ?? []).reduce((n, p) => n + (p.cards?.length ?? 0), 0);
+  return t.stacks.reduce((n, s) => n + s.cards.length, 0) + t.hands.reduce((n, h) => n + h.length, 0) + (t.trash?.length ?? 0) + inBags;
 }
 
 /** How far apart the decks a new table starts with are laid: room for a big card with a gap. */
@@ -1155,12 +1224,15 @@ export function prune(t: SandboxTable, decks: Deck[]): SandboxTable {
   const stacks = t.stacks.map((s) => ({ ...s, cards: s.cards.filter(keep) })).filter((s) => s.cards.length);
   const hands = t.hands.map((h) => h.filter(keep));
   const trash = (t.trash ?? []).filter(keep);
+  // Cards in bags too.
+  const pieces = t.pieces?.map((p) => (p.cards && !p.cards.every(keep) ? { ...p, cards: p.cards.filter(keep) } : p));
   const same =
     stacks.length === t.stacks.length &&
     stacks.every((s, i) => s.cards.length === t.stacks[i].cards.length) &&
     hands.every((h, i) => h.length === t.hands[i].length) &&
-    trash.length === (t.trash ?? []).length;
-  return same ? t : { ...t, stacks, hands, ...(t.trash ? { trash } : {}) };
+    trash.length === (t.trash ?? []).length &&
+    (pieces ?? []).every((p, i) => p === t.pieces![i]);
+  return same ? t : { ...t, stacks, hands, ...(t.trash ? { trash } : {}), ...(pieces ? { pieces } : {}) };
 }
 
 /**

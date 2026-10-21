@@ -7,14 +7,15 @@ Shufflevale
 Your own cards, ready to play
 
 ## Promotional text (170 max; can be changed any time without review)
-Turn any cards into a playable deck. Snap photos or import art, then flip through decks, swipe between them in a session, or lay everything out on an open table.
+Got a sprite sheet? Shufflevale finds the grid and cuts it into a deck for you. Or scan cards with the camera, then play them on an open table.
 
 ## Description (4000 max)
 Shufflevale turns the cards you have into decks you can play on your phone: board game cards, homemade games, prototypes, flash cards, tarot, anything with a front and a back.
 
 MAKE A DECK IN MINUTES
+• Got a sprite sheet? Import it and Shufflevale works out the grid by itself, then cuts the whole sheet into cards at once. Keep just the cards you want.
 • Scan cards with the camera. Shufflevale finds each card's edges and straightens it for you.
-• Import pictures from Photos or Files, or cut a whole sprite sheet into cards at once. It works out the grid for you, and you choose which cards to keep.
+• Import pictures from Photos or Files.
 • Card size is worked out from your art, or choose Standard, US Mini, or a custom size in inches or millimeters.
 • Set a card back for the whole deck, or give single cards their own back for two-sided cards.
 • Set how many copies of each card, how round the corners are, and reorder cards by dragging.

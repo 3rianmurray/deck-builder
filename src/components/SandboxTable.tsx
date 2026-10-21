@@ -1870,6 +1870,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         if (!touch.piece.moved && Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) <= TAP_SLOP) return;
         if (!touch.piece.moved) {
           clearHold();
+          // A quick drag from a bag (alone) takes its top thing out, as from a stack; held first, the bag moves.
+          const pulled = latest.get().table?.pieces?.find((p) => p.id === touch.piece!.id && p.kind === 'bag');
+          if (pulled && !touch.piece.whole && touch.piece.group.length === 1 && (pulled.supply || bagItems(pulled).length)) return pullFromBag(pulled, f.now);
           // A locked piece (on its own) stays put: the drag moves the table instead.
           const locked = latest.get().table?.pieces?.find((p) => p.id === touch.piece!.id && p.locked);
           if (locked && touch.piece.group.length === 1 && touch.piece.group[0] === locked.id) {
@@ -1883,9 +1886,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             touch.camFrom = [f.start];
             return move(all);
           }
-          // A quick drag from a bag (alone) takes its top thing out, as from a stack; held first, the bag moves.
-          const bag = latest.get().table?.pieces?.find((p) => p.id === touch.piece!.id && p.kind === 'bag');
-          if (bag && !touch.piece.whole && touch.piece.group.length === 1 && (bag.supply || bagItems(bag).length)) return pullFromBag(bag, f.now);
+
           touch.piece.moved = true;
           haptics.lift();
         }
@@ -2791,6 +2792,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               opensModal: true,
               onPress: () => rename('Name the counter', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))),
             },
+            { label: piece.locked ? 'Unlock' : 'Lock in place', onPress: () => commit(setPiece(table, piece.id, { locked: !piece.locked || undefined })) },
             { label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor', id: piece.id }), 250) },
             { label: 'Scale…', onPress: () => openScale([], [piece.id]) },
             takeOff,
@@ -2798,6 +2800,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         };
       }
       const color = { label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor', id: piece.id }), 250) };
+      // For what usually sits in one place through a game (not what's moved about in play): locked, it stays put,
+      // and dragging it moves the table instead (it can still be used).
+      const lock = { label: piece.locked ? 'Unlock' : 'Lock in place', onPress: () => commit(setPiece(table, piece.id, { locked: !piece.locked || undefined })) };
       const scale = { label: 'Scale…', onPress: () => openScale([], [piece.id]) };
       if (piece.kind === 'text') {
         return {
@@ -2805,8 +2810,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           tiles: [],
           actions: [
             { label: 'Change the words…', opensModal: true, onPress: () => rename('Text', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))) },
-            // Locked, it stays put: dragging it moves the table instead.
-            { label: piece.locked ? 'Unlock' : 'Lock in place', onPress: () => commit(setPiece(table, piece.id, { locked: !piece.locked || undefined })) },
+            lock,
             color,
             scale,
             takeOff,
@@ -2895,6 +2899,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ...(top ? [{ label: 'Take out the top', onPress: () => commit(drawFromBag(table, piece.id, newId(), true)) }] : []),
             ...(items.length ? [{ label: 'Empty it onto the table', onPress: () => commit(emptyBag(table, piece.id, newId)) }] : []),
             ...(piece.supply ? [{ label: 'Stop being a supply', onPress: () => commit(endSupply(table, piece.id)) }] : []),
+            lock,
             color,
             scale,
             // Its cards go to the trash, to be put back from there.
@@ -2918,6 +2923,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             },
             { label: first === 1 ? 'Number it from 0' : 'Number it from 1', onPress: () => commit(setPiece(table, piece.id, { first: first === 1 ? 0 : 1 })) },
             { label: 'Marker back to the start', onPress: () => commit(setPiece(table, piece.id, { value: 0 })) },
+            lock,
             color,
             scale,
             takeOff,
@@ -2969,15 +2975,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 }),
             },
             { label: 'Reset', onPress: () => commit(setPiece(table, piece.id, { endsAt: undefined, left: undefined })) },
+            lock,
             color,
             scale,
             takeOff,
           ],
         };
       }
-      if (piece.kind === 'coin' || piece.kind === 'spinner') {
-        return { title: piece.kind === 'coin' ? 'Coin' : 'Spinner', tiles: [], actions: [color, scale, takeOff] };
-      }
+      if (piece.kind === 'coin') return { title: 'Coin', tiles: [], actions: [color, scale, takeOff] };
+      if (piece.kind === 'spinner') return { title: 'Spinner', tiles: [], actions: [lock, color, scale, takeOff] };
       return {
         title: `d${piece.sides ?? 6}`,
         tiles: [],

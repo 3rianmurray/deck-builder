@@ -35,7 +35,9 @@ import { colors } from '../../theme';
 import { MAX_TEXT_SCALE, Text } from '../../components/Text';
 import { TourSpot } from '../../components/TourSpot';
 
-const COLUMNS = 3;
+/** The deck's grid: at least 3 columns (every iPhone), and more on wider screens (an iPad), about this wide each. */
+const MIN_COLUMNS = 3;
+const COLUMN_WIDTH = 150;
 const GAP = 10;
 const PADDING = 16;
 
@@ -134,7 +136,8 @@ export default function DeckEditorScreen() {
     );
   }
 
-  const cardWidth = (width - PADDING * 2 - GAP * (COLUMNS - 1)) / COLUMNS;
+  const columns = Math.max(MIN_COLUMNS, Math.floor((width - PADDING * 2) / COLUMN_WIDTH));
+  const cardWidth = (width - PADDING * 2 - GAP * (columns - 1)) / columns;
 
   const withBusy = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -443,7 +446,7 @@ export default function DeckEditorScreen() {
       <ReorderableGrid
         items={deck.cards}
         keyOf={(c) => c.id}
-        columns={COLUMNS}
+        columns={columns}
         itemWidth={cardWidth}
         gap={GAP}
         padding={PADDING}

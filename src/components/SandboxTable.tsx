@@ -50,6 +50,12 @@ import {
   pieceAt,
   PIECE_SHAPES,
   rollable,
+  bagAt,
+  drawFromBag,
+  emptyBag,
+  putInBag,
+  trackSpaceAt,
+  TRACK_MAX,
   pieceSizeOf,
   resizeZone,
   spotAt,
@@ -760,7 +766,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
    * A tap on a piece: a die rolls, a coin flips, a spinner spins (all the picked-out ones, if it's one of them); a
    * text label's words can be changed; a counter's − or + counts down or up (its number: its options).
    */
-  const tapPiece = (id: string, part: PiecePart) => {
+  const tapPiece = (id: string, part: PiecePart, at?: { x: number; y: number }) => {
     const piece = table?.pieces?.find((p) => p.id === id);
     if (!table || !piece) return;
     if (rollable(piece)) {
@@ -769,6 +775,22 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     }
     if (piece.kind === 'text') {
       rename('Text', piece.label ?? '', (label) => commit(setPiece(table, id, { label })));
+      return;
+    }
+    if (piece.kind === 'bag') {
+      // A card drawn at random, face down beside it (nothing, with a buzz, if it's empty).
+      if (!piece.cards?.length) return haptics.warn();
+      commit(drawFromBag(table, id, newId()));
+      haptics.deal();
+      return;
+    }
+    if (piece.kind === 'track') {
+      // Its marker to the space tapped.
+      const space = at ? trackSpaceAt(piece, at.x) : piece.value;
+      if (space !== piece.value) {
+        commit(setPiece(table, id, { value: space }));
+        haptics.tick();
+      }
       return;
     }
     if (piece.kind === 'timer') {
@@ -1052,7 +1074,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       setMenu: (m: Menu) => void;
       searchFrom: string | null;
       endSearch: () => void;
-      tapPiece: (id: string, part: PiecePart) => void;
+      tapPiece: (id: string, part: PiecePart, at?: { x: number; y: number }) => void;
       pickedDice: string[];
       pickedRollables: string[];
       pickedPieces: string[];
@@ -1329,6 +1351,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // After moving a few cards about one at a time: the lasso picks out several at once (nothing on screen shows it).
     offerTipAfterUses('tables-lasso', LASSO_TIP_AFTER, 900);
     const w = toTable(readCamera(), p.x, p.y);
+    // Dropped on a bag: into it.
+    const bag = bagAt(L.table, w.x, w.y);
+    if (bag) return L.commit(putInBag(takeAll(L.table, sources), bag.id, cards));
     const whole = sources.find((src) => src.kind === 'stack');
     // Only onto a stack facing the same way.
     const face = cards[cards.length - 1].faceUp;
@@ -1838,7 +1863,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           const w = toTable(readCamera(), f.now.x, f.now.y);
           L.dropPieces({ lead: pressed.id, ids: pressed.group, dx: w.x - pressed.from.x, dy: w.y - pressed.from.y });
         } else if (pressed) {
-          L.tapPiece(pressed.id, pressed.part);
+          L.tapPiece(pressed.id, pressed.part, pressed.from);
         }
         touch.mode = 'none';
       } else if (touch.mode === 'carry') {
@@ -2597,6 +2622,48 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           ],
         };
       }
+      if (piece.kind === 'bag') {
+        const n = piece.cards?.length ?? 0;
+        return {
+          title: n ? `Bag · ${n} ${n === 1 ? 'card' : 'cards'}` : 'Bag · empty',
+          tiles: [],
+          actions: [
+            ...(n
+              ? [
+                  { label: 'Draw one face up', onPress: () => commit(drawFromBag(table, piece.id, newId(), true)) },
+                  { label: 'Empty it onto the table', onPress: () => commit(emptyBag(table, piece.id, newId())) },
+                ]
+              : []),
+            color,
+            scale,
+            // Its cards go to the trash, to be put back from there.
+            { ...takeOff, onPress: () => commit(trashCards(removePiece(table, piece.id), piece.cards ?? [])) },
+          ],
+        };
+      }
+      if (piece.kind === 'track') {
+        const first = piece.first ?? 1;
+        return {
+          title: 'Track',
+          tiles: [],
+          actions: [
+            {
+              label: 'Number of spaces…',
+              opensModal: true,
+              onPress: () =>
+                rename(`Spaces (2 to ${TRACK_MAX})`, String(piece.spaces ?? 10), (text) => {
+                  const n = Math.min(TRACK_MAX, Math.max(2, parseInt(text.replace(/\D/g, ''), 10) || 0));
+                  commit(setPiece(table, piece.id, { spaces: n, value: Math.min(piece.value, n - 1) }));
+                }),
+            },
+            { label: first === 1 ? 'Number it from 0' : 'Number it from 1', onPress: () => commit(setPiece(table, piece.id, { first: first === 1 ? 0 : 1 })) },
+            { label: 'Marker back to the start', onPress: () => commit(setPiece(table, piece.id, { value: 0 })) },
+            color,
+            scale,
+            takeOff,
+          ],
+        };
+      }
       if (piece.kind === 'zone') {
         const look = piece.look ?? 'outline';
         return {
@@ -2749,6 +2816,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Spinner', onPress: () => addPieceToTable('spinner') },
           { label: 'Timer', onPress: () => addPieceToTable('timer') },
           { label: 'Zone', onPress: () => addPieceToTable('zone') },
+          { label: 'Bag', onPress: () => addPieceToTable('bag') },
+          { label: 'Track', onPress: () => addPieceToTable('track') },
           { label: 'Card spot…', onPress: () => setTimeout(() => setMenu({ kind: 'addSpot' }), 250) },
           { label: 'Token', onPress: () => addPieceToTable('token') },
           // Its own screen, which iOS can only show once this menu has gone.

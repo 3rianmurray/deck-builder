@@ -239,6 +239,10 @@ export const TablePieceView = memo(function TablePieceView({
         <Timer piece={piece} color={color} size={w} selected={selected} />
       ) : piece.kind === 'zone' ? (
         <Zone piece={piece} color={color} />
+      ) : piece.kind === 'bag' ? (
+        <Bag piece={piece} color={color} w={w} h={h} selected={selected} />
+      ) : piece.kind === 'track' ? (
+        <Track piece={piece} color={color} selected={selected} />
       ) : (
         <PlayingPiece piece={piece} color={color} w={w} h={h} selected={selected} />
       )}
@@ -911,6 +915,76 @@ function Zone({ piece, color }: { piece: TablePiece; color: string }) {
     </View>
   );
 }
+/** A drawstring bag: a pouch, tied at its neck, raised a little off the cloth; how many cards are in it on a badge. */
+function Bag({ piece, color, w, h, selected }: { piece: TablePiece; color: string; w: number; h: number; selected: boolean }) {
+  const art = artFrame(w, h);
+  const shift = (pts: Pt[]): Pt[] => pts.map((p) => [p[0] + PIECE_DEPTH[0], p[1] + PIECE_DEPTH[1]]);
+  const body: Pt[] = [
+    [0.14, 0.42],
+    [0.32, 0.3],
+    [0.68, 0.3],
+    [0.86, 0.42],
+    [0.96, 0.76],
+    [0.84, 0.97],
+    [0.16, 0.97],
+    [0.04, 0.76],
+  ];
+  const top: Pt[] = [
+    [0.28, 0.03],
+    [0.72, 0.03],
+    [0.63, 0.3],
+    [0.37, 0.3],
+  ];
+  const tie: Pt[] = [
+    [0.32, 0.24],
+    [0.68, 0.24],
+    [0.68, 0.33],
+    [0.32, 0.33],
+  ];
+  const n = piece.cards?.length ?? 0;
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <Canvas style={art.style}>
+        <Path path={roundedPath(art, shift(body), 0.14)} color={shade(color, -0.45)}>
+          {pieceShadow()}
+        </Path>
+        <Path path={roundedPath(art, shift(body), 0.14)} color={shade(color, -0.45)} />
+        <Path path={roundedPath(art, top, 0.06)} color={shade(color, -0.12)} />
+        <Path path={roundedPath(art, body, 0.14)} color={color} />
+        {/* The light catching its upper left. */}
+        <Circle cx={art.at([0.36, 0.55])[0]} cy={art.at([0.36, 0.55])[1]} r={art.len(0.2)} color={shade(color, 0.18)} opacity={0.5} />
+        <Path path={roundedPath(art, tie, 0.04)} color={shade(color, -0.5)} />
+        {selected ? <Path path={roundedPath(art, body, 0.14)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+      </Canvas>
+      {n ? (
+        <View style={styles.tokenCount}>
+          <Text allowFontScaling={false} style={styles.tokenCountText}>
+            {n}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** A track: a row of numbered spaces, its marker on one of them (tapped, it moves to the space tapped). */
+function Track({ piece, color, selected }: { piece: TablePiece; color: string; selected: boolean }) {
+  const spaces = piece.spaces ?? 10;
+  const first = piece.first ?? 1;
+  const ink = isLight(color) ? '#2c2c2a' : '#ffffff';
+  return (
+    <View style={[styles.track, { backgroundColor: color, borderColor: selected ? colors.accent : shade(color, isLight(color) ? -0.25 : 0.3) }, selected && { borderWidth: 3 }]}>
+      {Array.from({ length: spaces }, (_, i) => (
+        <View key={i} style={[styles.trackSpace, { backgroundColor: shade(color, isLight(color) ? -0.08 : 0.12) }]}>
+          {i === piece.value ? <View style={styles.trackMarker} /> : null}
+          <Text allowFontScaling={false} style={[styles.trackNumber, { color: i === piece.value ? colors.accentText : ink }]}>
+            {first + i}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
 const styles = StyleSheet.create({
   piece: { position: 'absolute' },
 
@@ -963,6 +1037,10 @@ const styles = StyleSheet.create({
   timerText: { position: 'absolute', left: 0, top: 0, textAlign: 'center', fontWeight: '800', fontVariant: ['tabular-nums'] },
   timerHint: { position: 'absolute', left: 0, textAlign: 'center', fontSize: 9, fontWeight: '700', opacity: 0.7 },
   zone: { flex: 1, borderWidth: 3, borderRadius: 12 },
+  track: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, borderRadius: 12, borderWidth: 1, boxShadow: '1px 3px 8px rgba(0, 0, 0, 0.45)' },
+  trackSpace: { width: 40, height: 40, marginHorizontal: 2, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  trackMarker: { position: 'absolute', width: 34, height: 34, borderRadius: 17, backgroundColor: colors.accent, boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.5)' },
+  trackNumber: { fontSize: 16, fontWeight: '800' },
   zoneLabel: { position: 'absolute', left: 10, top: 6, right: 10, fontSize: 18, fontWeight: '700' },
   // Two short lines across the bottom-right corner, as a window's resize grip.
   zoneGrip: { position: 'absolute', right: 4, bottom: 4, width: 18, height: 18, borderRightWidth: 3, borderBottomWidth: 3, borderBottomRightRadius: 6 },

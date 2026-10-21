@@ -762,7 +762,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const [pickedPieceIds, setPickedPieces] = useState<string[]>([]);
   const pickedPieces = pickedPieceIds.filter((id) => table?.pieces?.some((p) => p.id === id));
   const pickedDice = pickedPieces.filter((id) => table?.pieces?.some((p) => p.id === id && p.kind === 'die'));
-  /** The picked-out dice, coins and spinners: the roll button (or a tap on any of them) rolls, flips and spins them all. */
+  /** The picked-out dice, coins and spinners: the roll button rolls, flips and spins them all (a tap on one, those of its kind). */
   const pickedRollables = pickedPieces.filter((id) => table?.pieces?.some((p) => p.id === id && rollable(p)));
   /**
    * Rolls dice (one undo for them all): each lands on a new face a little way off, in a random direction, and
@@ -792,7 +792,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const piece = table?.pieces?.find((p) => p.id === id);
     if (!table || !piece) return;
     if (rollable(piece)) {
-      rollDice(pickedRollables.includes(id) ? pickedRollables : [id]);
+      // One of several picked out: those of the same kind go with it (all the dice, or all the coins), not the rest.
+      const kin = pickedRollables.filter((pid) => table.pieces?.find((p) => p.id === pid)?.kind === piece.kind);
+      rollDice(pickedRollables.includes(id) ? kin : [id]);
       return;
     }
     if (piece.kind === 'text') {
@@ -800,8 +802,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       return;
     }
     if (piece.kind === 'bag') {
-      // As a stack: a tap picks it out, a second opens its options.
-      if (pickedPieces.length === 1 && pickedPieces[0] === id) {
+      // As a stack: a tap picks it out; a tap on it picked out opens its own options (and lets any others go).
+      if (pickedPieces.includes(id)) {
+        if (pickedPieces.length + chosen.length > 1) selectStacks([]);
         setMenu({ kind: 'piece', id });
         return;
       }

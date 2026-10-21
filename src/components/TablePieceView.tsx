@@ -1,4 +1,4 @@
-import { Canvas, Circle, Path, RoundedRect, Shadow, Skia } from '@shopify/react-native-skia';
+import { Canvas, Circle, Group, Path, Shadow, Skia } from '@shopify/react-native-skia';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
@@ -34,6 +34,34 @@ const PIPS: Record<number, number[]> = {
 };
 
 type Pt = [number, number];
+
+// A d6's cube (in a 0–1 box): its top face, and how far back its sides go (down and to the right).
+const CUBE_FACE = { x: 0.02, y: 0.02, size: 0.8 };
+const CUBE_DEPTH = 0.14;
+const CUBE_ROUND = 0.1;
+const [FL, FT, FR, FB] = [CUBE_FACE.x, CUBE_FACE.y, CUBE_FACE.x + CUBE_FACE.size, CUBE_FACE.y + CUBE_FACE.size];
+const CUBE_TOP: Pt[] = [
+  [FL, FT],
+  [FR, FT],
+  [FR, FB],
+  [FL, FB],
+];
+/** The whole cube's outline: the top face's top and left edges, then round the far side. */
+const CUBE_OUTLINE: Pt[] = [
+  [FL, FT],
+  [FR, FT],
+  [FR + CUBE_DEPTH, FT + CUBE_DEPTH],
+  [FR + CUBE_DEPTH, FB + CUBE_DEPTH],
+  [FL + CUBE_DEPTH, FB + CUBE_DEPTH],
+  [FL, FB],
+];
+/** Its bottom side (the right side is the rest of the outline round the top face). */
+const CUBE_BOTTOM: Pt[] = [
+  [FL, FB],
+  [FR, FB],
+  [FR + CUBE_DEPTH, FB + CUBE_DEPTH],
+  [FL + CUBE_DEPTH, FB + CUBE_DEPTH],
+];
 
 /** A color made lighter (toward 1) or darker (toward −1), for a face catching more or less of the light. */
 function shade(hex: string, k: number): string {
@@ -305,6 +333,18 @@ function Die({
     p.close();
     return p;
   };
+  /** A shape with its corners rounded (each by up to `r`, in the 0–1 box), as a solid's edges are. */
+  const rounded = (pts: Pt[], r: number) => {
+    const p = Skia.Path.Make();
+    const last = pts[pts.length - 1];
+    p.moveTo(...at([(last[0] + pts[0][0]) / 2, (last[1] + pts[0][1]) / 2]));
+    pts.forEach((pt, i) => {
+      const next = pts[(i + 1) % pts.length];
+      p.arcToTangent(...at(pt), ...at(next), r * px);
+    });
+    p.close();
+    return p;
+  };
   const shadow = <Shadow dx={2 * OVERSAMPLE} dy={4 * OVERSAMPLE} blur={4 * OVERSAMPLE} color="rgba(0,0,0,0.45)" shadowOnly />;
   const edge = shade(color, -0.45);
   return (
@@ -320,17 +360,24 @@ function Die({
         }}>
         {sides === 6 ? (
           <>
-            {/* A cube from a little above and to the left: its top face, with its two sides showing below and right. */}
-            <RoundedRect x={at([0.1, 0.1])[0]} y={at([0.1, 0.1])[1]} width={0.88 * px} height={0.88 * px} r={0.16 * px} color={shade(color, -0.42)}>
+            {/*
+              A cube seen from a little above and to the left: its top face, and its right and bottom sides slanting
+              back to the far corner. One rounded outline round the whole cube, so its corners all meet; the sides
+              are cut to it, and the top face's own rounded corners sit inside it.
+            */}
+            <Path path={rounded(CUBE_OUTLINE, CUBE_ROUND)} color={shade(color, -0.3)}>
               {shadow}
-            </RoundedRect>
-            <RoundedRect x={at([0.1, 0.1])[0]} y={at([0.1, 0.1])[1]} width={0.88 * px} height={0.88 * px} r={0.16 * px} color={shade(color, -0.42)} />
-            <RoundedRect x={at([0.02, 0.02])[0]} y={at([0.02, 0.02])[1]} width={0.84 * px} height={0.84 * px} r={0.15 * px} color={shade(color, 0.04)} />
-            {selected ? (
-              <RoundedRect x={at([0.02, 0.02])[0]} y={at([0.02, 0.02])[1]} width={0.96 * px} height={0.96 * px} r={0.17 * px} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} />
-            ) : null}
+            </Path>
+            <Path path={rounded(CUBE_OUTLINE, CUBE_ROUND)} color={shade(color, -0.3)} />
+            <Group clip={rounded(CUBE_OUTLINE, CUBE_ROUND)}>
+              <Path path={path(CUBE_BOTTOM)} color={shade(color, -0.48)} />
+            </Group>
+            <Path path={rounded(CUBE_TOP, CUBE_ROUND)} color={shade(color, 0.04)} />
+            {/* The light catching the top face's edge. */}
+            <Path path={rounded(CUBE_TOP, CUBE_ROUND)} color={shade(color, 0.35)} style="stroke" strokeWidth={0.8 * OVERSAMPLE} opacity={0.5} />
+            {selected ? <Path path={rounded(CUBE_OUTLINE, CUBE_ROUND)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
             {(PIPS[shown] ?? []).map((cell) => {
-              const [cx, cy] = at([0.02 + 0.84 * ((cell % 3) * 0.3 + 0.2), 0.02 + 0.84 * (Math.floor(cell / 3) * 0.3 + 0.2)]);
+              const [cx, cy] = at([CUBE_FACE.x + CUBE_FACE.size * ((cell % 3) * 0.3 + 0.2), CUBE_FACE.y + CUBE_FACE.size * (Math.floor(cell / 3) * 0.3 + 0.2)]);
               return <Circle key={cell} cx={cx} cy={cy} r={0.085 * px} color={ink} />;
             })}
           </>

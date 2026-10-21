@@ -135,10 +135,20 @@ export async function rotateImage(uri: string, turn: -90 | 90): Promise<LoadedIm
 /** How big a token's picture is kept: plenty for a token, even zoomed right in. */
 const TOKEN_SIDE = 360;
 
-/** A picture made into a token's: the largest square from its middle, shrunk to TOKEN_SIDE. */
+/**
+ * A picture made into a token's, shrunk to TOKEN_SIDE: the largest square from its middle; or, for a cut-out (a
+ * picture with see-through parts, like a subject lifted from a photo), the whole of it, kept see-through.
+ */
 export async function tokenPicture(uri: string): Promise<string> {
+  if (await hasTransparency(uri)) {
+    const size = await ImageManipulator.manipulate(uri).renderAsync();
+    const ref = await ImageManipulator.manipulate(uri)
+      .resize(size.width >= size.height ? { width: TOKEN_SIDE } : { height: TOKEN_SIDE })
+      .renderAsync();
+    return (await ref.saveAsync({ format: SaveFormat.PNG })).uri;
+  }
   const square = await cropToShape(uri, 1);
   const ref = await ImageManipulator.manipulate(square).resize({ width: TOKEN_SIDE }).renderAsync();
-  const out = await ref.saveAsync({ format: formatOf(square), compress: 0.85 });
+  const out = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 0.85 });
   return out.uri;
 }

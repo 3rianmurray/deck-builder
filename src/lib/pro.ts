@@ -128,19 +128,21 @@ export async function startPro() {
     }
     Alert.alert('Purchase didn’t go through', error.message || 'Please try again in a moment.');
   });
-  const [products, purchases, app] = await Promise.allSettled([
-    m.fetchProducts({ skus: [PRO_PRODUCT_ID], type: 'in-app' }),
-    m.getAvailablePurchases(),
-    m.getAppTransactionIOS(),
-  ]);
+  // TestFlight runs against Apple's test store ("Sandbox"); the App Store is "Production". Asked on its own, so a
+  // price or past purchases that are slow to come (or never do, on a device not signed in to the App Store) can't
+  // keep the tester switch away.
+  m.getAppTransactionIOS()
+    .then((app) => {
+      if (app && app.environment !== 'Production') set({ testing: true });
+    })
+    .catch(() => {});
+  const [products, purchases] = await Promise.allSettled([m.fetchProducts({ skus: [PRO_PRODUCT_ID], type: 'in-app' }), m.getAvailablePurchases()]);
   if (products.status === 'fulfilled') {
     const product = (products.value ?? []).find((p) => p.id === PRO_PRODUCT_ID);
     if (product) set({ price: product.displayPrice });
   }
   // What the App Store says now (a refund takes Pro away again).
   if (purchases.status === 'fulfilled') setOwned(purchases.value.some((p) => p.productId === PRO_PRODUCT_ID));
-  // TestFlight runs against Apple's test store ("Sandbox"); the App Store is "Production".
-  if (app.status === 'fulfilled' && app.value && app.value.environment !== 'Production') set({ testing: true });
 }
 
 /** How many cards the walkthrough's sample deck comes with (see sampleDeck.ts). */

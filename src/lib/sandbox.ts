@@ -118,6 +118,8 @@ export interface TablePiece {
   /** A track standing up (its spaces top to bottom), and one whose numbers run the other way (right to left, or bottom to top). */
   vertical?: boolean;
   reversed?: boolean;
+  /** A track's marker's color (one of PIECE_COLORS), or none for the app's gold. */
+  markerColor?: string;
   /** Its color (one of PIECE_COLORS), or none for its own (see defaultPieceColor). */
   color?: string;
   /** Drawn this much bigger (or smaller) than PIECE_SIZE; none is its own size. */

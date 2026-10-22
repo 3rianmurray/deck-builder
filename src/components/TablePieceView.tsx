@@ -1004,6 +1004,8 @@ function Track({ piece, color, selected, k }: { piece: TablePiece; color: string
   const spaces = piece.spaces ?? 10;
   const first = piece.first ?? 1;
   const ink = isLight(color) ? '#2c2c2a' : '#ffffff';
+  const marker = piece.markerColor ?? colors.accent;
+  const markerInk = piece.markerColor ? (isLight(piece.markerColor) ? '#2c2c2a' : '#ffffff') : colors.accentText;
   return (
     <View
       style={[
@@ -1021,8 +1023,9 @@ function Track({ piece, color, selected, k }: { piece: TablePiece; color: string
             { width: 40 * k, height: 40 * k, borderRadius: 8 * k, backgroundColor: shade(color, isLight(color) ? -0.08 : 0.12) },
             piece.vertical ? { marginVertical: 2 * k } : { marginHorizontal: 2 * k },
           ]}>
-          {i === piece.value ? <View style={[styles.trackMarker, { width: 34 * k, height: 34 * k, borderRadius: 17 * k }]} /> : null}
-          <Text allowFontScaling={false} style={[styles.trackNumber, { fontSize: 16 * k, color: i === piece.value ? colors.accentText : ink }]}>
+          {/* The marker: filling its space, but for a hairline round it. */}
+          {i === piece.value ? <View style={[styles.trackMarker, { width: 36 * k, height: 36 * k, borderRadius: 6 * k, backgroundColor: marker }]} /> : null}
+          <Text allowFontScaling={false} style={[styles.trackNumber, { fontSize: 16 * k, color: i === piece.value ? markerInk : ink }]}>
             {first + i}
           </Text>
         </View>
@@ -1113,7 +1116,7 @@ const styles = StyleSheet.create({
   artMissing: { flex: 1, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.12)' },
   track: { flex: 1, alignItems: 'center', justifyContent: 'center', boxShadow: '1px 3px 8px rgba(0, 0, 0, 0.45)' },
   trackSpace: { width: 40, height: 40, marginHorizontal: 2, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  trackMarker: { position: 'absolute', width: 34, height: 34, borderRadius: 17, backgroundColor: colors.accent, boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.5)' },
+  trackMarker: { position: 'absolute', boxShadow: '0px 1px 3px rgba(0, 0, 0, 0.45)' },
   trackNumber: { fontSize: 16, fontWeight: '800' },
   zoneLabel: { position: 'absolute', left: 10, top: 6, right: 10, fontSize: 18, fontWeight: '700' },
   // Two short lines across the bottom-right corner, as a window's resize grip.

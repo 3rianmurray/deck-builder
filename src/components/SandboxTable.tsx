@@ -1721,7 +1721,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       touch.holdTimer = setTimeout(() => {
         touch.holdTimer = null;
         if (touch.mode !== 'piece' || touch.piece?.id !== pressed || touch.piece.moved) return;
-        // A bag on its own, held: as a stack held, a drag now moves the whole of it.
+        // A bag on its own, held: as a stack held, a drag now moves the whole of it (let go still, its options).
         const held = latest.get();
         if (touch.piece.group.length === 1 && held.table?.pieces?.find((p) => p.id === pressed)?.kind === 'bag') {
           touch.piece.whole = true;
@@ -2274,8 +2274,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ...(pressed.out ? { out: pressed.out } : {}),
             ...(pressed.turn !== undefined ? { turn: pressed.turn } : {}),
           });
-        } else if (pressed && !pressed.whole) {
-          // (A bag held a moment and let go without moving isn't a tap.)
+        } else if (pressed?.whole) {
+          // A bag held a moment and let go without moving: its options, as any other piece's held.
+          L.setMenu({ kind: 'piece', id: pressed.id });
+        } else if (pressed) {
           L.tapPiece(pressed.id, pressed.part, pressed.from);
         }
         touch.mode = 'none';

@@ -59,7 +59,7 @@
     ],
     "extra": {
       "router": {},
-      "unlockPro": true,
+      "testerSwitch": true,
       "eas": {
         "projectId": "efcb9485-e756-46e8-b531-6361bc1b39ef"
       }

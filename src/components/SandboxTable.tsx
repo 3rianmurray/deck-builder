@@ -3778,20 +3778,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ))}
             {/* Counters and dice, above every card (and custom art, while it's being moved). */}
             {(table.pieces ?? []).map((p) => (p.kind === 'zone' || p.kind === 'art' ? null : drawPiece(p)))}
-            {/* For testing: where each piece really is (what a finger catches), as a thin green outline. */}
-            {table.showHitBoxes
-              ? (table.pieces ?? []).map((p) => {
-                  const { w: bw, h: bh } = pieceSizeOf(p);
-                  const at = movedTo(p) ?? p;
-                  return (
-                    <View
-                      key={`hit:${p.id}`}
-                      pointerEvents="none"
-                      style={[styles.hitBox, { left: at.x - bw / 2, top: at.y - bh / 2, width: bw, height: bh, transform: [{ rotate: `${p.angle ?? 0}deg` }] }]}
-                    />
-                  );
-                })
-              : null}
             {/* A piece just taken out of a bag, under the finger (it's on the table once it's put down). */}
             {pieceDrag?.out ? (
               <TablePieceView
@@ -4004,8 +3990,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   ['grid', 'grid_4x4', 'Show grid', !!table.showGrid, (on: boolean) => ({ showGrid: on }), 'Draws the grid’s lines on the table.'],
                   ['number', 'tag', 'Stack counts', !table.hideCounts, (on: boolean) => ({ hideCounts: !on }), 'Shows how many cards each stack holds.'],
                   ['lock', 'lock', 'Lock camera', !!table.lockCamera, (on: boolean) => ({ lockCamera: on }), 'The view stays put: sliding, zooming and turning the table do nothing. Cards still move.'],
-                  // For testing: where each piece really is (see showHitBoxes).
-                  ['viewfinder', 'crop_free', 'Show hit boxes', !!table.showHitBoxes, (on: boolean) => ({ showHitBoxes: on || undefined }), 'A thin green outline where each component really is.'],
                 ] as const
               ).map(([ios, android, label, value, change, hint]) => (
                 <View key={label} style={styles.toolRow}>
@@ -4833,8 +4817,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
   },
   held: { position: 'absolute' },
-  // For testing: a piece's hit box (see showHitBoxes).
-  hitBox: { position: 'absolute', borderWidth: 1.5, borderColor: '#3ddc84' },
   hidden: { opacity: 0 },
   /** The selection's buttons while the tools lie over them: dimmed, and doing nothing till they're put away. */
   waiting: { opacity: 0.5 },

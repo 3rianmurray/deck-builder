@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon } from '../components/AppIcon';
 import { Text } from '../components/Text';
-import { isPro, setProOverride, useProState } from '../lib/pro';
+import { isPro, setProOverride, TESTER_BUILD, useProState } from '../lib/pro';
 import * as haptics from '../lib/haptics';
 import { eraseEverything, loadSettings, saveSettings } from '../lib/storage';
 import type { ProOverride } from '../lib/pro';
@@ -92,9 +92,10 @@ export default function AboutScreen() {
       </View>
       {/*
         TestFlight and development builds only (never the App Store): try the free version and Pro without buying, or
-        start over. Hidden until the version is tapped 7 times, since App Review runs in Apple's test store too.
+        start over. Hidden until the version is tapped 7 times, since App Review runs in Apple's test store too (but
+        always there in a tester build: see TESTER_BUILD).
       */}
-      {proState.testing && testerShown ? (
+      {proState.testing && (testerShown || TESTER_BUILD) ? (
         <View style={styles.tester}>
           <Text style={styles.testerTitle}>Tester · Pro is {isPro(proState) ? 'on' : 'off'}</Text>
           <View style={styles.testerRow}>

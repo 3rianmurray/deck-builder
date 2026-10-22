@@ -115,6 +115,9 @@ export interface TablePiece {
   /** A track's number of spaces, and the number its first space shows (its marker's space is its value, from 0). */
   spaces?: number;
   first?: number;
+  /** A track standing up (its spaces top to bottom), and one whose numbers run the other way (right to left, or bottom to top). */
+  vertical?: boolean;
+  reversed?: boolean;
   /** Its color (one of PIECE_COLORS), or none for its own (see defaultPieceColor). */
   color?: string;
   /** Drawn this much bigger (or smaller) than PIECE_SIZE; none is its own size. */
@@ -395,7 +398,7 @@ export function pieceSizeOf(p: TablePiece): { w: number; h: number } {
       : p.kind === 'zone'
         ? { w: p.w ?? PIECE_SIZE.zone.w, h: p.h ?? PIECE_SIZE.zone.h }
         : p.kind === 'track'
-          ? trackSize(p.spaces ?? 10)
+          ? trackSize(p.spaces ?? 10, p.vertical)
           : p.kind === 'art'
             ? { w: p.w ?? PIECE_SIZE.art.w, h: p.h ?? PIECE_SIZE.art.h }
             : PIECE_SIZE[p.kind];
@@ -517,7 +520,10 @@ export function artSize(width: number, height: number) {
 export const TRACK_SPACE = 44;
 const TRACK_END = 8;
 export const TRACK_MAX = 50;
-export const trackSize = (spaces: number) => ({ w: spaces * TRACK_SPACE + TRACK_END * 2, h: PIECE_SIZE.track.h });
+export const trackSize = (spaces: number, vertical = false) => {
+  const long = spaces * TRACK_SPACE + TRACK_END * 2;
+  return vertical ? { w: PIECE_SIZE.track.h, h: long } : { w: long, h: PIECE_SIZE.track.h };
+};
 
 /** The smallest a zone can be made, on each side. */
 export const ZONE_MIN = 40;
@@ -878,11 +884,14 @@ export const besideBagOf = (bag: TablePiece) => besideBag(bag);
 /** A supply made an ordinary (empty) bag again. */
 export const endSupply = (t: SandboxTable, bagId: string) => setBag(t, bagId, { supply: undefined });
 /** Which of a track's spaces a table point is over (0 the first), within its spaces. */
-export function trackSpaceAt(p: TablePiece, x: number): number {
+export function trackSpaceAt(p: TablePiece, x: number, y: number): number {
   const k = p.scale ?? 1;
   const spaces = p.spaces ?? 10;
-  const left = p.x - (trackSize(spaces).w * k) / 2 + TRACK_END * k;
-  return Math.min(spaces - 1, Math.max(0, Math.floor((x - left) / (TRACK_SPACE * k))));
+  // Along it: across (left to right), or down (top to bottom) if it stands up; numbered the other way if reversed.
+  const along = p.vertical ? y - p.y : x - p.x;
+  const start = -(trackSize(spaces).w * k) / 2 + TRACK_END * k;
+  const place = Math.min(spaces - 1, Math.max(0, Math.floor((along - start) / (TRACK_SPACE * k))));
+  return p.reversed ? spaces - 1 - place : place;
 }
 
 // ---- Copy and paste ----

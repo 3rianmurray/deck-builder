@@ -855,7 +855,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     }
     if (piece.kind === 'track') {
       // Its marker to the space tapped.
-      const space = at ? trackSpaceAt(piece, at.x) : piece.value;
+      const space = at ? trackSpaceAt(piece, at.x, at.y) : piece.value;
       if (space !== piece.value) {
         commit(setPiece(table, id, { value: space }));
         haptics.tick();
@@ -3154,7 +3154,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               colorTile,
               scaleTile,
             ],
-            [{ kind: 'toggle', label: 'Number from 0', value: piece.first === 0, onChange: (on) => commit(setPiece(table, id, { first: on ? 0 : 1 })) }, lockRow, takeOffRow],
+            [
+              { kind: 'toggle', label: 'Vertical', value: !!piece.vertical, onChange: (on) => commit(setPiece(table, id, { vertical: on || undefined })) },
+              { kind: 'toggle', label: 'Flip number direction', value: !!piece.reversed, onChange: (on) => commit(setPiece(table, id, { reversed: on || undefined })) },
+              { kind: 'toggle', label: 'Number from 0', value: piece.first === 0, onChange: (on) => commit(setPiece(table, id, { first: on ? 0 : 1 })) },
+              lockRow,
+              takeOffRow,
+            ],
           );
         case 'zone': {
           const look = piece.look ?? 'outline';

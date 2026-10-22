@@ -203,9 +203,12 @@ export const TablePieceView = memo(function TablePieceView({
   rollFrom,
   lifted = false,
   selected = false,
+  turn,
 }: {
   piece: TablePiece;
   at?: { x: number; y: number };
+  /** A turn to draw it at for now (while it's being twisted), instead of its own. */
+  turn?: number;
   rollKey?: number;
   /** Where a rolled die set off from, relative to where it now lies (it tumbles across from there). */
   rollFrom?: { dx: number; dy: number };
@@ -220,7 +223,7 @@ export const TablePieceView = memo(function TablePieceView({
   const color = piece.color ?? defaultPieceColor(piece);
   return (
     // Drawn at its own size and scaled about its middle (its parts and lettering keep their proportions).
-    <View pointerEvents="none" style={[styles.piece, { left: x - w / 2, top: y - h / 2, width: w, height: h, transform: [{ scale: (piece.scale ?? 1) * (lifted ? LIFT : 1) }] }]}>
+    <View pointerEvents="none" style={[styles.piece, { left: x - w / 2, top: y - h / 2, width: w, height: h, transform: [{ rotate: `${turn ?? piece.angle ?? 0}deg` }, { scale: (piece.scale ?? 1) * (lifted ? LIFT : 1) }] }]}>
       {piece.kind === 'counter' ? (
         <Counter piece={piece} color={color} selected={selected} />
       ) : piece.kind === 'die' ? (

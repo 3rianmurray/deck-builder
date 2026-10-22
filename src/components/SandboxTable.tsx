@@ -1,7 +1,7 @@
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ActionSheetIOS, Alert, Animated as RNAnimated, Easing, Image, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -64,6 +64,12 @@ import {
   besideBagOf,
   pieceName,
   artSize,
+  turnArt,
+  normalizeAngle,
+  artLevel,
+  keepArtLevels,
+  layerArt,
+  raiseArt,
   ART_MAX,
   reorderBag,
   shuffleBag,
@@ -282,6 +288,8 @@ interface PieceDrag {
   dy: number;
   /** A piece just taken out of a bag (it isn't on the table till it's put down): which bag, and it, where it set off. */
   out?: { bagId: string; piece: TablePiece };
+  /** Custom art twisted with a second finger as it's dragged: its turn now (degrees clockwise). */
+  turn?: number;
 }
 
 /** Where a token's (or custom art's) picture comes from. */
@@ -487,7 +495,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const commit = (changed: SandboxTable) => {
     if (!table || changed === table) return;
     // A card put onto a stack of another size takes the stack's size.
-    const next = matchStackSizes(changed, size);
+    const next = keepArtLevels(table, matchStackSizes(changed, size));
     setHistory((h) => [...h.slice(-(UNDO_STEPS - 1)), table]);
     setFuture([]);
     updateSandbox(next);
@@ -872,7 +880,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       return dropIntoBag(bag.id, pieces.map((piece) => ({ piece })), { ...table, pieces: (table.pieces ?? []).filter((p) => !drag.ids.includes(p.id)) });
     }
     const snapped = gridOn ? snapToGrid({ ...to, angle: 0 }, gridStep) : to;
-    commit(movePieces(table, drag.ids, { x: snapped.x - lead.x, y: snapped.y - lead.y }));
+    // Custom art moved comes over every card, as a stack moved does (turned as it was twisted).
+    const moved = raiseArt(movePieces(table, drag.ids, { x: snapped.x - lead.x, y: snapped.y - lead.y }), drag.ids);
+    commit(drag.turn !== undefined ? setPiece(moved, lead.id, { angle: normalizeAngle(drag.turn) }) : moved);
     haptics.drop();
   };
   /**
@@ -1007,7 +1017,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const nudge = ((table.pieces?.length ?? 0) % 5) * 24;
     const id = newId();
     // A die isn't put down on another.
-    commit(separateDice(addPiece(table, { ...newPiece(kind, id, { x: mid.x + nudge, y: mid.y + nudge }, sides, shape), ...extra }), [id]));
+    commit(raiseArt(separateDice(addPiece(table, { ...newPiece(kind, id, { x: mid.x + nudge, y: mid.y + nudge }, sides, shape), ...extra }), [id]), [id]));
     haptics.drop();
   };
   /** How many dice the Add a die menu adds at once (kept for next time). */
@@ -1286,6 +1296,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         whole?: boolean;
         /** A piece just taken out of a bag (see PieceDrag). */
         out?: { bagId: string; piece: TablePiece };
+        /** Custom art being twisted by a second finger (which, the fingers' angle then, its turn then), and its turn now. */
+        twist?: { id: number; from: number; base: number } | null;
+        turn?: number;
       },
       /** Waiting to see if a press on a stack is held (the whole stack comes) rather than dragged (its top card). */
       holdTimer: null as null | ReturnType<typeof setTimeout>,
@@ -1747,7 +1760,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         }
         // A counter or die (they lie above every card): a tap counts or rolls, a drag moves it, a hold opens its options.
         const onPiece = L.table ? pieceAt(L.table, w.x, w.y) : null;
-        if (onPiece) return pressPiece(onPiece.piece.id, onPiece.part, w);
+        // Custom art lies among the cards: a card over it is what's touched.
+        const overArt =
+          onPiece?.piece.kind === 'art' && L.table
+            ? (() => {
+                const hit = stackAt(L.table, w.x, w.y, L.size);
+                return !!hit && L.table.stacks.indexOf(hit.stack) > artLevel(L.table, onPiece.piece);
+              })()
+            : false;
+        if (onPiece && !overArt) return pressPiece(onPiece.piece.id, onPiece.part, w);
         const hit = L.table ? stackAt(L.table, w.x, w.y, L.size) : null;
         touch.onEmpty = false;
         if (hit) {
@@ -1831,6 +1852,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         }
         touch.onEmpty = true;
         touch.firstDownAt = now;
+      }
+      // A second finger on custom art being pressed or dragged (alone): it twists it, as a card's is.
+      if (touch.mode === 'piece' && touch.piece) {
+        const art = L.table?.pieces?.find((p) => p.id === touch.piece!.id && p.kind === 'art' && !p.locked);
+        const first = touch.fingers.get(touch.first);
+        const c = changed.find((t) => t.id !== touch.first);
+        if (art && first && c && touch.piece.group.length === 1 && !touch.piece.twist) {
+          clearHold();
+          touch.piece.twist = { id: c.id, from: fingerAngle(first.now, { x: c.x, y: c.y }), base: touch.piece.turn ?? art.angle ?? 0 };
+          touch.piece.moved = true;
+        }
+        return;
       }
       // Other fingers while a lasso is drawn: ignored.
       if (touch.mode === 'lasso') return;
@@ -1943,8 +1976,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           haptics.lift();
         }
         const w = toTable(readCamera(), f.now.x, f.now.y);
-        const { id, group, from, out } = touch.piece;
-        latest.get().setPieceDrag({ lead: id, ids: group, dx: w.x - from.x, dy: w.y - from.y, ...(out ? { out } : {}) });
+        // Twisted by a second finger: turned round with it, settling onto the table's 45° steps when close.
+        const tw = touch.piece.twist && touch.fingers.get(touch.piece.twist.id);
+        if (touch.piece.twist && tw) {
+          const turn = snapAngle(touch.piece.twist.base + fingerAngle(f.now, tw.now) - touch.piece.twist.from);
+          if (Math.abs(turn - Math.round(turn / 45) * 45) < 1e-6 && turn !== touch.piece.turn) haptics.tick();
+          touch.piece.turn = turn;
+        } else if (touch.piece.twist) {
+          // Its finger's lifted: the turn stays, and another finger can twist it on from there.
+          touch.piece.twist = null;
+        }
+        const { id, group, from, out, turn } = touch.piece;
+        latest.get().setPieceDrag({ lead: id, ids: group, dx: w.x - from.x, dy: w.y - from.y, ...(out ? { out } : {}), ...(turn !== undefined ? { turn } : {}) });
         return;
       }
       if (touch.mode === 'lasso') {
@@ -2105,7 +2148,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         touch.piece = null;
         if (pressed?.moved && f) {
           const w = toTable(readCamera(), f.now.x, f.now.y);
-          L.dropPieces({ lead: pressed.id, ids: pressed.group, dx: w.x - pressed.from.x, dy: w.y - pressed.from.y, ...(pressed.out ? { out: pressed.out } : {}) });
+          L.dropPieces({
+            lead: pressed.id,
+            ids: pressed.group,
+            dx: w.x - pressed.from.x,
+            dy: w.y - pressed.from.y,
+            ...(pressed.out ? { out: pressed.out } : {}),
+            ...(pressed.turn !== undefined ? { turn: pressed.turn } : {}),
+          });
         } else if (pressed && !pressed.whole) {
           // (A bag held a moment and let go without moving isn't a tap.)
           L.tapPiece(pressed.id, pressed.part, pressed.from);
@@ -2805,17 +2855,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             : []),
           ...(pieces.some((p) => p.kind === 'meeple') ? [{ label: 'Change the shape…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceShape' }), 250) }] : []),
           ...(pieces.length ? [{ label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor' }), 250) }] : []),
+          // Custom art picked out on its own (no cards): turned as cards are.
+          ...(!n && pieces.some((p) => p.kind === 'art' && !p.locked)
+            ? [
+                { label: 'Turn left', onPress: () => commit(turnArt(table, pieces.map((p) => p.id), -90)) },
+                { label: 'Turn right', onPress: () => commit(turnArt(table, pieces.map((p) => p.id), 90)) },
+              ]
+            : []),
           ...(n
             ? [
-                { label: 'Turn left', onPress: () => commit(chosen.reduce((t, id) => turnStack(t, id, -90), table)) },
-                { label: 'Turn right', onPress: () => commit(chosen.reduce((t, id) => turnStack(t, id), table)) },
+                // Custom art picked out with them turns too.
+                { label: 'Turn left', onPress: () => commit(turnArt(chosen.reduce((t, id) => turnStack(t, id, -90), table), pieces.map((p) => p.id), -90)) },
+                { label: 'Turn right', onPress: () => commit(turnArt(chosen.reduce((t, id) => turnStack(t, id), table), pieces.map((p) => p.id), 90)) },
                 {
                   label: allLocked ? 'Unlock' : 'Lock in place',
                   onPress: () => commit(chosen.reduce((t, id) => setStack(t, id, { locked: !allLocked }), table)),
                 },
               ]
             : []),
-          { label: 'Scale…', onPress: () => openScale(chosen, pieces.map((p) => p.id)) },
+          // (Not what's locked in place.)
+          { label: 'Scale…', onPress: () => openScale(chosen, pieces.filter((p) => !p.locked).map((p) => p.id)) },
           { label: total === 1 ? 'Take it off the table' : `Take all ${total} off the table`, destructive: true, onPress: takeAllOff },
         ],
       };
@@ -2846,7 +2905,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             },
             { label: piece.locked ? 'Unlock' : 'Lock in place', onPress: () => commit(setPiece(table, piece.id, { locked: !piece.locked || undefined })) },
             { label: 'Color…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceColor', id: piece.id }), 250) },
-            { label: 'Scale…', onPress: () => openScale([], [piece.id]) },
+            ...(piece.locked ? [] : [{ label: 'Scale…', onPress: () => openScale([], [piece.id]) }]),
             takeOff,
           ],
         };
@@ -2855,7 +2914,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       // For what usually sits in one place through a game (not what's moved about in play): locked, it stays put,
       // and dragging it moves the table instead (it can still be used).
       const lock = { label: piece.locked ? 'Unlock' : 'Lock in place', onPress: () => commit(setPiece(table, piece.id, { locked: !piece.locked || undefined })) };
-      const scale = { label: 'Scale…', onPress: () => openScale([], [piece.id]) };
+      // Not for what's locked in place (it's meant to stay as it is).
+      const scaleIt = { label: 'Scale…', onPress: () => openScale([], [piece.id]) };
+      const scale = piece.locked ? [] : [scaleIt];
       if (piece.kind === 'text') {
         return {
           title: piece.label || 'Text',
@@ -2864,7 +2925,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             { label: 'Change the words…', opensModal: true, onPress: () => rename('Text', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))) },
             lock,
             color,
-            scale,
+            ...scale,
             takeOff,
           ],
         };
@@ -2876,7 +2937,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           actions: [
             { label: 'Change what it says…', opensModal: true, onPress: () => rename('Marker', piece.label ?? '', (label) => commit(setPiece(table, piece.id, { label }))) },
             color,
-            scale,
+            ...scale,
             takeOff,
           ],
         };
@@ -2885,7 +2946,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         return {
           title: PIECE_SHAPES.find((s) => s.shape === (piece.shape ?? 'meeple'))?.name ?? 'Piece',
           tiles: [],
-          actions: [{ label: 'Change the shape…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceShape', id: piece.id }), 250) }, color, scale, takeOff],
+          actions: [{ label: 'Change the shape…', onPress: () => setTimeout(() => setMenu({ kind: 'pieceShape', id: piece.id }), 250) }, color, ...scale, takeOff],
         };
       }
       if (piece.kind === 'token') {
@@ -2907,7 +2968,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ...(piece.image ? [{ label: 'Take the picture off', onPress: () => commit(setPiece(table, piece.id, { image: undefined })) }] : []),
             { label: piece.square ? 'Make it round' : 'Make it square', onPress: () => commit(setPiece(table, piece.id, { square: !piece.square || undefined })) },
             color,
-            scale,
+            ...scale,
             takeOff,
           ],
         };
@@ -2954,7 +3015,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ...(piece.supply ? [{ label: 'Stop being a supply', onPress: () => commit(endSupply(table, piece.id)) }] : []),
             lock,
             color,
-            scale,
+            ...scale,
             // Its cards go to the trash, to be put back from there.
             { ...takeOff, onPress: () => commit(trashCards(removePiece(table, piece.id), items.flatMap((i) => (i.card ? [i.card] : [])))) },
           ],
@@ -2978,7 +3039,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             { label: 'Marker back to the start', onPress: () => commit(setPiece(table, piece.id, { value: 0 })) },
             lock,
             color,
-            scale,
+            ...scale,
             takeOff,
           ],
         };
@@ -3007,7 +3068,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               onPress: () => commit(setPiece(table, piece.id, { locked: !piece.locked || undefined })),
             },
             color,
-            scale,
+            ...scale,
             takeOff,
           ],
         };
@@ -3030,26 +3091,38 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             { label: 'Reset', onPress: () => commit(setPiece(table, piece.id, { endsAt: undefined, left: undefined })) },
             lock,
             color,
-            scale,
+            ...scale,
             takeOff,
           ],
         };
       }
-      if (piece.kind === 'coin') return { title: 'Coin', tiles: [], actions: [color, scale, takeOff] };
+      if (piece.kind === 'coin') return { title: 'Coin', tiles: [], actions: [color, ...scale, takeOff] };
       if (piece.kind === 'art') {
         return {
           title: 'Custom art',
           tiles: [],
           actions: [
             { label: 'Change the picture…', opensModal: true, onPress: () => choosePicture({ kind: 'art', id: piece.id }) },
+            // Turned as a card is (or twisted with a second finger as it's dragged).
+            ...(piece.locked
+              ? []
+              : [
+                  { label: 'Turn left', onPress: () => commit(turnArt(table, [piece.id], -90)) },
+                  { label: 'Turn right', onPress: () => commit(turnArt(table, [piece.id], 90)) },
+                ]),
+            // Among the cards, as a stack's Layer: under or over those it overlaps.
+            ...(['front', 'up', 'down', 'back'] as const).map((to) => ({
+              label: to === 'front' ? 'Bring to the front' : to === 'up' ? 'Up a layer' : to === 'down' ? 'Down a layer' : 'Send to the back',
+              onPress: () => commit(layerArt(table, piece.id, to, size)),
+            })),
             // A board or a map lies still; a figure is moved about.
             lock,
-            scale,
+            ...scale,
             takeOff,
           ],
         };
       }
-      if (piece.kind === 'spinner') return { title: 'Spinner', tiles: [], actions: [lock, color, scale, takeOff] };
+      if (piece.kind === 'spinner') return { title: 'Spinner', tiles: [], actions: [lock, color, ...scale, takeOff] };
       return {
         title: `d${piece.sides ?? 6}`,
         tiles: [],
@@ -3260,6 +3333,39 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   }
 
   const chosenIds = new Set(chosen);
+  /** A piece being moved (dragged, or picked out with cards being dragged): drawn over everything meanwhile. */
+  const floating = (p: TablePiece) => !!pieceDrag?.ids.includes(p.id) || (groupMoving && pickedPieces.includes(p.id));
+  /** A piece as it's drawn on the table. */
+  const drawPiece = (p: TablePiece) => {
+    const dragged = !!pieceDrag?.ids.includes(p.id);
+    const turn = dragged && pieceDrag?.lead === p.id ? pieceDrag.turn : undefined;
+    const view = (
+      <TablePieceView
+        key={p.id}
+        piece={p}
+        at={dragged && pieceDrag ? { x: p.x + pieceDrag.dx, y: p.y + pieceDrag.dy } : undefined}
+        lifted={dragged}
+        turn={turn}
+        rollKey={rolls[p.id]?.key}
+        rollFrom={rolls[p.id]}
+        selected={pickedPieces.includes(p.id)}
+      />
+    );
+    // Picked out with cards that are being dragged: they go along with them.
+    return groupMoving && pickedPieces.includes(p.id) ? (
+      <Animated.View key={p.id} style={[styles.pieceGroup, pieceGroupStyle]}>
+        {view}
+      </Animated.View>
+    ) : (
+      view
+    );
+  };
+  /** The custom art lying just over a stack (or, for null, under every card), where it lies. */
+  const stackIds = new Set(table?.stacks.map((s) => s.id));
+  const artOver = (stackId: string | null) =>
+    (table?.pieces ?? [])
+      .filter((p) => p.kind === 'art' && !floating(p) && (stackId ? p.over === stackId : !p.over || !stackIds.has(p.over)))
+      .map(drawPiece);
   const theme = themeOf(table.background);
   const ink = (alpha: number) => `rgba(${theme.ink},${alpha})`;
   const arrivingStack = arriving ? table.stacks.find((s) => s.id === arriving.stackId) : undefined;
@@ -3297,8 +3403,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 const dragged = !!pieceDrag?.ids.includes(p.id);
                 return <TablePieceView key={p.id} piece={shown} at={dragged && pieceDrag ? { x: p.x + pieceDrag.dx, y: p.y + pieceDrag.dy } : undefined} />;
               })}
-            {table.stacks.map((s) =>
-              groupMoving && chosenIds.has(s.id) && !s.locked ? null : (
+            {/* Custom art under every card, then the stacks, each with any custom art lying just over it. */}
+            {artOver(null)}
+            {table.stacks.map((s) => (
+              <Fragment key={s.id}>
+              {groupMoving && chosenIds.has(s.id) && !s.locked ? null : (
                 <StackView
                   key={s.id}
                   stack={s}
@@ -3317,32 +3426,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   selected={chosenIds.has(s.id)}
                   showCount={!table.hideCounts}
                 />
-              ),
-            )}
-            {/* Counters and dice, above every card. */}
-            {(table.pieces ?? []).map((p) => {
-              if (p.kind === 'zone') return null;
-              const dragged = !!pieceDrag?.ids.includes(p.id);
-              const view = (
-                <TablePieceView
-                  key={p.id}
-                  piece={p}
-                  at={dragged && pieceDrag ? { x: p.x + pieceDrag.dx, y: p.y + pieceDrag.dy } : undefined}
-                  lifted={dragged}
-                  rollKey={rolls[p.id]?.key}
-                  rollFrom={rolls[p.id]}
-                  selected={pickedPieces.includes(p.id)}
-                />
-              );
-              // Picked out with cards that are being dragged: they go along with them.
-              return groupMoving && pickedPieces.includes(p.id) ? (
-                <Animated.View key={p.id} style={[styles.pieceGroup, pieceGroupStyle]}>
-                  {view}
-                </Animated.View>
-              ) : (
-                view
-              );
-            })}
+              )}
+              {artOver(s.id)}
+              </Fragment>
+            ))}
+            {/* Counters and dice, above every card (and custom art, while it's being moved). */}
+            {(table.pieces ?? []).map((p) => (p.kind === 'zone' || (p.kind === 'art' && !floating(p)) ? null : drawPiece(p)))}
             {/* A piece just taken out of a bag, under the finger (it's on the table once it's put down). */}
             {pieceDrag?.out ? (
               <TablePieceView

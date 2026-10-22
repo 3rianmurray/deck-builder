@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, trackSize, trackSpaceAt } from './sandbox.ts';
+import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, raiseArt, artLevel, layerArt, keepArtLevels, trackSize, trackSpaceAt } from './sandbox.ts';
 
 const table = () => newSandbox('t', 'Test', 0);
 
@@ -202,4 +202,24 @@ test('a track’s spaces are found under a point, ends included', () => {
   assert.equal(trackSpaceAt(tr, 1000 - w / 2 + 10), 0);
   assert.equal(trackSpaceAt(tr, 1000 + w / 2 - 10), 9);
   assert.equal(trackSpaceAt(tr, 1000 + 1), 5);
+});
+test('custom art lies among the cards: over the stack it was put on, under any put down after', () => {
+  const size = () => ({ w: 100, h: 140 });
+  const card = (iid: string) => ({ iid, deckId: 'd', cardId: iid, faceUp: true });
+  let t = { ...table(), stacks: [{ id: 'A', x: 500, y: 500, angle: 0, cards: [card('a')] }] };
+  t = raiseArt(addPiece(t, { ...newPiece('art', 'art', { x: 520, y: 520 }), w: 200, h: 200 }), ['art']);
+  assert.equal(artLevel(t, t.pieces![0]), 0);
+  // A card put down over it: on top of it.
+  const withB = { ...t, stacks: [...t.stacks, { id: 'B', x: 530, y: 530, angle: 0, cards: [card('b')] }] };
+  assert.ok(withB.stacks.findIndex((s) => s.id === 'B') > artLevel(withB, withB.pieces![0]));
+  // Up past B; back under everything; front again.
+  assert.equal(layerArt(withB, 'art', 'up', size).pieces![0].over, 'B');
+  assert.equal(layerArt(withB, 'art', 'back', size).pieces![0].over, undefined);
+  assert.equal(layerArt(withB, 'art', 'down', size).pieces![0].over, undefined);
+  // Its stack taken up: it stays over the one under that (none here: under every card).
+  const gone = keepArtLevels(withB, { ...withB, stacks: withB.stacks.filter((s) => s.id !== 'A') });
+  assert.equal(gone.pieces![0].over, undefined);
+  // A piece other than art is found first, wherever it is in the list.
+  const both = addPiece({ ...withB, pieces: [newPiece('die', 'die', { x: 520, y: 520 }), ...withB.pieces!] }, newPiece('coin', 'c', { x: 2000, y: 2000 }));
+  assert.equal(pieceAt(both, 520, 520)?.piece.id, 'die');
 });

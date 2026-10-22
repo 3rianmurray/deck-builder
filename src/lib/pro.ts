@@ -65,8 +65,15 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 
+/**
+ * A build that comes with Pro on (`extra.unlockPro` in its app config: the iPad test build's, for testing; never
+ * one for the App Store).
+ */
+const UNLOCKED = !!(Constants.expoConfig?.extra as { unlockPro?: boolean } | undefined)?.unlockPro;
+
 /** Whether Pro is on: owned, or switched on for testing. Where there's no App Store (Expo Go), everything's open. */
 export function isPro(s: ProState = state): boolean {
+  if (UNLOCKED) return true;
   if (s.testing && s.override) return s.override === 'pro';
   return s.owned || !s.available;
 }

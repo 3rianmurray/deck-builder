@@ -204,6 +204,11 @@ const ARRIVE_MS = 480;
  * the options it then fills, and the closest it comes (a die isn't blown up to fill the screen).
  */
 const SPOT_MS = 280;
+/**
+ * On iPad: options float beside what's held, in a small panel (no darkening, the camera left be); and a second
+ * finger's tap on empty table turns over what's carried (no reaching for the flip button on a big screen).
+ */
+const IS_PAD = Platform.OS === 'ios' && Platform.isPad;
 const SPOT_FILL = 0.7;
 const SPOT_MAX_ZOOM = 2.5;
 /** Hand cards sliding to new places (one gone, one coming in, the gap moving). */
@@ -1624,6 +1629,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       const hit = stackAt(L.table, w.x, w.y, L.size);
       const c = hit && [...hit.stack.cards].reverse().find((k) => !carried.has(k.iid));
       if (hit && c) add = { src: { kind: 'card', stackId: hit.stack.id, iid: c.iid }, card: c };
+      // On iPad, a tap on empty table (no card there, nor a piece): what's carried turns over.
+      if (!hit && IS_PAD && !pieceAt(L.table, w.x, w.y)) return turnOver();
     }
     if (!add) return;
     // Only cards facing the same way as what's carried: a pile never mixes the two. Nor is a card that never
@@ -2926,6 +2933,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     camY.set(withTiming(to.ty, t));
   };
   useEffect(() => {
+    // (On iPad the camera's left be: the options float beside it instead.)
+    if (IS_PAD) return;
     if (!spot) {
       // Closed: back to where the camera was, unless something chosen has moved it since.
       const { before, to } = glide.get();
@@ -2962,7 +2971,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       { scale: Math.hypot(camA.value, camB.value) },
     ],
   }));
-  const spotlight = spot ? (
+  /** Where it is on screen (the box round it, turned as it's seen), for the iPad's options to float beside. */
+  const spotNear = (() => {
+    if (!IS_PAD || !spot) return undefined;
+    const cam = readCamera();
+    const r = (spot.angle * Math.PI) / 180;
+    const pts = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ].map(([sx, sy]) => {
+      const wx = spot.x + (sx * spot.w * Math.cos(r)) / 2 - (sy * spot.h * Math.sin(r)) / 2;
+      const wy = spot.y + (sx * spot.w * Math.sin(r)) / 2 + (sy * spot.h * Math.cos(r)) / 2;
+      return { x: cam.a * wx - cam.b * wy + cam.tx, y: cam.b * wx + cam.a * wy + cam.ty };
+    });
+    const xs = pts.map((q) => q.x);
+    const ys = pts.map((q) => q.y);
+    return { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+  })();
+  const spotlight = spot && !IS_PAD ? (
     <Animated.View style={[styles.world, spotStyle]} pointerEvents="none">
       {menuStack ? (
         <StackView
@@ -4307,6 +4335,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         card={sheet && 'header' in sheet ? sheet.header : null}
         spotlight={spotlight}
         onOptionsTop={setOptionsTop}
+        near={spotNear}
         title={sheet?.title}
         tiles={sheet?.tiles ?? []}
         rows={sheet && 'rows' in sheet ? sheet.rows : undefined}

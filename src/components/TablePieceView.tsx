@@ -1008,11 +1008,19 @@ function Track({ piece, color, selected, k }: { piece: TablePiece; color: string
     <View
       style={[
         styles.track,
-        { backgroundColor: color, borderColor: selected ? colors.accent : shade(color, isLight(color) ? -0.25 : 0.3), paddingHorizontal: 8 * k, borderRadius: 12 * k, borderWidth: k },
+        { backgroundColor: color, borderColor: selected ? colors.accent : shade(color, isLight(color) ? -0.25 : 0.3), borderRadius: 12 * k, borderWidth: k },
+        // Across, or standing up; its spaces in the order its numbers run (the other way, if flipped).
+        piece.vertical ? { flexDirection: piece.reversed ? 'column-reverse' : 'column', paddingVertical: 8 * k } : { flexDirection: piece.reversed ? 'row-reverse' : 'row', paddingHorizontal: 8 * k },
         selected && { borderWidth: 3 * k },
       ]}>
       {Array.from({ length: spaces }, (_, i) => (
-        <View key={i} style={[styles.trackSpace, { width: 40 * k, height: 40 * k, marginHorizontal: 2 * k, borderRadius: 8 * k, backgroundColor: shade(color, isLight(color) ? -0.08 : 0.12) }]}>
+        <View
+          key={i}
+          style={[
+            styles.trackSpace,
+            { width: 40 * k, height: 40 * k, borderRadius: 8 * k, backgroundColor: shade(color, isLight(color) ? -0.08 : 0.12) },
+            piece.vertical ? { marginVertical: 2 * k } : { marginHorizontal: 2 * k },
+          ]}>
           {i === piece.value ? <View style={[styles.trackMarker, { width: 34 * k, height: 34 * k, borderRadius: 17 * k }]} /> : null}
           <Text allowFontScaling={false} style={[styles.trackNumber, { fontSize: 16 * k, color: i === piece.value ? colors.accentText : ink }]}>
             {first + i}
@@ -1024,7 +1032,8 @@ function Track({ piece, color, selected, k }: { piece: TablePiece; color: string
 }
 /**
  * Custom art: the player's own picture at its own shape. A cut-out (see-through) shows just its subject, with a
- * shadow of the same outline under it; any other, as a print with slightly rounded corners and a shadow. Drawn from its\n * full picture, not one shrunk to its size on the table: zoomed in, it stays sharp (as cards' art does).
+ * shadow of the same outline under it; any other, as a print with slightly rounded corners and a shadow. Drawn from its
+ * full picture, not one shrunk to its size on the table: zoomed in, it stays sharp (as cards' art does).
  */
 function Art({ piece, w, h, selected, k }: { piece: TablePiece; w: number; h: number; selected: boolean; k: number }) {
   if (!piece.image) return <View style={[styles.artMissing, selected && styles.artSelected]} />;
@@ -1102,7 +1111,7 @@ const styles = StyleSheet.create({
   artPrintImage: { borderRadius: 6 },
   artSelected: { borderWidth: 3, borderColor: colors.accent, borderRadius: 8, borderStyle: 'dashed' },
   artMissing: { flex: 1, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.12)' },
-  track: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, borderRadius: 12, borderWidth: 1, boxShadow: '1px 3px 8px rgba(0, 0, 0, 0.45)' },
+  track: { flex: 1, alignItems: 'center', justifyContent: 'center', boxShadow: '1px 3px 8px rgba(0, 0, 0, 0.45)' },
   trackSpace: { width: 40, height: 40, marginHorizontal: 2, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   trackMarker: { position: 'absolute', width: 34, height: 34, borderRadius: 17, backgroundColor: colors.accent, boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.5)' },
   trackNumber: { fontSize: 16, fontWeight: '800' },

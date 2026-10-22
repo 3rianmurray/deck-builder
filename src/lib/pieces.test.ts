@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, raiseArt, artLevel, layerArt, keepArtLevels, copyItems, pasteItems, clipCards, fitZone, trackSize, trackSpaceAt } from './sandbox.ts';
+import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, raiseArt, artLevel, layerArt, keepArtLevels, copyItems, pasteItems, clipCards, fitZone, trackSize, trackSpaceAt, pieceSizeOf } from './sandbox.ts';
 
 const table = () => newSandbox('t', 'Test', 0);
 
@@ -199,9 +199,15 @@ test('a supply never runs out: each drawn is a fresh one, and only the same thin
 test('a track’s spaces are found under a point, ends included', () => {
   const tr = newPiece('track', 'tr', { x: 1000, y: 500 });
   const w = trackSize(10).w;
-  assert.equal(trackSpaceAt(tr, 1000 - w / 2 + 10), 0);
-  assert.equal(trackSpaceAt(tr, 1000 + w / 2 - 10), 9);
-  assert.equal(trackSpaceAt(tr, 1000 + 1), 5);
+  assert.equal(trackSpaceAt(tr, 1000 - w / 2 + 10, 500), 0);
+  assert.equal(trackSpaceAt(tr, 1000 + w / 2 - 10, 500), 9);
+  assert.equal(trackSpaceAt(tr, 1000 + 1, 500), 5);
+  // Numbered the other way; standing up (down it, not across).
+  assert.equal(trackSpaceAt({ ...tr, reversed: true }, 1000 - w / 2 + 10, 500), 9);
+  const up = { ...tr, vertical: true };
+  assert.deepEqual(pieceSizeOf(up), { w: PIECE_SIZE.track.h, h: w });
+  assert.equal(trackSpaceAt(up, 1000, 500 - w / 2 + 10), 0);
+  assert.equal(trackSpaceAt({ ...up, reversed: true }, 1000, 500 - w / 2 + 10), 9);
 });
 test('custom art lies among the cards: over the stack it was put on, under any put down after', () => {
   const size = () => ({ w: 100, h: 140 });

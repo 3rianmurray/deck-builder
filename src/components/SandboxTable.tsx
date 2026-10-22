@@ -284,7 +284,8 @@ type Menu =
   | { kind: 'addDie' }
   /** For one counter or die, or (with no id) every one picked out. */
   | { kind: 'dieKind'; id?: string }
-  | { kind: 'pieceColor'; id?: string }
+  /** For one counter or die, or (with no id) every one picked out; marker for a track's marker. */
+  | { kind: 'pieceColor'; id?: string; marker?: boolean }
   | { kind: 'pieceShape'; id?: string }
   | { kind: 'addShape' }
   /** Adding cards: whole decks, or cards chosen one by one. */
@@ -3184,6 +3185,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               ),
               tile('To start', 'arrow.uturn.backward', 'undo', () => commit(setPiece(table, id, { value: 0 }))),
               colorTile,
+              tile('Marker', 'square.fill', 'square', next({ kind: 'pieceColor', id, marker: true })),
               scaleTile,
             ],
             [
@@ -3334,15 +3336,17 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       // One counter or die, or every one picked out.
       const targets = (table.pieces ?? []).filter((p) => (menu.id ? p.id === menu.id : pickedPieces.includes(p.id)));
       if (!targets.length) return null;
-      const colorsNow = new Set(targets.map((p) => p.color ?? defaultPieceColor(p)));
+      // A track's marker has a color of its own (the app's gold, unless one's chosen).
+      const colorOf = (p: TablePiece) => (menu.marker ? (p.markerColor ?? colors.accent) : (p.color ?? defaultPieceColor(p)));
+      const colorsNow = new Set(targets.map(colorOf));
       const current = colorsNow.size === 1 ? [...colorsNow][0] : undefined;
       const pick = (color: string | undefined) => {
-        commit(targets.reduce((t, p) => setPiece(t, p.id, { color }), table));
+        commit(targets.reduce((t, p) => setPiece(t, p.id, menu.marker ? { markerColor: color } : { color }), table));
         haptics.tick();
         setMenu(null);
       };
       return {
-        title: 'Color',
+        title: menu.marker ? 'Marker color' : 'Color',
         tiles: [],
         // Swatches to tap; and back to its own color (a die's color for its kind, a counter's dark glass).
         banner: (
@@ -3359,7 +3363,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ))}
           </View>
         ),
-        actions: targets.some((p) => p.color) ? [{ label: targets.length === 1 ? 'Its own color' : 'Their own colors', onPress: () => pick(undefined) }] : [],
+        actions: targets.some((p) => (menu.marker ? p.markerColor : p.color))
+          ? [{ label: menu.marker ? 'Back to gold' : targets.length === 1 ? 'Its own color' : 'Their own colors', onPress: () => pick(undefined) }]
+          : [],
       };
     }
     if (menu.kind === 'scale') {

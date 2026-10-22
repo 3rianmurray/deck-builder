@@ -1554,10 +1554,11 @@ export function solitaire(t: SandboxTable, deck: Deck, ids: () => string, random
  * The Playground example: every component laid out as a little board game, to try them all (without Pro, too:
  * see isPlayground). Along the top a track, with two players' pieces at its start; across the middle a zone, a bag
  * of cubes, an endless supply of discs and a score counter; along the bottom dice, a coin, a spinner, a timer and
- * the first-player marker; and a line of words saying how to begin. No cards: it's for the components, not a
- * table of someone's own decks with every component on it.
+ * the first-player marker; and a line of words saying how to begin. Its only cards are the Playing Cards
+ * example's (shuffled, face down, by the zone, as a discard pile): never a deck of someone's own, which would
+ * make it a table of their game with every component on it (see deckLook).
  */
-export function playground(t: SandboxTable, ids: () => string): SandboxTable {
+export function playground(t: SandboxTable, deck: Deck | undefined, ids: () => string, random: () => number = Math.random): SandboxTable {
   const cx = TABLE_W / 2;
   const cy = TABLE_H / 2;
   const at = (dx: number, dy: number) => ({ x: cx + dx, y: cy + dy });
@@ -1568,7 +1569,7 @@ export function playground(t: SandboxTable, ids: () => string): SandboxTable {
   let table: SandboxTable = {
     ...t,
     pieces: [
-      piece('zone', -260, -40, { label: 'Zone', look: 'dashed', w: 220, h: 200 }),
+      piece('zone', -180, -40, { label: 'Discard', look: 'dashed', w: 150, h: 200 }),
       piece('text', 0, -330, { label: 'Playground', scale: 1.5 }),
       piece('track', 0, -240, { spaces: 10, first: 1 }),
       piece('meeple', -300, -240, { color: PIECE_COLORS.Red }),
@@ -1588,8 +1589,21 @@ export function playground(t: SandboxTable, ids: () => string): SandboxTable {
   };
   table = putInBag(table, cubes, [PIECE_COLORS.Red, PIECE_COLORS.Blue, PIECE_COLORS.Green, PIECE_COLORS.Yellow, PIECE_COLORS.Red, PIECE_COLORS.Blue].map(cube));
   table = putInBag(table, discs, [{ piece: { ...newPiece('meeple', ids(), { x: 0, y: 0 }, 6, 'disc'), color: PIECE_COLORS.Gold } }], true);
+  if (deck?.cards.length) {
+    const cards = shuffled(
+      deck.cards.flatMap((c) => Array.from({ length: c.copies ?? 1 }, () => ({ iid: ids(), deckId: deck.id, cardId: c.id, faceUp: false }))),
+      random,
+    );
+    table = { ...table, stacks: [{ id: ids(), x: cx - 330, y: cy - 40, angle: 0, cards }] };
+  }
   // In view: all of it, with a little room round.
   return { ...table, focus: { x: cx - 440, y: cy - 390, w: 880, h: 740 } };
+}
+
+/** The table with only the cards that pass keep (on the table, in the hands and in the trash; empty stacks go). */
+export function keepCards(t: SandboxTable, keep: (c: SandboxCard) => boolean): SandboxTable {
+  const stacks = t.stacks.map((s) => ({ ...s, cards: s.cards.filter(keep) })).filter((s) => s.cards.length);
+  return { ...t, stacks, hands: t.hands.map((h) => h.filter(keep)), trash: (t.trash ?? []).filter(keep) };
 }
 
 /**

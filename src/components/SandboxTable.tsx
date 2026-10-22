@@ -78,6 +78,7 @@ import {
   ART_MAX,
   reorderBag,
   shuffleBag,
+  keepCards,
   takeFromBag,
   trackSpaceAt,
   TRACK_MAX,
@@ -135,7 +136,7 @@ import type { BagItem, Camera, CardSize, PieceKind, PiecePart, PieceShape, Sandb
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { artPicture, tokenPicture } from '../lib/images';
-import { isPlayground, isProPiece, usePro } from '../lib/pro';
+import { deckLook, isPlayground, isProPiece, usePro } from '../lib/pro';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
 import { clipSize, setClip, useClip } from '../lib/tableClipboard';
 import { offerTipAfterUses, offerTipSoon, tipLearned } from '../lib/tips';
@@ -1063,6 +1064,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return !!p && !pro && !playgroundHere && isProPiece(p);
   };
   const openPro = () => router.push({ pathname: '/pro', params: { reason: 'components' } });
+  // The Playground's cards, without Pro: only the Playing Cards example's, and only while it's as it was made (not
+  // changed into a deck of someone's own). Any others are taken off as it opens, and it says why.
+  const playgroundDeck = playgroundHere ? decksById.get(loadSettings().playingCardsDeckId ?? '') : undefined;
+  const playgroundCardsOk = !playgroundDeck || deckLook(playgroundDeck) === loadSettings().playingCardsLook;
+  useEffect(() => {
+    if (pro || !playgroundHere || !table) return;
+    const ok = (c: SandboxCard) => c.deckId === playgroundDeck?.id && playgroundCardsOk;
+    const all = [...table.stacks.flatMap((s) => s.cards), ...table.hands.flat(), ...(table.trash ?? [])];
+    if (all.every(ok)) return;
+    // Not undoable: they were never meant to be here.
+    updateSandbox(keepCards(table, ok));
+    Alert.alert(
+      'Some cards were taken off the Playground',
+      playgroundCardsOk
+        ? 'The Playground plays with its own Playing Cards. Your own decks, and every component, can be used together with Pro.'
+        : 'The Playing Cards deck has been changed, so its cards don’t play here. Restore examples (in the home screen’s menu) brings it back as it was.',
+    );
+    // As it opens, and if Pro or the deck changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pro, playgroundHere, playgroundCardsOk, playgroundDeck?.id, table?.id]);
   /** Something brought onto the Playground without Pro: it's for trying what's there. */
   const playgroundOnly = () => {
     haptics.warn();

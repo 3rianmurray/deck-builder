@@ -8,6 +8,8 @@ import { useSyncExternalStore } from 'react';
 import { Alert } from 'react-native';
 
 import type { TablePiece } from './sandbox';
+import { copiesOf } from './types';
+import type { Deck } from './types';
 import { loadSettings, saveSettings } from './storage';
 
 /** The Pro product, as set up in App Store Connect. */
@@ -161,6 +163,18 @@ export const isProPiece = (p: Pick<TablePiece, 'kind'>) => p.kind !== 'die';
  * its id, so renaming it changes nothing (and a copy of it isn't it).
  */
 export const isPlayground = (tableId: string) => loadSettings().playgroundTableId === tableId;
+
+/**
+ * A short fingerprint of how a deck looks (its back, shape, and each card's picture, own back and copies). Noted
+ * for the Playing Cards example as it's made, so the Playground can tell if it's been changed into a deck of
+ * someone's own (whose cards, without Pro, don't play there).
+ */
+export function deckLook(deck: Deck): string {
+  const text = [deck.backImage ?? '', deck.cardShape ?? '', ...deck.cards.map((c) => `${c.id}|${c.image}|${c.back ?? ''}|${copiesOf(c)}`)].join(';');
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0;
+  return `${deck.cards.length}:${h.toString(36)}`;
+}
 
 /** How many cards the walkthrough's sample deck comes with (see sampleDeck.ts). */
 const SAMPLE_CARDS = 12;

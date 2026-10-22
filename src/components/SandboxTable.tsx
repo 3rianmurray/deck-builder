@@ -149,6 +149,7 @@ import { StackSearchPanel } from './StackSearchPanel';
 import { TablePieceView } from './TablePieceView';
 import { ScaleControl } from './ScaleControl';
 import { RotationControl } from './RotationControl';
+import { CountStepper } from './CountStepper';
 import { CardView, HALF_FLIP_MS, prefersReducedMotion } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
@@ -182,8 +183,8 @@ const TOKEN_PICTURES = 'tokens';
 const ZONE_GRIP_REACH = 28;
 /** A card spot's size against its deck's cards: a little room round them. */
 const SPOT_ROOM = 1.12;
-/** How many dice can be added at once (from the Add a die menu). */
-const DIE_COUNTS = [1, 2, 3, 4, 5, 6, 8, 10];
+/** The most dice added at once (from the Add a die menu): enough for big dice games, few enough to roll smoothly. */
+const DICE_AT_ONCE = 20;
 /** Stands in for the finger carrying cards taken out of the search, till the table's gesture says which it is. */
 const TAKE_OUT_FINGER = -7;
 /** How long a stack brought onto the table takes to fly in (and the camera to glide over to it). */
@@ -3297,22 +3298,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // How many first (it's kept for next time), then which kind: each die as it looks on the table.
         banner: (
           <View>
-          <View style={styles.dieCounts}>
-            {DIE_COUNTS.map((n) => (
-              <Pressable
-                key={n}
-                onPress={() => {
-                  setDieCount(n);
-                  haptics.tick();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`${n} at once`}
-                accessibilityState={{ selected: dieCount === n }}
-                style={[styles.dieCount, dieCount === n && styles.dieCountOn]}>
-                <Text style={[styles.dieCountText, dieCount === n && { color: colors.accentText }]}>{n}</Text>
-              </Pressable>
-            ))}
-          </View>
+          <CountStepper value={dieCount} onChange={setDieCount} max={DICE_AT_ONCE} label="How many dice" />
           <View style={styles.dicePicks}>
             {DIE_SIDES.map((n) => (
               <Pressable
@@ -4426,11 +4412,6 @@ const styles = StyleSheet.create({
   badgeText: { color: colors.accentText, fontWeight: '800', fontSize: 13 },
   // A counter's or die's colors to pick from (see the pieceColor menu).
   swatches: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 14, paddingVertical: 8, paddingHorizontal: 12 },
-  // How many dice to add at once (see the addDie menu).
-  dieCounts: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 12 },
-  dieCount: { minWidth: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)' },
-  dieCountOn: { backgroundColor: colors.accent },
-  dieCountText: { color: colors.text, fontSize: 17, fontWeight: '700' },
   // The dice to choose from, drawn as they'll look on the table.
   dicePicks: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 18, paddingVertical: 12, paddingHorizontal: 12 },
   dicePick: { width: 72, alignItems: 'center', gap: 6 },

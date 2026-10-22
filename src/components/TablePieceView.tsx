@@ -216,14 +216,23 @@ export const TablePieceView = memo(function TablePieceView({
   /** Picked out with the lasso: outlined in gold. */
   selected?: boolean;
 }) {
-  // Its own size (the scale is a transform, below).
-  const { w, h } = pieceSizeOf({ ...piece, scale: 1 });
+  // Custom art is laid out at its scaled size, so its picture's drawn at that size (scaled up afterward instead,
+  // it went soft). Every other piece is drawn at its own size and scaled about its middle, so its parts and
+  // lettering keep their proportions.
+  const laidOut = piece.kind === 'art' ? (piece.scale ?? 1) : 1;
+  const own = pieceSizeOf({ ...piece, scale: 1 });
+  const w = own.w * laidOut;
+  const h = own.h * laidOut;
   const x = at?.x ?? piece.x;
   const y = at?.y ?? piece.y;
   const color = piece.color ?? defaultPieceColor(piece);
   return (
-    // Drawn at its own size and scaled about its middle (its parts and lettering keep their proportions).
-    <View pointerEvents="none" style={[styles.piece, { left: x - w / 2, top: y - h / 2, width: w, height: h, transform: [{ rotate: `${turn ?? piece.angle ?? 0}deg` }, { scale: (piece.scale ?? 1) * (lifted ? LIFT : 1) }] }]}>
+    <View
+      pointerEvents="none"
+      style={[
+        styles.piece,
+        { left: x - w / 2, top: y - h / 2, width: w, height: h, transform: [{ rotate: `${turn ?? piece.angle ?? 0}deg` }, { scale: ((piece.scale ?? 1) / laidOut) * (lifted ? LIFT : 1) }] },
+      ]}>
       {piece.kind === 'counter' ? (
         <Counter piece={piece} color={color} selected={selected} />
       ) : piece.kind === 'die' ? (

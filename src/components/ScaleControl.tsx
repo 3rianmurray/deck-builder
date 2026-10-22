@@ -10,7 +10,7 @@ import { MAX_TEXT_SCALE, Text } from './Text';
 const SNAP = 0.03;
 const THUMB = 28;
 
-// The slider goes by ratio, so 100% sits in the middle: halving and doubling are the same distance either way.
+// The slider goes by ratio: halving and doubling are the same distance either way (100% is marked along it).
 const LOG_MIN = Math.log(SCALE_MIN);
 const LOG_SPAN = Math.log(SCALE_MAX) - LOG_MIN;
 const toSpot = (k: number) => (Math.log(clampScale(k)) - LOG_MIN) / LOG_SPAN;

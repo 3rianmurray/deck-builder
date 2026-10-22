@@ -377,7 +377,7 @@ export type CardSize = (deckId: string) => { w: number; h: number };
 // ---- Scale: anything on the table drawn bigger or smaller ----
 
 /** How small and how big anything on the table can be made, against its own size. */
-export const SCALE_MIN = 0.25;
+export const SCALE_MIN = 0.1;
 export const SCALE_MAX = 4;
 export const clampScale = (k: number) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, k));
 /** A scale as kept: none for its own size (or near enough), and rounded so it doesn't drift. */

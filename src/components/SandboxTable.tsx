@@ -432,7 +432,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** A stack just brought onto the table, flying in to where the camera's taking it on screen. */
   const [arriving, setArriving] = useState<{ stackId: string; key: string; to: { x: number; y: number }; scale: number; angle: number } | null>(null);
   /** A stack being riffle shuffled (as in a deck's play screen): which, a fresh key each time, and whether it's started. */
-  const [riffling, setRiffling] = useState<{ stackId: string; key: number; started: boolean } | null>(null);
+  const [riffling, setRiffling] = useState<{ stackIds: string[]; key: number; started: boolean } | null>(null);
   const [zoomed, setZoomed] = useState<SandboxCard | null>(null);
   const [view, setView] = useState<{ w: number; h: number } | null>(null);
 
@@ -1203,15 +1203,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const onButton = (b: { x: number; y: number }, x: number, y: number) => Math.hypot(x - (b.x + FLIP_SIZE / 2), y - (b.y + FLIP_SIZE / 2)) <= FLIP_SIZE / 2 + 8;
   const onRollButton = (x: number, y: number) => pickedRollables.length > 0 && diceButtonsLive && onButton(rollButton, x, y);
   const onDiceGridButton = (x: number, y: number) => pickedDice.length > 1 && diceButtonsLive && onButton(diceGridButton, x, y);
-  /** The shuffle button: each picked-out stack shuffled where it lies (one undo), with the riffle played on one. */
-  const shuffleSelection = () => {
+  /** Stacks shuffled where they lie (one undo), the riffle played on each. */
+  const shuffleStacks = (ids: string[]) => {
     if (!table) return;
-    const stacks = chosen.filter((id) => (table.stacks.find((s) => s.id === id)?.cards.length ?? 0) > 1);
+    const stacks = ids.filter((id) => (table.stacks.find((s) => s.id === id)?.cards.length ?? 0) > 1);
     if (!stacks.length) return;
     commit(stacks.reduce((t, id) => shuffleStack(t, id), table));
-    const shown = stacks[stacks.length - 1];
-    setRiffling((r) => ({ stackId: shown, key: (r?.key ?? 0) + 1, started: false }));
+    setRiffling((r) => ({ stackIds: stacks, key: (r?.key ?? 0) + 1, started: false }));
   };
+  /** The shuffle button: every picked-out stack shuffled. */
+  const shuffleSelection = () => shuffleStacks(chosen);
   /**
    * The stack button, while a group is dragged: all of it gathered into one stack where the grabbed one lies, every
    * card facing the way the grabbed one does. It stays picked out (and in hand), as the one new stack.
@@ -2843,10 +2844,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               {
                 label: 'Shuffle',
                 icon: { ios: 'shuffle', android: 'shuffle', web: 'shuffle' } as const,
-                onPress: () => {
-                  commit(shuffleStack(table, menuStack.id));
-                  setRiffling((r) => ({ stackId: menuStack.id, key: (r?.key ?? 0) + 1, started: false }));
-                },
+                // One of several picked out: all of them.
+                onPress: () => shuffleStacks(chosen.includes(menuStack.id) ? chosen : [menuStack.id]),
               },
               {
                 label: 'Search',
@@ -2979,6 +2978,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       const dice = pieces.filter((p) => p.kind === 'die');
       const total = n + pieces.length;
       const allLocked = chosen.every((id) => table.stacks.find((s) => s.id === id)?.locked);
+      const shufflable = chosen.filter((id) => (table.stacks.find((s) => s.id === id)?.cards.length ?? 0) > 1);
       const takeAllOff = () => {
         commit(pieces.reduce((t, p) => removePiece(t, p.id), n ? removeStacks(table, chosen) : table));
         selectStacks([]);
@@ -3014,6 +3014,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 { label: 'Rotate…', onPress: () => openRotate(pieces.filter((p) => p.kind === 'art' && !p.locked).map((p) => p.id)) },
               ]
             : []),
+          ...(shufflable.length ? [{ label: shufflable.length === 1 ? 'Shuffle' : `Shuffle all ${shufflable.length}`, onPress: () => shuffleStacks(shufflable) }] : []),
           ...(n
             ? [
                 // Custom art picked out with them turns too.
@@ -3545,9 +3546,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const ink = (alpha: number) => `rgba(${theme.ink},${alpha})`;
   const arrivingStack = arriving ? table.stacks.find((s) => s.id === arriving.stackId) : undefined;
   const arrivingTop = arrivingStack?.cards[arrivingStack.cards.length - 1];
-  const riffleStack = riffling ? table.stacks.find((s) => s.id === riffling.stackId) : undefined;
-  const riffleDeck = riffleStack ? decksById.get(riffleStack.cards[riffleStack.cards.length - 1].deckId) : undefined;
-  const riffleSize = riffleStack ? cardSizeOf(riffleStack.cards[riffleStack.cards.length - 1], size) : { w: 0, h: 0 };
+  const riffleStacks = riffling ? table.stacks.filter((s) => riffling.stackIds.includes(s.id)) : [];
   const heldTop = held ? held.cards[held.cards.length - 1] : null;
   const heldDeck = heldTop ? getDeck(heldTop.deckId) : undefined;
   const heldSize = heldTop ? cardSizeOf(heldTop, size) : null;
@@ -3590,7 +3589,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   size={cardSizeOf(s.cards[s.cards.length - 1], size)}
                   // While carried, its carried cards are out of sight (the rest still show); while riffled, all of it.
                   hidden={
-                    (riffling?.started && riffling.stackId === s.id) || arriving?.stackId === s.id
+                    (riffling?.started && riffling.stackIds.includes(s.id)) || arriving?.stackId === s.id
                       ? s.cards.map((c) => c.iid).join(',')
                       : held
                         ? s.cards.filter((c) => heldIds.has(c.iid)).map((c) => c.iid).join(',')
@@ -3628,28 +3627,31 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 at={{ x: pieceDrag.out.piece.x + pieceDrag.dx, y: pieceDrag.out.piece.y + pieceDrag.dy }}
               />
             ) : null}
-            {/* A stack being shuffled: the riffle, played where it lies, turned as it is. */}
-            {riffling && riffleStack && riffleDeck ? (
-              <View
-                style={[
-                  styles.stack,
-                  {
-                    left: riffleStack.x - riffleSize.w / 2,
-                    top: riffleStack.y - riffleSize.h / 2,
-                    width: riffleSize.w,
-                    height: riffleSize.h,
-                    transform: [{ rotate: `${riffleStack.angle}deg` }],
-                  },
-                ]}>
-                <Riffle
-                  key={riffling.key}
-                  deck={riffleDeck}
-                  width={riffleSize.w}
-                  onStart={() => setRiffling((r) => (r ? { ...r, started: true } : r))}
-                  onDone={() => setRiffling(null)}
-                />
-              </View>
-            ) : null}
+            {/* Stacks being shuffled: the riffle, played on each where it lies, turned as it is (the first one says when). */}
+            {riffling
+              ? riffleStacks.map((rs, i) => {
+                  const top = rs.cards[rs.cards.length - 1];
+                  const deck = decksById.get(top.deckId);
+                  if (!deck) return null;
+                  const rsSize = cardSizeOf(top, size);
+                  return (
+                    <View
+                      key={`riffle:${rs.id}`}
+                      style={[
+                        styles.stack,
+                        { left: rs.x - rsSize.w / 2, top: rs.y - rsSize.h / 2, width: rsSize.w, height: rsSize.h, transform: [{ rotate: `${rs.angle}deg` }] },
+                      ]}>
+                      <Riffle
+                        key={riffling.key}
+                        deck={deck}
+                        width={rsSize.w}
+                        onStart={() => i === 0 && setRiffling((r) => (r ? { ...r, started: true } : r))}
+                        onDone={() => i === 0 && setRiffling(null)}
+                      />
+                    </View>
+                  );
+                })
+              : null}
             {/* The picked-out group, while it's dragged: drawn together, sliding with the finger. */}
             {groupMoving ? (
               <Animated.View

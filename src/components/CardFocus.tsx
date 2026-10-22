@@ -185,8 +185,13 @@ export function CardFocus(props: Props) {
                     </>
                   ) : (
                     <>
-                      <Text style={styles.rowText}>{r.label}</Text>
-                      <Switch value={r.value} onValueChange={r.onChange} trackColor={{ true: colors.accent, false: undefined }} accessibilityLabel={r.label} />
+                      <Text style={[styles.rowText, styles.rowLabel]} numberOfLines={1}>
+                        {r.label}
+                      </Text>
+                      {/* In a slot of its own on the right, centered in the row, as the other rows' ends are. */}
+                      <View style={styles.switchSlot}>
+                        <Switch value={r.value} onValueChange={r.onChange} trackColor={{ true: colors.accent, false: undefined }} accessibilityLabel={r.label} />
+                      </View>
                     </>
                   )}
                 </View>
@@ -232,6 +237,8 @@ const styles = StyleSheet.create({
   dangerRow: { borderTopColor: 'rgba(255,255,255,0.3)' },
   rowPress: { flex: 1, minHeight: ROW_H, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   rowText: { color: colors.text, fontSize: 15, fontWeight: '500' },
+  rowLabel: { flex: 1, marginRight: 12 },
+  switchSlot: { height: ROW_H, justifyContent: 'center', alignItems: 'flex-end' },
   chevron: { color: colors.textMuted, fontSize: 20 },
   pair: { flexDirection: 'row', gap: 8 },
   pairButton: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.1)' },

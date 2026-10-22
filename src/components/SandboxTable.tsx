@@ -367,6 +367,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   });
   /** Counters and dice picked out with dragged cards follow them (as far as they've gone; they don't turn). */
   const pieceGroupStyle = useAnimatedStyle(() => ({ transform: [{ translateX: groupDX.value }, { translateY: groupDY.value }] }));
+  // Every other time: not moved. (Set, not just left off: a moving style taken off a view leaves its last move on
+  // it, so a piece would be drawn where it wasn't, and couldn't be picked up where it was seen.)
+  const pieceStillStyle = useAnimatedStyle(() => ({ transform: [{ translateX: 0 }, { translateY: 0 }] }));
   /** Cards flying into a stack just gathered (each the top of a stack that was picked out). */
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   /** Where carried cards would go into the hand, while they're over it: a gap opens there. */
@@ -3486,7 +3489,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     // Picked out with cards that are being dragged: they go along with them. (Always in this wrapper, so it's the
     // same view throughout, never drawn afresh: a picture would flicker, or wait to load again.)
     return (
-      <Animated.View key={p.id} style={[styles.pieceGroup, groupMoving && pickedPieces.includes(p.id) ? pieceGroupStyle : null]}>
+      <Animated.View key={p.id} style={[styles.pieceGroup, groupMoving && pickedPieces.includes(p.id) ? pieceGroupStyle : pieceStillStyle]}>
         {view}
       </Animated.View>
     );

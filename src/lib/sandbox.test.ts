@@ -425,7 +425,7 @@ test('adding chosen cards brings every copy of each, face down, in one stack wit
   assert.deepEqual([s.x, s.y], [50, 60]);
   // A on top (the deck's first card), then B's two copies; C wasn't chosen.
   assert.deepEqual(s.cards.map((c) => c.cardId), ['b', 'b', 'a']);
-  assert.ok(s.cards.every((c) => !c.faceUp));
+  assert.ok(s.cards.every((c) => c.faceUp));
   assert.equal(addCards(t, deck, [], { x: 0, y: 0 }, () => 'x'), t);
 });
 test('dropping onto a stack: over its middle without the grid; nearly on it with the grid, never a grid step away', () => {

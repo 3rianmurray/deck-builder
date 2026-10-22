@@ -64,6 +64,7 @@ import {
   besideBagOf,
   pieceName,
   artSize,
+  fitZone,
   clipCards,
   copyItems,
   pasteItems,
@@ -185,8 +186,6 @@ const HOLD_PIECE_MS = 450;
 const TOKEN_PICTURES = 'tokens';
 /** How near a zone's bottom-right corner (screen points) a finger grabs its grip, to resize it. */
 const ZONE_GRIP_REACH = 28;
-/** A card spot's size against its deck's cards: a little room round them. */
-const SPOT_ROOM = 1.12;
 /** The most dice added at once (from the Add a die menu): enough for big dice games, few enough to roll smoothly. */
 const DICE_AT_ONCE = 20;
 /** Stands in for the finger carrying cards taken out of the search, till the table's gesture says which it is. */
@@ -283,7 +282,6 @@ type Menu =
   | { kind: 'pieceColor'; id?: string }
   | { kind: 'pieceShape'; id?: string }
   | { kind: 'addShape' }
-  | { kind: 'addSpot' }
   /** Where a token's picture comes from: for a new token, or (with an id) to change one's. */
   /** Scaling stacks and pieces (changing as the slider moves). */
   | { kind: 'scale'; stacks: string[]; pieces: string[] }
@@ -3120,6 +3118,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   onPress: () => commit(setPiece(table, id, { look: l === 'outline' ? undefined : l })),
                 })),
               },
+              {
+                kind: 'action',
+                // Snug round the cards and custom art lying in it.
+                label: 'Fit around what’s inside',
+                onPress: () => {
+                  const fitted = fitZone(table, id, size);
+                  // Nothing in it to fit round.
+                  if (fitted === table) return haptics.warn();
+                  commit(fitted);
+                  haptics.drop();
+                },
+              },
               { kind: 'toggle', label: 'Cards snap into it', value: !!piece.snap, onChange: (on) => commit(setPiece(table, id, { snap: on || undefined })) },
               lockRow,
               takeOffRow,
@@ -3300,24 +3310,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Bag', icon: icon('bag', 'shopping_bag'), onPress: () => addPieceToTable('bag') },
           { label: 'Text', icon: icon('textformat', 'title'), onPress: () => addPieceToTable('text') },
           { label: 'Zone', icon: icon('rectangle.dashed', 'crop_free'), onPress: () => addPieceToTable('zone') },
-          { label: 'Card spot', icon: icon('rectangle.portrait', 'crop_portrait'), onPress: next({ kind: 'addSpot' }) },
         ],
         actions: [],
-      };
-    }
-    if (menu.kind === 'addSpot') {
-      // Sized to a deck's cards (with a little room round them), and cards snap into it.
-      const playable = decks.filter((d) => d.cards.length);
-      return {
-        title: playable.length ? 'A card spot the size of…' : 'No decks with cards yet',
-        tiles: [],
-        actions: playable.map((d) => ({
-          label: d.name,
-          onPress: () => {
-            const s = size(d.id);
-            addPieceToTable('zone', undefined, undefined, { label: '', w: Math.round(s.w * SPOT_ROOM), h: Math.round(s.h * SPOT_ROOM), snap: true, look: 'dashed' });
-          },
-        })),
       };
     }
     if (menu.kind === 'addShape') {
@@ -4058,7 +4052,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'rotate' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'rotate' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape')}
         title={sheet?.title}
         banner={sheet && 'banner' in sheet ? sheet.banner : undefined}
         tiles={sheet?.tiles}

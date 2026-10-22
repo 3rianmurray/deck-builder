@@ -587,6 +587,45 @@ export function resizeZone(p: TablePiece, w: number, h: number): Pick<TablePiece
   return { w: nw, h: nh, x: Math.round(left + (nw * k) / 2), y: Math.round(top + (nh * k) / 2) };
 }
 
+/** The room a zone fitted to what's in it leaves round it (table units). */
+const ZONE_FIT_ROOM = 12;
+
+/**
+ * A zone fitted to what's in it: every stack and piece of custom art whose middle lies in it, with a little room
+ * round them (its scale kept). The table as it was if there's nothing in it.
+ */
+export function fitZone(t: SandboxTable, zoneId: string, size: CardSize): SandboxTable {
+  const zone = t.pieces?.find((p) => p.id === zoneId && p.kind === 'zone');
+  if (!zone) return t;
+  const stacks = t.stacks.filter((s) => onPiece(zone, s.x, s.y));
+  const art = (t.pieces ?? []).filter((p) => p.kind === 'art' && onPiece(zone, p.x, p.y));
+  const corners = [
+    ...stacks.flatMap((s) => stackCorners(s, size)),
+    ...art.flatMap((p) => {
+      const { w, h } = pieceSizeOf(p);
+      const r = ((p.angle ?? 0) * Math.PI) / 180;
+      return [
+        [-w / 2, -h / 2],
+        [w / 2, -h / 2],
+        [w / 2, h / 2],
+        [-w / 2, h / 2],
+      ].map(([x, y]) => ({ x: p.x + x * Math.cos(r) - y * Math.sin(r), y: p.y + x * Math.sin(r) + y * Math.cos(r) }));
+    }),
+  ];
+  if (!corners.length) return t;
+  const left = Math.min(...corners.map((c) => c.x)) - ZONE_FIT_ROOM;
+  const right = Math.max(...corners.map((c) => c.x)) + ZONE_FIT_ROOM;
+  const top = Math.min(...corners.map((c) => c.y)) - ZONE_FIT_ROOM;
+  const bottom = Math.max(...corners.map((c) => c.y)) + ZONE_FIT_ROOM;
+  const k = zone.scale ?? 1;
+  return setPiece(t, zoneId, {
+    x: Math.round((left + right) / 2),
+    y: Math.round((top + bottom) / 2),
+    w: Math.max(ZONE_MIN, Math.round((right - left) / k)),
+    h: Math.max(ZONE_MIN, Math.round((bottom - top) / k)),
+  });
+}
+
 /** The topmost piece (not a zone: see zoneAt) under a table point, if any, and which part of it the point is on. */
 export function pieceAt(t: SandboxTable, x: number, y: number): { piece: TablePiece; part: PiecePart } | null {
   // Custom art lies among the cards, under every other piece: looked for last.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, raiseArt, artLevel, layerArt, keepArtLevels, copyItems, pasteItems, clipCards, trackSize, trackSpaceAt } from './sandbox.ts';
+import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, raiseArt, artLevel, layerArt, keepArtLevels, copyItems, pasteItems, clipCards, fitZone, trackSize, trackSpaceAt } from './sandbox.ts';
 
 const table = () => newSandbox('t', 'Test', 0);
 
@@ -242,4 +242,17 @@ test('a copy is pasted laid out as it was, round a point, everything new; dice k
   const bag = pasted.pieces!.find((p) => p.id === pieceIds[1])!;
   assert.ok(bagItems(bag)[0].card!.iid.startsWith('new'));
   assert.equal(tableCardCount(pasted), 6);
+});
+test('a zone fits snugly round the cards and art whose middles are in it', () => {
+  const size = () => ({ w: 100, h: 140 });
+  const card = (iid: string) => ({ iid, deckId: 'd', cardId: iid, faceUp: true });
+  let t = { ...table(), stacks: [{ id: 'S', x: 500, y: 500, angle: 0, cards: [card('a')] }] };
+  t = addPiece(t, { ...newPiece('zone', 'z', { x: 520, y: 520 }), w: 600, h: 600 });
+  t = addPiece(t, { ...newPiece('art', 'a', { x: 700, y: 500 }), w: 100, h: 100 });
+  t = addPiece(t, { ...newPiece('art', 'far', { x: 2000, y: 2000 }), w: 100, h: 100 });
+  const z = fitZone(t, 'z', size).pieces!.find((p) => p.id === 'z')!;
+  // Cards 450–550 × 430–570, art 650–750 × 450–550: with 12 of room round them.
+  assert.deepEqual([z.x, z.y, z.w, z.h], [600, 500, 324, 164]);
+  const empty = addPiece(table(), newPiece('zone', 'e', { x: 100, y: 100 }));
+  assert.equal(fitZone(empty, 'e', size), empty);
 });

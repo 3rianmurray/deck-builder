@@ -182,6 +182,8 @@ const TAP_MS = 300;
 const HOLD_STACK_MS = 350;
 /** Holding a counter or die still this long opens its options. */
 const HOLD_PIECE_MS = 450;
+/** Holding empty table still this long opens what can be added there. */
+const HOLD_ADD_MS = 500;
 /** Where tokens' pictures are kept (as a deck's are, in a folder of their own). */
 const TOKEN_PICTURES = 'tokens';
 /** How near a zone's bottom-right corner (screen points) a finger grabs its grip, to resize it. */
@@ -1033,10 +1035,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     haptics.drop();
   };
   /** A new piece in the middle of what's in view (a little apart from the last few, so they don't hide each other). */
+  /** Where what's added goes: where the table was held to add it, if it was; or the middle of the view. */
+  const [addAt, setAddAt] = useState<{ x: number; y: number } | null>(null);
+  const middleOfView = () => (view ? toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2) : { x: TABLE_W / 2, y: TABLE_H / 2 });
+  const addSpot = () => addAt ?? middleOfView();
   const addPieceToTable = (kind: PieceKind, sides?: number, shape?: PieceShape, extra?: Partial<TablePiece>) => {
     if (!table || !view) return;
-    const mid = toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2);
-    const nudge = ((table.pieces?.length ?? 0) % 5) * 24;
+    const mid = addSpot();
+    // In the middle of the view, a little apart from the last few (so they don't hide each other); where held, right there.
+    const nudge = addAt ? 0 : ((table.pieces?.length ?? 0) % 5) * 24;
     const id = newId();
     // A die isn't put down on another.
     commit(raiseArt(separateDice(addPiece(table, { ...newPiece(kind, id, { x: mid.x + nudge, y: mid.y + nudge }, sides, shape), ...extra }), [id]), [id]));
@@ -1051,7 +1058,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const addDice = (sides: number, count: number) => {
     if (count <= 1) return addPieceToTable('die', sides);
     if (!table || !view) return;
-    const mid = toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2);
+    const mid = addSpot();
     const ids = Array.from({ length: count }, () => newId());
     const added = ids.reduce((t, id, i) => addPiece(t, newPiece('die', id, { x: mid.x + i, y: mid.y }, sides)), table);
     commit(gridDice(added, ids));
@@ -1293,12 +1300,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       gridPickedDice: () => void;
       addPieceToTable: (kind: PieceKind, sides?: number, shape?: PieceShape, extra?: Partial<TablePiece>) => void;
       setZoneSize: (z: { id: string; w: number; h: number } | null) => void;
+      openAddAt: (at: { x: number; y: number }) => void;
       dropIntoBag: (bagId: string, items: BagItem[], without: SandboxTable) => void;
       dropZoneSize: () => void;
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, addPieceToTable, dropIntoBag, setZoneSize, dropZoneSize, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, addPieceToTable, openAddAt: (at) => { setAddAt(at); setMenu({ kind: 'components' }); }, dropIntoBag, setZoneSize, dropZoneSize, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -1899,6 +1907,19 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         }
         touch.onEmpty = true;
         touch.firstDownAt = now;
+        // Held still on empty table: what can be added, to go right there.
+        if (!touch.holdTimer) {
+          touch.holdTimer = setTimeout(() => {
+            touch.holdTimer = null;
+            const f = touch.fingers.get(touch.first);
+            if (touch.fingers.size !== 1 || !f || Math.hypot(f.now.x - f.start.x, f.now.y - f.start.y) > TAP_SLOP) return;
+            if (touch.mode !== 'none' && touch.mode !== 'camera') return;
+            touch.mode = 'button';
+            touch.onEmpty = false;
+            haptics.lift();
+            latest.get().openAddAt(w);
+          }, HOLD_ADD_MS);
+        }
       }
       // Two fingers down together (the second hard on the first), anywhere, even on a card or a component: the
       // table's, for the camera, and a two-finger double tap fits everything in view. (A second finger coming later,
@@ -2570,12 +2591,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
    * What's been copied put in the middle of the view, laid out as it was, and picked out, ready to drag where it's
    * wanted. Not past the table's card limit, nor its custom art's.
    */
-  const pasteClip = () => {
+  const pasteClip = (inMiddle = false) => {
     if (!table || !view || !clip) return;
     if (!roomFor(table, clipCards(clip))) return;
     if (artCount + clip.pieces.filter((p) => p.kind === 'art').length > ART_MAX) return artFull();
-    const mid = toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2);
-    const { table: next, stackIds, pieceIds } = pasteItems(table, clip, mid, newId);
+    const { table: next, stackIds, pieceIds } = pasteItems(table, clip, inMiddle ? middleOfView() : addSpot(), newId);
     commit(next);
     setSelected(stackIds);
     setPickedPieces(pieceIds);
@@ -2888,7 +2908,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         title: table.name,
         tiles: [],
         actions: [
-          ...(clip ? [{ label: clipSize(clip) === 1 ? 'Paste' : `Paste ${clipSize(clip)} things`, onPress: pasteClip }] : []),
+          ...(clip ? [{ label: clipSize(clip) === 1 ? 'Paste' : `Paste ${clipSize(clip)} things`, onPress: () => pasteClip(true) }] : []),
           { label: 'Add a deck…', onPress: () => setTimeout(() => setMenu({ kind: 'addDeck' }), 250) },
           // Its own screen, which iOS can only show once this menu has gone.
           { label: 'Add cards…', opensModal: true, onPress: () => setAddingCards(true) },
@@ -3799,9 +3819,18 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                       offerTipAfterUses('tables-quick-pinch', undefined, 900);
                     },
                   ],
-                  ['die.face.5', 'casino', 'Add Components', () => setMenu({ kind: 'components' })],
+                  [
+                    'plus.square.on.square',
+                    'add_box',
+                    'Add to Table',
+                    () => {
+                      // In the middle of the view (holding the table adds right where it's held).
+                      setAddAt(null);
+                      setMenu({ kind: 'components' });
+                    },
+                  ],
                   // Once something's been copied.
-                  ...(clip ? ([['doc.on.clipboard', 'content_paste', 'Paste', pasteClip]] as const) : []),
+                  ...(clip ? ([['doc.on.clipboard', 'content_paste', 'Paste', () => pasteClip(true)]] as const) : []),
                   ['wand.and.stars', 'auto_fix_high', 'Clean Up', cleanUp],
                   ['rectangle.stack', 'layers', 'Gather by Deck', gatherUp],
                   ['trash', 'delete', `Trash${table.trash?.length ? ` (${table.trash.length})` : ''}`, () => setTrashOpen(true)],

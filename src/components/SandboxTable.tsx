@@ -3380,7 +3380,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               {
                 kind: 'action',
                 // Snug round the cards and custom art lying in it.
-                label: 'Fit around what’s inside',
+                label: 'Auto fit',
                 onPress: () => {
                   const fitted = fitZone(table, id, size);
                   // Nothing in it to fit round.

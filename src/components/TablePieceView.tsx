@@ -934,7 +934,8 @@ function Timer({ piece, color, size, selected, k }: { piece: TablePiece; color: 
   );
 }
 /**
- * A zone: an area marked out on the cloth, under the cards (outlined, filled in, or dashed), its name in a corner.
+ * A zone: an area marked out on the cloth, under the cards (outlined, filled in, or dashed), its name just above
+ * it (outside, so cards in it, or its fill, never hide it).
  * Unlocked, a grip in its bottom-right corner resizes it.
  */
 function Zone({ piece, color, k }: { piece: TablePiece; color: string; k: number }) {
@@ -949,7 +950,7 @@ function Zone({ piece, color, k }: { piece: TablePiece; color: string; k: number
         look === 'filled' && { backgroundColor: `${color}38` },
       ]}>
       {piece.label ? (
-        <Text allowFontScaling={false} numberOfLines={1} style={[styles.zoneLabel, { color, fontSize: 18 * k, left: 10 * k, top: 6 * k, right: 10 * k }]}>
+        <Text allowFontScaling={false} numberOfLines={1} style={[styles.zoneLabel, { color, fontSize: 18 * k, left: 6 * k, right: 6 * k, marginBottom: 4 * k }]}>
           {piece.label}
         </Text>
       ) : null}
@@ -1134,7 +1135,7 @@ const styles = StyleSheet.create({
   trackSpace: { width: 40, height: 40, marginHorizontal: 2, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   trackMarker: { position: 'absolute', boxShadow: '0px 1px 3px rgba(0, 0, 0, 0.45)' },
   trackNumber: { fontSize: 16, fontWeight: '800' },
-  zoneLabel: { position: 'absolute', left: 10, top: 6, right: 10, fontSize: 18, fontWeight: '700' },
+  zoneLabel: { position: 'absolute', left: 6, right: 6, bottom: '100%', fontSize: 18, fontWeight: '700' },
   // Two short lines across the bottom-right corner, as a window's resize grip.
   zoneGrip: { position: 'absolute', right: 4, bottom: 4, width: 18, height: 18, borderRightWidth: 3, borderBottomWidth: 3, borderBottomRightRadius: 6 },
   markerText: { position: 'absolute', left: 0, top: 0, textAlign: 'center', fontWeight: '800', paddingHorizontal: 8 },

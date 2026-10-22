@@ -812,6 +812,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** The picked-out dice, coins and spinners: the roll button rolls, flips and spins them all (a tap on one, those of its kind). */
   const pickedRollables = pickedPieces.filter((id) => table?.pieces?.some((p) => p.id === id && rollable(p)));
   /**
+   * Several of one kind picked out, and nothing else (no cards, nor pieces of another kind): the kind the corner
+   * button rolls (dice), flips (coins) or spins (spinners), all together. Otherwise none shows.
+   */
+  const rollKind = (() => {
+    if (pickedPieces.length < 2 || selected.some((id) => table?.stacks.some((s) => s.id === id))) return null;
+    const kinds = new Set(pickedPieces.map((id) => table?.pieces?.find((p) => p.id === id)?.kind));
+    const [kind] = [...kinds];
+    return kinds.size === 1 && (kind === 'die' || kind === 'coin' || kind === 'spinner') ? kind : null;
+  })();
+  /**
    * Rolls dice (one undo for them all): each lands on a new face a little way off, in a random direction, and
    * tumbles across to there.
    */
@@ -1249,8 +1259,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const diceGridButton = slot(rollSlot + 1);
   const diceButtonsLive = !held && !groupMoving && !toolsOpen;
   const onButton = (b: { x: number; y: number }, x: number, y: number) => Math.hypot(x - (b.x + FLIP_SIZE / 2), y - (b.y + FLIP_SIZE / 2)) <= FLIP_SIZE / 2 + 8;
-  const onRollButton = (x: number, y: number) => pickedRollables.length > 0 && diceButtonsLive && onButton(rollButton, x, y);
-  const onDiceGridButton = (x: number, y: number) => pickedDice.length > 1 && diceButtonsLive && onButton(diceGridButton, x, y);
+  const onRollButton = (x: number, y: number) => !!rollKind && diceButtonsLive && onButton(rollButton, x, y);
+  const onDiceGridButton = (x: number, y: number) => rollKind === 'die' && diceButtonsLive && onButton(diceGridButton, x, y);
   /** Stacks shuffled where they lie (one undo), the riffle played on each. */
   const shuffleStacks = (ids: string[]) => {
     if (!table) return;
@@ -4060,16 +4070,27 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             </View>
           ) : null}
 
-          {/* With dice picked out: one to roll them all (above the selection's other buttons, if cards are picked out too). */}
-          {!held && !groupMoving && pickedRollables.length ? (
+          {/* With several dice (or coins, or spinners) picked out, and nothing else: one to roll (flip, spin) them all. */}
+          {!held && !groupMoving && rollKind ? (
             <View
               pointerEvents="none"
               style={[styles.flipButton, { left: rollButton.x, top: rollButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && styles.waiting]}>
-              <SymbolView name={{ ios: 'dice', android: 'casino', web: 'casino' }} size={26} weight="semibold" tintColor={colors.accentText} />
+              <SymbolView
+                name={
+                  rollKind === 'coin'
+                    ? { ios: 'centsign.circle', android: 'toll', web: 'toll' }
+                    : rollKind === 'spinner'
+                      ? { ios: 'arrow.clockwise.circle', android: 'autorenew', web: 'autorenew' }
+                      : { ios: 'dice', android: 'casino', web: 'casino' }
+                }
+                size={26}
+                weight="semibold"
+                tintColor={colors.accentText}
+              />
             </View>
           ) : null}
-          {/* With two or more dice picked out: one to line them up in a tight grid. */}
-          {!held && !groupMoving && pickedDice.length > 1 ? (
+          {/* With several dice picked out (and nothing else): one to line them up in a tight grid. */}
+          {!held && !groupMoving && rollKind === 'die' ? (
             <View
               pointerEvents="none"
               style={[styles.flipButton, { left: diceGridButton.x, top: diceGridButton.y, width: FLIP_SIZE, height: FLIP_SIZE, borderRadius: FLIP_SIZE / 2 }, toolsOpen && styles.waiting]}>

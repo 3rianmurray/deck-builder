@@ -1780,7 +1780,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       pieceDY.set(0);
       L.setPieceDrag({ lead: piece.id, ids: [piece.id], dx: 0, dy: 0, out });
     };
-    const down = (changed: Touch[]) => {
+    const down = (changed: Touch[], fresh = false) => {
+      // The first finger of a new touch: anything left of the last one is let go first. (Its end doesn't always come:
+      // a menu opened over the table while a finger was still down, say. Left, it took this finger for a second one.)
+      if (fresh && (touch.mode !== 'none' || touch.fingers.size)) cancel();
       const L = latest.get();
       // A touch on the table tucks the tools away, and does nothing else (a selection stays picked out).
       if (L.toolsOpen && touch.mode === 'none') {
@@ -2501,7 +2504,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // Other fingers while a tray touch is only watched: ignored.
         if (trayTouch.get().watching) return;
         manager.activate();
-        scheduleOnRN(down, points(e.changedTouches));
+        scheduleOnRN(down, points(e.changedTouches), firstFinger);
       })
       .onTouchesMove((e, manager) => {
         const tt = trayTouch.get();

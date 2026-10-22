@@ -838,6 +838,55 @@ export function trackSpaceAt(p: TablePiece, x: number): number {
   return Math.min(spaces - 1, Math.max(0, Math.floor((x - left) / (TRACK_SPACE * k))));
 }
 
+// ---- Copy and paste ----
+
+/** What's been copied off a table: stacks and pieces, as they were (where they lay, too, to keep their layout). */
+export interface TableClip {
+  stacks: SandboxStack[];
+  pieces: TablePiece[];
+}
+
+/** Stacks and pieces copied, as they are. */
+export const copyItems = (t: SandboxTable, stackIds: string[], pieceIds: string[]): TableClip => ({
+  stacks: t.stacks.filter((s) => stackIds.includes(s.id)),
+  pieces: (t.pieces ?? []).filter((p) => pieceIds.includes(p.id)),
+});
+
+/** How many cards a copy holds (stacks' and bags'), against the table's limit. */
+export const clipCards = (clip: TableClip) =>
+  clip.stacks.reduce((n, s) => n + s.cards.length, 0) + clip.pieces.reduce((n, p) => n + bagItems(p).filter((i) => i.card).length, 0);
+
+/**
+ * A copy put on a table, its middle at a point, laid out as it was: every stack, card and piece new (new ids),
+ * stacks and art over everything, dice off any others. Gives the table, and the new stacks' and pieces' ids.
+ */
+export function pasteItems(t: SandboxTable, clip: TableClip, at: { x: number; y: number }, ids: () => string) {
+  const xs = [...clip.stacks.map((s) => s.x), ...clip.pieces.map((p) => p.x)];
+  const ys = [...clip.stacks.map((s) => s.y), ...clip.pieces.map((p) => p.y)];
+  if (!xs.length) return { table: t, stackIds: [] as string[], pieceIds: [] as string[] };
+  const mid = { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+  const place = (x: number, y: number) => ({
+    x: Math.round(Math.min(TABLE_W, Math.max(0, x - mid.x + at.x))),
+    y: Math.round(Math.min(TABLE_H, Math.max(0, y - mid.y + at.y))),
+  });
+  const fresh = (c: SandboxCard): SandboxCard => ({ ...c, iid: ids() });
+  const stacks = clip.stacks.map((s) => ({ ...s, ...place(s.x, s.y), id: ids(), cards: s.cards.map(fresh) }));
+  const freshItem = (i: BagItem): BagItem => (i.card ? { card: fresh(i.card) } : { piece: { ...i.piece!, id: ids() } });
+  const pieces = clip.pieces.map((p) => ({
+    ...p,
+    ...place(p.x, p.y),
+    id: ids(),
+    // A bag's things are new ones too; a timer starts again, stopped.
+    ...(p.items ? { items: p.items.map(freshItem) } : {}),
+    ...(p.supply ? { supply: freshItem(p.supply) } : {}),
+    ...(p.kind === 'timer' ? { endsAt: undefined, left: undefined } : {}),
+  }));
+  const pieceIds = pieces.map((p) => p.id);
+  let table: SandboxTable = { ...t, stacks: [...t.stacks, ...stacks], pieces: [...(t.pieces ?? []), ...pieces] };
+  table = separateDice(raiseArt(table, pieceIds), pieceIds);
+  return { table, stackIds: stacks.map((s) => s.id), pieceIds };
+}
+
 /** What a piece is called (in a menu's title, or a search). */
 export function pieceName(p: TablePiece): string {
   if (p.kind === 'die') return `d${p.sides ?? 6}`;

@@ -241,6 +241,8 @@ const DEFAULT_TOOLS_SPOT: ToolsSpot = { side: 'left', at: 0.08 };
 /** A pinch inward this quick, to this share of its fingers' first distance apart or less, fits all cards in view. */
 /** Two fingers tapping the table: how quickly they're lifted, and how soon a second tap must come (to fit everything in view). */
 const TWO_TAP_MS = 260;
+/** How soon after the first a second finger comes down to count as two fingers together (not a second, later one). */
+const TWO_TOUCH_MS = 150;
 const TWO_TAP_GAP_MS = 420;
 /** How far sideways the tools tab must be dragged to come away from its edge, and how much it gives before then. */
 const TOOLS_DETACH = 70;
@@ -1370,6 +1372,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       pinch: null as { at: number; dist: number } | null,
       /** When two fingers last tapped the table (a second soon after fits everything in view). */
       twoTapAt: 0,
+      /** When the first finger of this touch came down (a second within TWO_TOUCH_MS makes it two fingers together). */
+      firstAt: 0,
       /** A press on a component picked out with cards: a drag moves them all (as from one of the cards); a tap is the component's. */
       viaPiece: null as null | { id: string; part: PiecePart; at: Pt },
       /** What was pressed: a stack (or its badge), or a hand card. */
@@ -1761,6 +1765,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         const t = changed[0];
         touch.first = t.id;
         touch.viaPiece = null;
+        touch.firstAt = Date.now();
         touch.twist = null;
         // On a hand card (its touches come from the card itself, as in table mode): a tap opens its menu, an
         // upward drag lifts it out. Or a card on the table: a tap opens its menu, a drag carries it.
@@ -1894,6 +1899,26 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         }
         touch.onEmpty = true;
         touch.firstDownAt = now;
+      }
+      // Two fingers down together (the second hard on the first), anywhere, even on a card or a component: the
+      // table's, for the camera, and a two-finger double tap fits everything in view. (A second finger coming later,
+      // on something held, twists it, as ever.)
+      if ((touch.mode === 'press' || touch.mode === 'piece') && touch.fingers.size === 2 && Date.now() - touch.firstAt < TWO_TOUCH_MS) {
+        clearHold();
+        touch.piece = null;
+        touch.pressed = null;
+        touch.viaPiece = null;
+        touch.groupPress = false;
+        L.setPieceDrag(null);
+        if (L.cameraLocked) {
+          touch.mode = 'button';
+          return;
+        }
+        touch.mode = 'camera';
+        touch.camStart = readCamera();
+        touch.camFrom = pts.slice(0, 2);
+        touch.pinch = { at: Date.now(), dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) };
+        return;
       }
       // A second finger on custom art being pressed or dragged (alone): it twists it, as a card's is.
       if (touch.mode === 'piece' && touch.piece) {

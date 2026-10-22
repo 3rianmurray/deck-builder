@@ -225,11 +225,10 @@ const DRAG_SLOP = 8;
 const LIFT_DELAY_MS = 90;
 /** A finger, relative to the table's touch area. */
 type Finger = { id: number; x: number; y: number };
-/** The tools drawer on the left edge: the panel's width, the tab it's pulled out by, and the panel's height. */
+/** The tools drawer on the left edge: the panel's width, and the tab it's pulled out by. */
 const TOOLS_W = 230;
 const TOOLS_TAB_W = 26;
 const TOOLS_TAB_H = 72;
-const TOOLS_H = 452;
 /** How far down the drawer its pull tab sits: near the top, where it's always been (the drawer's grown taller). */
 const TOOLS_TAB_TOP = 42;
 /** How long the grid shows when its size is chosen (with its lines off). */
@@ -669,11 +668,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     else haptics.tick();
   };
   // The tools drawer's place: its tab anywhere from just below the top bar to just above the hand's tabs (as a share
-  // of that, so it fits any screen), and the panel beside it, as near level with the tab as fits in the same space.
+  // of that, so it fits any screen), and the panel beside it, the whole of that height (its tools scroll if they don't fit).
   const toolsMinY = insets.top + TOP_BAR_H + 8;
   const toolsMaxY = Math.max(toolsMinY, trayOpenTop - HAND_TAB_H - TOOLS_TAB_H - 8);
   const tabY = toolsMinY + toolsSpot.at * (toolsMaxY - toolsMinY);
-  const toolsH = Math.min(TOOLS_H, toolsMaxY + TOOLS_TAB_H - toolsMinY);
+  const toolsH = toolsMaxY + TOOLS_TAB_H - toolsMinY;
   const toolsTop = Math.min(Math.max(tabY - TOOLS_TAB_TOP, toolsMinY), toolsMaxY + TOOLS_TAB_H - toolsH);
   /** Where the tab sits in the drawer. */
   const tabInDrawer = tabY - toolsTop;

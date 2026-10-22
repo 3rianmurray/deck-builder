@@ -637,8 +637,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const handH = Math.round(HAND_TOP_PAD + HAND_ROW_PAD * 2 + handCardH + 4);
   // The tray reaches the bottom of the screen; folded, it slides down until just the tops of its cards show.
   const trayH = handH + insets.bottom;
-  const trayOpenTop = area.h - trayH;
-  const handTop = folded ? area.h - FOLDED_SHOWS : trayOpenTop;
+  // The hands hidden (from the table's menu): no tray at all, and the table down to the bottom of the screen (just
+  // clear of the home bar, where the hand's tabs would stand). Nothing goes into a hand, then.
+  const trayGone = !!table?.hideHands;
+  const trayOpenTop = trayGone ? area.h - insets.bottom + HAND_TAB_H : area.h - trayH;
+  const handTop = trayGone ? trayOpenTop : folded ? area.h - FOLDED_SHOWS : trayOpenTop;
   /** The row as laid out: the hand without any cards being carried, and a gap where carried ones would go in. */
   const handRow = hand.filter((c) => !heldIds.has(c.iid));
   // Where each card sits along the row (cards differ in width), with the gap taking the carried card's width.
@@ -1648,9 +1651,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     const right = toolsSpot.side === 'right';
     const w = area.w || screenW;
     tabBand.set({
-      top: handTop - HAND_TAB_H,
-      bottom: handTop,
-      tray: folded ? Number.MAX_VALUE : handTop,
+      top: trayGone ? Number.MAX_VALUE : handTop - HAND_TAB_H,
+      bottom: trayGone ? Number.MAX_VALUE : handTop,
+      tray: folded || trayGone ? Number.MAX_VALUE : handTop,
       // The tools drawer, on its edge: just its tab while it's tucked away, the whole panel when it's out.
       toolsLeft: right ? w - reach : 0,
       toolsRight: right ? w : reach,
@@ -1659,7 +1662,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       // The search, over everything while it's open (and not on its way out): its touches are its own.
       panel: !!searching && !searchLeaving,
     });
-  }, [handTop, folded, toolsOpen, toolsTop, toolsH, tabY, toolsSpot, area.w, screenW, tabBand, searching, searchLeaving]);
+  }, [handTop, folded, trayGone, toolsOpen, toolsTop, toolsH, tabY, toolsSpot, area.w, screenW, tabBand, searching, searchLeaving]);
   /** A touch that landed in the open tray, watched (but not yet claimed) to see if it lifts a card out. */
   const trayTouch = useSharedValue({ id: -1, x: 0, y: 0, t: 0, watching: false, panel: false });
   /** Cards taken out of the search: the next move, the finger nearest this point (on screen) carries them on the table. */
@@ -2941,6 +2944,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           ...(clip ? [{ label: clipSize(clip) === 1 ? 'Paste' : `Paste ${clipSize(clip)} things`, onPress: () => pasteClip(true) }] : []),
           { label: 'Table theme…', onPress: () => setTimeout(() => setMenu({ kind: 'color' }), 250) },
           {
+            label: table.hideHands ? 'Show the hands' : 'Hide the hands',
+            onPress: () => updateSandbox({ ...table, hideHands: !table.hideHands || undefined }),
+          },
+          {
             label: 'Reset the view',
             onPress: () => {
               fitView(table);
@@ -3697,7 +3704,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             phone can be passed round. Tapping the chosen tab folds the tray away (and back); holding a tab
             renames it.
           */}
-          <Animated.View style={[styles.trayWrap, { top: trayOpenTop - HAND_TAB_H, height: trayH + HAND_TAB_H }, trayStyle]}>
+          <Animated.View style={[styles.trayWrap, { top: trayOpenTop - HAND_TAB_H, height: trayH + HAND_TAB_H }, trayStyle, trayGone && { display: 'none' }]}>
             <View style={styles.tabs}>
               {Array.from({ length: HAND_COUNT }, (_, i) => {
                 const on = i === handIndex;

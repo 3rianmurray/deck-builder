@@ -64,6 +64,7 @@ import {
   besideBagOf,
   pieceName,
   artSize,
+  PIECE_SIZE,
   turnArt,
   normalizeAngle,
   artLevel,
@@ -147,6 +148,7 @@ import { Riffle } from './Riffle';
 import { StackSearchPanel } from './StackSearchPanel';
 import { TablePieceView } from './TablePieceView';
 import { ScaleControl } from './ScaleControl';
+import { RotationControl } from './RotationControl';
 import { CardView, HALF_FLIP_MS, prefersReducedMotion } from './CardView';
 import { CardZoom } from './CardZoom';
 import type { TableControls } from './TableTopBar';
@@ -278,7 +280,9 @@ type Menu =
   | { kind: 'addSpot' }
   /** Where a token's picture comes from: for a new token, or (with an id) to change one's. */
   /** Scaling stacks and pieces (changing as the slider moves). */
-  | { kind: 'scale'; stacks: string[]; pieces: string[] };
+  | { kind: 'scale'; stacks: string[]; pieces: string[] }
+  /** Turning custom art (changing as the slider moves). */
+  | { kind: 'rotate'; pieces: string[] };
 
 /** Counters and dice being dragged: the one under the finger, all of them, and how far they've gone (table units). */
 interface PieceDrag {
@@ -508,6 +512,17 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     setScaleBase(table);
     // Once the menu it's chosen from has gone.
     setTimeout(() => setMenu({ kind: 'scale', stacks, pieces }), 300);
+  };
+  /** Custom art turned as the rotation slider moves (locked art stays as it is): one undo, as scaling is. */
+  const openRotate = (pieces: string[]) => {
+    if (!table) return;
+    setScaleBase(table);
+    setTimeout(() => setMenu({ kind: 'rotate', pieces }), 300);
+  };
+  const previewRotate = (deg: number) => {
+    if (!scaleBase || menu?.kind !== 'rotate') return;
+    const ids = menu.pieces;
+    updateSandbox({ ...scaleBase, pieces: (scaleBase.pieces ?? []).map((p) => (ids.includes(p.id) && p.kind === 'art' && !p.locked ? { ...p, angle: deg } : p)) });
   };
   const previewScale = (k: number) => {
     if (!scaleBase || menu?.kind !== 'scale') return;
@@ -2858,8 +2873,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           // Custom art picked out on its own (no cards): turned as cards are.
           ...(!n && pieces.some((p) => p.kind === 'art' && !p.locked)
             ? [
-                { label: 'Turn left', onPress: () => commit(turnArt(table, pieces.map((p) => p.id), -90)) },
-                { label: 'Turn right', onPress: () => commit(turnArt(table, pieces.map((p) => p.id), 90)) },
+                { label: 'Rotate…', onPress: () => openRotate(pieces.filter((p) => p.kind === 'art' && !p.locked).map((p) => p.id)) },
               ]
             : []),
           ...(n
@@ -3098,31 +3112,42 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       }
       if (piece.kind === 'coin') return { title: 'Coin', tiles: [], actions: [color, ...scale, takeOff] };
       if (piece.kind === 'art') {
+        // Laid out as a card's: it, big, in the middle; its tools as tiles; then its rows.
+        const own = pieceSizeOf({ ...piece, scale: 1 });
+        const fit = Math.min(240 / own.w, 240 / own.h);
+        const icon = (ios: string, android: string) => ({ ios, android, web: android }) as SheetTile['icon'];
         return {
           title: 'Custom art',
-          tiles: [],
-          actions: [
-            { label: 'Change the picture…', opensModal: true, onPress: () => choosePicture({ kind: 'art', id: piece.id }) },
-            // Turned as a card is (or twisted with a second finger as it's dragged).
-            ...(piece.locked
-              ? []
-              : [
-                  { label: 'Turn left', onPress: () => commit(turnArt(table, [piece.id], -90)) },
-                  { label: 'Turn right', onPress: () => commit(turnArt(table, [piece.id], 90)) },
-                ]),
-            // Among the cards, as a stack's Layer: under or over those it overlaps.
-            ...(['front', 'up', 'down', 'back'] as const).map((to) => ({
-              label: to === 'front' ? 'Bring to the front' : to === 'up' ? 'Up a layer' : to === 'down' ? 'Down a layer' : 'Send to the back',
-              onPress: () => commit(layerArt(table, piece.id, to, size)),
-            })),
-            // A board or a map lies still; a figure is moved about.
-            lock,
-            ...scale,
-            takeOff,
+          header: (
+            <View style={{ width: own.w * fit, height: own.h * fit }}>
+              <View style={{ width: own.w, height: own.h, transform: [{ translateX: (own.w * fit - own.w) / 2 }, { translateY: (own.h * fit - own.h) / 2 }, { scale: fit }] }}>
+                <TablePieceView piece={{ ...piece, x: own.w / 2, y: own.h / 2, scale: 1 }} />
+              </View>
+            </View>
+          ),
+          tiles: [
+            { label: 'Rotate', icon: icon('rotate.right', 'rotate_right'), disabled: !!piece.locked, onPress: () => openRotate([piece.id]) },
+            { label: 'Scale', icon: icon('arrow.up.left.and.arrow.down.right', 'open_in_full'), disabled: !!piece.locked, onPress: () => openScale([], [piece.id]) },
+            // The system's menu, once this has gone (see choosePicture).
+            { label: 'Picture', icon: icon('photo', 'image'), onPress: () => setTimeout(() => choosePicture({ kind: 'art', id: piece.id }), 450) },
           ],
+          rows: [
+            // Among the cards, as a stack's Layer: under or over those it overlaps.
+            {
+              kind: 'pair' as const,
+              label: 'Layer',
+              options: (['back', 'down', 'up', 'front'] as const).map((to) => ({
+                label: to === 'back' ? 'Back' : to === 'down' ? 'Down' : to === 'up' ? 'Up' : 'Front',
+                onPress: () => commit(layerArt(table, piece.id, to, size)),
+              })),
+            },
+            // A board or a map lies still; a figure is moved about.
+            { kind: 'toggle' as const, label: 'Lock in place', value: !!piece.locked, onChange: (on: boolean) => commit(setPiece(table, piece.id, { locked: on || undefined })) },
+            { kind: 'action' as const, label: 'Take off the table', destructive: true, onPress: () => commit(removePiece(table, piece.id)) },
+          ],
+          actions: [],
         };
-      }
-      if (piece.kind === 'spinner') return { title: 'Spinner', tiles: [], actions: [lock, color, ...scale, takeOff] };
+      }      if (piece.kind === 'spinner') return { title: 'Spinner', tiles: [], actions: [lock, color, ...scale, takeOff] };
       return {
         title: `d${piece.sides ?? 6}`,
         tiles: [],
@@ -3208,6 +3233,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         actions: [],
       };
     }
+    if (menu.kind === 'rotate') {
+      const first = table.pieces?.find((p) => menu.pieces.includes(p.id));
+      return {
+        title: menu.pieces.length === 1 ? 'Rotation' : `Rotate ${menu.pieces.length}`,
+        tiles: [],
+        banner: <RotationControl value={first?.angle ?? 0} onChange={previewRotate} />,
+        actions: [],
+      };
+    }
     if (menu.kind === 'components') {
       // A tile each, three to a row, with its name under it: what rolls, then what counts, then pieces, then the
       // table's layout. Those with more to choose (which die, which deck, which picture) open another menu.
@@ -3257,12 +3291,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       };
     }
     if (menu.kind === 'addDie') {
-      const names: Record<number, string> = { 4: 'four', 6: 'six', 8: 'eight', 10: 'ten', 12: 'twelve', 20: 'twenty' };
       return {
         title: dieCount === 1 ? 'Add a die' : `Add ${dieCount} dice`,
         tiles: [],
-        // How many first (it's kept for next time), then which kind.
+        // How many first (it's kept for next time), then which kind: each die as it looks on the table.
         banner: (
+          <View>
           <View style={styles.dieCounts}>
             {DIE_COUNTS.map((n) => (
               <Pressable
@@ -3279,8 +3313,27 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               </Pressable>
             ))}
           </View>
+          <View style={styles.dicePicks}>
+            {DIE_SIDES.map((n) => (
+              <Pressable
+                key={n}
+                onPress={() => {
+                  setMenu(null);
+                  addDice(n, dieCount);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`${dieCount === 1 ? 'A' : dieCount} d${n}`}
+                style={({ pressed }) => [styles.dicePick, pressed && { opacity: 0.6 }]}>
+                <View style={styles.dicePickArt}>
+                  <TablePieceView piece={{ ...newPiece('die', `pick${n}`, { x: PIECE_SIZE.die.w / 2, y: PIECE_SIZE.die.h / 2 }, n) }} />
+                </View>
+                <Text style={styles.dicePickText}>d{n}</Text>
+              </Pressable>
+            ))}
+          </View>
+          </View>
         ),
-        actions: DIE_SIDES.map((n) => ({ label: `${dieCount === 1 ? '' : `${dieCount} × `}d${n}  ·  ${names[n]} sides`, onPress: () => addDice(n, dieCount) })),
+        actions: [],
       };
     }
     if (menu.kind === 'addDeck') {
@@ -3333,6 +3386,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   }
 
   const chosenIds = new Set(chosen);
+  /** Custom art's menu is laid out as a card's (see CardFocus), not as a sheet. */
+  const menuIsArt = menu?.kind === 'piece' && table?.pieces?.find((p) => p.id === menu.id)?.kind === 'art';
   /** A piece being moved (dragged, or picked out with cards being dragged): drawn over everything meanwhile. */
   const floating = (p: TablePiece) => !!pieceDrag?.ids.includes(p.id) || (groupMoving && pickedPieces.includes(p.id));
   /** A piece as it's drawn on the table. */
@@ -3932,7 +3987,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
 
       {/* A card or stack's menu: the card brought up close, its options under it. */}
       <CardFocus
-        visible={!!sheet && (menu?.kind === 'stack' || menu?.kind === 'hand')}
+        visible={!!sheet && (menu?.kind === 'stack' || menu?.kind === 'hand' || menuIsArt)}
         card={sheet && 'header' in sheet ? sheet.header : null}
         title={sheet?.title}
         tiles={sheet?.tiles ?? []}
@@ -3980,13 +4035,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || (menu?.kind === 'piece' && !menuIsArt) || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'rotate' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot')}
         title={sheet?.title}
         banner={sheet && 'banner' in sheet ? sheet.banner : undefined}
         tiles={sheet?.tiles}
         actions={sheet?.actions ?? []}
         // Scaling is kept as it's made: put away, it's done (and one undo).
-        closeLabel={menu?.kind === 'scale' ? 'Done' : undefined}
+        closeLabel={menu?.kind === 'scale' || menu?.kind === 'rotate' ? 'Done' : undefined}
         onClose={() => {
           finishScale();
           setMenu(null);
@@ -4376,6 +4431,11 @@ const styles = StyleSheet.create({
   dieCount: { minWidth: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)' },
   dieCountOn: { backgroundColor: colors.accent },
   dieCountText: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  // The dice to choose from, drawn as they'll look on the table.
+  dicePicks: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 18, paddingVertical: 12, paddingHorizontal: 12 },
+  dicePick: { width: 72, alignItems: 'center', gap: 6 },
+  dicePickArt: { width: 60, height: 60 },
+  dicePickText: { color: colors.text, fontSize: 14, fontWeight: '700' },
   swatch: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
   swatchOn: { borderWidth: 3, borderColor: colors.accent },
   // The grid's lines, shown for now (for trying the grid out).

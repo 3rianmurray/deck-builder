@@ -152,8 +152,8 @@ export async function tokenPicture(uri: string): Promise<string> {
   const out = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 0.85 });
   return out.uri;
 }
-/** How big custom art is kept, on its longest side: sharp at any sensible size, and quick to draw (see ART_MAX). */
-const ART_SIDE = 512;
+/** How big custom art is kept, on its longest side: sharp zoomed in close, as a card's art is (see ART_MAX for the limit). */
+const ART_SIDE = 1024;
 
 /** A picture made into custom art: shrunk to ART_SIDE on its longest side, kept see-through if it is. */
 export async function artPicture(uri: string): Promise<LoadedImage> {
@@ -161,6 +161,6 @@ export async function artPicture(uri: string): Promise<LoadedImage> {
   const size = await ImageManipulator.manipulate(uri).renderAsync();
   let ctx = ImageManipulator.manipulate(uri);
   if (Math.max(size.width, size.height) > ART_SIDE) ctx = ctx.resize(size.width >= size.height ? { width: ART_SIDE } : { height: ART_SIDE });
-  const out = await (await ctx.renderAsync()).saveAsync(see ? { format: SaveFormat.PNG } : { format: SaveFormat.JPEG, compress: 0.85 });
+  const out = await (await ctx.renderAsync()).saveAsync(see ? { format: SaveFormat.PNG } : { format: SaveFormat.JPEG, compress: 0.92 });
   return { uri: out.uri, width: out.width, height: out.height };
 }

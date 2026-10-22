@@ -7,9 +7,11 @@ import { useDecks } from './DecksContext';
 import * as haptics from './haptics';
 import { newId } from './id';
 import { playingCards } from './playingCards';
+import { deckLook } from './pro';
 import { newSandbox, playground, solitaire } from './sandbox';
 import type { SandboxTable } from './sandbox';
 import { createSandboxWith, sandboxes, updateSandbox } from './sandboxStore';
+import type { Deck } from './types';
 import { loadSettings, saveSettings } from './storage';
 
 const PLAYING_CARDS = 'Playing Cards';
@@ -18,16 +20,16 @@ const PLAYGROUND = 'Playground';
 
 /**
  * The Playground, as new: laid out again in place (keeping its spot, and its name if it's been renamed), or made
- * again (and noted as the Playground). Whether it was made.
+ * again (and noted as the Playground), with the Playing Cards deck. Whether it was made.
  */
-function restorePlayground(): boolean {
+function restorePlayground(deck: Deck | undefined): boolean {
   const id = loadSettings().playgroundTableId;
   const table = id ? sandboxes().find((t) => t.id === id) : undefined;
   if (table) {
-    updateSandbox(playground(newSandbox(table.id, table.name, table.createdAt), newId));
+    updateSandbox(playground(newSandbox(table.id, table.name, table.createdAt), deck, newId));
     return false;
   }
-  const made: SandboxTable = createSandboxWith(PLAYGROUND, (empty) => playground(empty, newId));
+  const made: SandboxTable = createSandboxWith(PLAYGROUND, (empty) => playground(empty, deck, newId));
   saveSettings({ ...loadSettings(), playgroundTableId: made.id, playgroundMade: true });
   return true;
 }
@@ -53,7 +55,8 @@ export function useExamples() {
     const found = playingDeck();
     const deck = found ? refillDeck(found.id, PLAYING_CARDS, cards, back) : createReadyDeck(PLAYING_CARDS, cards, back);
     if (!deck) throw new Error('The Playing Cards deck couldn’t be found.');
-    saveSettings({ ...loadSettings(), playingCardsDeckId: deck.id });
+    // As it's made: the Playground's cards are this deck's only while it stays so (see deckLook).
+    saveSettings({ ...loadSettings(), playingCardsDeckId: deck.id, playingCardsLook: deckLook(deck) });
     (found ? reset : added).push(PLAYING_CARDS);
 
     // The Solitaire table: dealt again in place (keeping its spot on the home screen), or made again.
@@ -65,7 +68,7 @@ export function useExamples() {
       createSandboxWith(SOLITAIRE, (empty) => solitaire(empty, deck, newId));
       added.push(SOLITAIRE);
     }
-    (restorePlayground() ? added : reset).push(PLAYGROUND);
+    (restorePlayground(deck) ? added : reset).push(PLAYGROUND);
     return { added, reset };
   };
 
@@ -73,7 +76,10 @@ export function useExamples() {
   const addPlayground = () => {
     const s = loadSettings();
     if (s.playgroundMade) return;
-    restorePlayground();
+    const deck = playingDeck();
+    // Noted as it is now, if it never was (made before the Playground came, before there was a reason to change it).
+    if (deck && !s.playingCardsLook) saveSettings({ ...loadSettings(), playingCardsLook: deckLook(deck) });
+    restorePlayground(deck);
   };
 
   /** Asks first (changes to the examples are lost), then restores them and says so. */

@@ -140,6 +140,8 @@ export interface Settings {
   /** The Playground table (every component, to try: a Free Play example) has been made, once; and which it is. */
   playgroundMade?: boolean;
   playgroundTableId?: string;
+  /** How the Playing Cards deck looked as it was made (see deckLook): the Playground's cards, unchanged. */
+  playingCardsLook?: string;
   /** Tips (see lib/tips) are turned off. */
   tipsOff?: boolean;
   /** The tips already shown (each shows once). */

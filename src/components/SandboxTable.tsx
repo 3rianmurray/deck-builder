@@ -1,8 +1,8 @@
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { memo, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { Alert, Animated as RNAnimated, Easing, Image, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ActionSheetIOS, Alert, Animated as RNAnimated, Easing, Image, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing as ReEasing, LinearTransition, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
@@ -271,7 +271,6 @@ type Menu =
   | { kind: 'addShape' }
   | { kind: 'addSpot' }
   /** Where a token's picture comes from: for a new token, or (with an id) to change one's. */
-  | { kind: 'pictureSource'; target: PictureTarget }
   /** Scaling stacks and pieces (changing as the slider moves). */
   | { kind: 'scale'; stacks: string[]; pieces: string[] };
 
@@ -908,6 +907,36 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
    * none's chosen.
    */
   const pictureFor = async (source: PictureSource, target: PictureTarget) => {
+    // One picker at a time (a second tap while one's opening would otherwise open another, or neither).
+    if (pickingPicture.current) return;
+    pickingPicture.current = true;
+    try {
+      await pictureFrom(source, target);
+    } finally {
+      pickingPicture.current = false;
+    }
+  };
+  const pickingPicture = useRef(false);
+  /**
+   * Where a picture comes from, asked with the system's own menu: it reports the choice only once it's fully gone,
+   * so the picker that follows always opens (one of our sheets still sliding away could stop it).
+   */
+  const choosePicture = (target: PictureTarget) => {
+    const sources: PictureSource[] = ['photos', 'files', 'camera'];
+    const title = target.id ? 'Change the picture' : target.kind === 'art' ? 'Custom art' : 'Token picture';
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions({ title, options: ['Photos', 'Files', 'Take a photo', 'Cancel'], cancelButtonIndex: 3 }, (i) => {
+        if (i < 3) void pictureFor(sources[i], target);
+      });
+      return;
+    }
+    Alert.alert(title, undefined, [
+      { text: 'Photos', onPress: () => void pictureFor('photos', target) },
+      { text: 'Files', onPress: () => void pictureFor('files', target) },
+      { text: 'Take a photo', onPress: () => void pictureFor('camera', target) },
+    ]);
+  };
+  const pictureFrom = async (source: PictureSource, target: PictureTarget) => {
     const forToken = target.kind === 'token';
     let uri: string | undefined;
     if (source === 'files') {
@@ -2873,7 +2902,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   if (n > 0) commit(setPiece(table, piece.id, { value: Math.min(999, n) }));
                 }),
             },
-            { label: piece.image ? 'Change the picture…' : 'Add a picture…', onPress: () => setTimeout(() => setMenu({ kind: 'pictureSource', target: { kind: 'token', id: piece.id } }), 250) },
+            // The system's menu, once this one's fully gone (see choosePicture).
+            { label: piece.image ? 'Change the picture…' : 'Add a picture…', opensModal: true, onPress: () => choosePicture({ kind: 'token', id: piece.id }) },
             ...(piece.image ? [{ label: 'Take the picture off', onPress: () => commit(setPiece(table, piece.id, { image: undefined })) }] : []),
             { label: piece.square ? 'Make it round' : 'Make it square', onPress: () => commit(setPiece(table, piece.id, { square: !piece.square || undefined })) },
             color,
@@ -3011,7 +3041,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           title: 'Custom art',
           tiles: [],
           actions: [
-            { label: 'Change the picture…', onPress: () => setTimeout(() => setMenu({ kind: 'pictureSource', target: { kind: 'art', id: piece.id } }), 250) },
+            { label: 'Change the picture…', opensModal: true, onPress: () => choosePicture({ kind: 'art', id: piece.id }) },
             // A board or a map lies still; a figure is moved about.
             lock,
             scale,
@@ -3122,7 +3152,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Pieces', icon: icon('figure.stand', 'person'), onPress: next({ kind: 'addShape' }) },
           { label: '1st player', icon: icon('star.circle', 'stars'), onPress: () => addPieceToTable('marker') },
           { label: 'Token', icon: icon('circle.circle', 'radio_button_checked'), onPress: () => addPieceToTable('token') },
-          { label: 'Custom art', icon: icon('photo.on.rectangle', 'add_photo_alternate'), onPress: () => (artCount < ART_MAX ? next({ kind: 'pictureSource', target: { kind: 'art' } })() : artFull()) },
+          { label: 'Custom art', icon: icon('photo.on.rectangle', 'add_photo_alternate'), opensModal: true, onPress: () => (artCount < ART_MAX ? choosePicture({ kind: 'art' }) : artFull()) },
           { label: 'Bag', icon: icon('bag', 'shopping_bag'), onPress: () => addPieceToTable('bag') },
           { label: 'Text', icon: icon('textformat', 'title'), onPress: () => addPieceToTable('text') },
           { label: 'Zone', icon: icon('rectangle.dashed', 'crop_free'), onPress: () => addPieceToTable('zone') },
@@ -3131,20 +3161,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         actions: [],
       };
     }
-    if (menu.kind === 'pictureSource') {
-      // Each its own screen, which iOS can only show once this menu has gone.
-      const from = (source: PictureSource) => () => setTimeout(() => void pictureFor(source, menu.target), 300);
-      const art = menu.target.kind === 'art';
-      return {
-        title: menu.target.id ? 'Change the picture' : art ? 'Custom art' : 'Token picture',
-        tiles: [],
-        actions: [
-          { label: 'Photos', opensModal: true, onPress: from('photos') },
-          { label: 'Files', opensModal: true, onPress: from('files') },
-          { label: 'Take a photo', opensModal: true, onPress: from('camera') },
-        ],
-      };
-    }    if (menu.kind === 'addSpot') {
+    if (menu.kind === 'addSpot') {
       // Sized to a deck's cards (with a little room round them), and cards snap into it.
       const playable = decks.filter((d) => d.cards.length);
       return {
@@ -3874,7 +3891,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot' || menu?.kind === 'pictureSource')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot')}
         title={sheet?.title}
         banner={sheet && 'banner' in sheet ? sheet.banner : undefined}
         tiles={sheet?.tiles}

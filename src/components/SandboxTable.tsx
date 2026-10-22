@@ -184,6 +184,8 @@ const HOLD_STACK_MS = 350;
 const HOLD_PIECE_MS = 450;
 /** Holding empty table still this long opens what can be added there. */
 const HOLD_ADD_MS = 500;
+/** How far from a small piece's middle (screen points) a finger still catches it: half a comfortable fingertip target. */
+const FINGER_REACH = 22;
 /** Where tokens' pictures are kept (as a deck's are, in a folder of their own). */
 const TOKEN_PICTURES = 'tokens';
 /** How near a zone's bottom-right corner (screen points) a finger grabs its grip, to resize it. */
@@ -1815,7 +1817,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           }
         }
         // A counter or die (they lie above every card): a tap counts or rolls, a drag moves it, a hold opens its options.
-        const onPiece = L.table ? pieceAt(L.table, w.x, w.y) : null;
+        // A small piece is easy to get a finger on: caught within a fingertip's reach of it, if nothing else (not a
+        // piece, nor a card) is right under the finger.
+        const exactly = L.table ? pieceAt(L.table, w.x, w.y) : null;
+        const onPiece =
+          exactly ?? (L.table && !stackAt(L.table, w.x, w.y, L.size) ? pieceAt(L.table, w.x, w.y, FINGER_REACH / cameraZoom(readCamera())) : null);
         // Custom art lies among the cards: a card over it is what's touched.
         const overArt =
           onPiece?.piece.kind === 'art' && L.table

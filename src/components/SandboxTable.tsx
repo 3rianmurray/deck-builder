@@ -63,6 +63,8 @@ import {
   removeBagItems,
   besideBagOf,
   pieceName,
+  artSize,
+  ART_MAX,
   reorderBag,
   shuffleBag,
   takeFromBag,
@@ -121,7 +123,7 @@ import {
 import type { BagItem, Camera, CardSize, PieceKind, PiecePart, PieceShape, SandboxCard, SandboxStack, SandboxTable, Source, TablePiece } from '../lib/sandbox';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { tokenPicture } from '../lib/images';
+import { artPicture, tokenPicture } from '../lib/images';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
 import { offerTipAfterUses, offerTipSoon, tipLearned } from '../lib/tips';
 import { tourEvent } from '../lib/tour';
@@ -269,7 +271,7 @@ type Menu =
   | { kind: 'addShape' }
   | { kind: 'addSpot' }
   /** Where a token's picture comes from: for a new token, or (with an id) to change one's. */
-  | { kind: 'tokenSource'; id?: string }
+  | { kind: 'pictureSource'; target: PictureTarget }
   /** Scaling stacks and pieces (changing as the slider moves). */
   | { kind: 'scale'; stacks: string[]; pieces: string[] };
 
@@ -283,8 +285,10 @@ interface PieceDrag {
   out?: { bagId: string; piece: TablePiece };
 }
 
-/** Where a token's picture comes from. */
-type TokenSource = 'photos' | 'files' | 'camera';
+/** Where a token's (or custom art's) picture comes from. */
+type PictureSource = 'photos' | 'files' | 'camera';
+/** What a picture's for: a token, or custom art (a new one, or with an id, that one's picture changed). */
+type PictureTarget = { kind: 'token' | 'art'; id?: string };
 
 /** A card being carried by a finger. */
 interface Held {
@@ -899,11 +903,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     put(false);
   };
   /**
-   * A picture for a token, from Photos, Files or the camera, made into a token's (see tokenPicture: a cut-out
-   * stays see-through) and saved: put on a new token, or (given one) on that token instead. Nothing if none's
-   * chosen.
+   * A picture from Photos, Files or the camera, for a token (made into a token's: see tokenPicture) or custom art
+   * (kept at its own shape: see artPicture), saved: on a new one, or (given an id) on that one instead. Nothing if
+   * none's chosen.
    */
-  const pictureForToken = async (source: TokenSource, tokenId?: string) => {
+  const pictureFor = async (source: PictureSource, target: PictureTarget) => {
+    const forToken = target.kind === 'token';
     let uri: string | undefined;
     if (source === 'files') {
       const doc = await DocumentPicker.getDocumentAsync({ type: 'image/*', copyToCacheDirectory: true });
@@ -914,26 +919,40 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         Alert.alert('Camera not allowed', 'Shufflevale can use the camera once it’s allowed in Settings → Shufflevale.');
         return;
       }
-      // Framed square as it's taken.
-      const shot = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 });
+      // A token's framed square as it's taken; art is the whole photo.
+      const shot = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: forToken, aspect: [1, 1], quality: 1 });
       uri = shot.canceled ? undefined : shot.assets[0]?.uri;
     } else {
-      // Not edited here, so a cut-out (a subject saved from Photos) keeps its see-through background.
-      const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
+      // Not edited here, so a cut-out (a subject saved from Photos) keeps its see-through background; and taken as
+      // it's stored, not converted first (which can keep the picker waiting a while).
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
+      });
       uri = picked.canceled ? undefined : picked.assets[0]?.uri;
     }
     if (!uri) return;
     try {
-      const image = importImage(TOKEN_PICTURES, await tokenPicture(uri));
       // The table as it is now (the picker took a while).
       const now = latest.get();
-      if (tokenId && now.table) now.commit(setPiece(now.table, tokenId, { image }));
-      else now.addPieceToTable('token', undefined, undefined, { image });
+      if (!now.table) return;
+      if (forToken) {
+        const image = importImage(TOKEN_PICTURES, await tokenPicture(uri));
+        if (target.id) now.commit(setPiece(now.table, target.id, { image }));
+        else now.addPieceToTable('token', undefined, undefined, { image });
+        return;
+      }
+      const art = await artPicture(uri);
+      const fresh = latest.get();
+      if (!fresh.table) return;
+      const image = importImage(TOKEN_PICTURES, art.uri);
+      const size = artSize(art.width, art.height);
+      if (target.id) fresh.commit(setPiece(fresh.table, target.id, { image, ...size }));
+      else fresh.addPieceToTable('art', undefined, undefined, { image, ...size });
     } catch (e) {
       Alert.alert('Couldn’t use that picture', e instanceof Error ? e.message : String(e));
     }
-  };
-  /** A zone being resized by its grip: its own size for now (see resizeZone). */
+  };  /** A zone being resized by its grip: its own size for now (see resizeZone). */
   const [zoneSize, setZoneSize] = useState<{ id: string; w: number; h: number } | null>(null);
   const dropZoneSize = () => {
     const zone = table?.pieces?.find((p) => p.id === zoneSize?.id);
@@ -942,6 +961,10 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     commit(setPiece(table, zone.id, resizeZone(zone, zoneSize.w, zoneSize.h)));
     haptics.drop();
   };
+  /** How much custom art the table has, against ART_MAX (each is a picture to draw, so there's a limit). */
+  const artCount = (table?.pieces ?? []).filter((p) => p.kind === 'art').length + (table?.pieces ?? []).reduce((n, p) => n + bagItems(p).filter((i) => i.piece?.kind === 'art').length, 0);
+  const artFull = () =>
+    Alert.alert('That’s all the custom art a table holds', `A table can have up to ${ART_MAX} pieces of custom art, so it stays quick to move about. Take some off to add more.`);
   /** The picked-out dice lined up in a tight grid (the button by the roll one). */
   const gridPickedDice = () => {
     if (!table || pickedDice.length < 2) return;
@@ -2850,7 +2873,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   if (n > 0) commit(setPiece(table, piece.id, { value: Math.min(999, n) }));
                 }),
             },
-            { label: piece.image ? 'Change the picture…' : 'Add a picture…', onPress: () => setTimeout(() => setMenu({ kind: 'tokenSource', id: piece.id }), 250) },
+            { label: piece.image ? 'Change the picture…' : 'Add a picture…', onPress: () => setTimeout(() => setMenu({ kind: 'pictureSource', target: { kind: 'token', id: piece.id } }), 250) },
             ...(piece.image ? [{ label: 'Take the picture off', onPress: () => commit(setPiece(table, piece.id, { image: undefined })) }] : []),
             { label: piece.square ? 'Make it round' : 'Make it square', onPress: () => commit(setPiece(table, piece.id, { square: !piece.square || undefined })) },
             color,
@@ -2983,6 +3006,19 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         };
       }
       if (piece.kind === 'coin') return { title: 'Coin', tiles: [], actions: [color, scale, takeOff] };
+      if (piece.kind === 'art') {
+        return {
+          title: 'Custom art',
+          tiles: [],
+          actions: [
+            { label: 'Change the picture…', onPress: () => setTimeout(() => setMenu({ kind: 'pictureSource', target: { kind: 'art', id: piece.id } }), 250) },
+            // A board or a map lies still; a figure is moved about.
+            lock,
+            scale,
+            takeOff,
+          ],
+        };
+      }
       if (piece.kind === 'spinner') return { title: 'Spinner', tiles: [], actions: [lock, color, scale, takeOff] };
       return {
         title: `d${piece.sides ?? 6}`,
@@ -3086,7 +3122,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Pieces', icon: icon('figure.stand', 'person'), onPress: next({ kind: 'addShape' }) },
           { label: '1st player', icon: icon('star.circle', 'stars'), onPress: () => addPieceToTable('marker') },
           { label: 'Token', icon: icon('circle.circle', 'radio_button_checked'), onPress: () => addPieceToTable('token') },
-          { label: 'Picture token', icon: icon('photo.circle', 'add_photo_alternate'), onPress: next({ kind: 'tokenSource' }) },
+          { label: 'Custom art', icon: icon('photo.on.rectangle', 'add_photo_alternate'), onPress: () => (artCount < ART_MAX ? next({ kind: 'pictureSource', target: { kind: 'art' } })() : artFull()) },
           { label: 'Bag', icon: icon('bag', 'shopping_bag'), onPress: () => addPieceToTable('bag') },
           { label: 'Text', icon: icon('textformat', 'title'), onPress: () => addPieceToTable('text') },
           { label: 'Zone', icon: icon('rectangle.dashed', 'crop_free'), onPress: () => addPieceToTable('zone') },
@@ -3095,11 +3131,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         actions: [],
       };
     }
-    if (menu.kind === 'tokenSource') {
+    if (menu.kind === 'pictureSource') {
       // Each its own screen, which iOS can only show once this menu has gone.
-      const from = (source: TokenSource) => () => setTimeout(() => void pictureForToken(source, menu.id), 300);
+      const from = (source: PictureSource) => () => setTimeout(() => void pictureFor(source, menu.target), 300);
+      const art = menu.target.kind === 'art';
       return {
-        title: menu.id ? 'Change the picture' : 'Token from a picture',
+        title: menu.target.id ? 'Change the picture' : art ? 'Custom art' : 'Token picture',
         tiles: [],
         actions: [
           { label: 'Photos', opensModal: true, onPress: from('photos') },
@@ -3107,8 +3144,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Take a photo', opensModal: true, onPress: from('camera') },
         ],
       };
-    }
-    if (menu.kind === 'addSpot') {
+    }    if (menu.kind === 'addSpot') {
       // Sized to a deck's cards (with a little room round them), and cards snap into it.
       const playable = decks.filter((d) => d.cards.length);
       return {
@@ -3838,7 +3874,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <AddCardsModal visible={addingCards} decks={decks} onAdd={addCardsToTable} onClose={() => setAddingCards(false)} />
       {/* The table's menu, and choosing a deck to add. */}
       <ActionSheet
-        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot' || menu?.kind === 'tokenSource')}
+        visible={!!sheet && (menu?.kind === 'table' || menu?.kind === 'addDeck' || menu?.kind === 'color' || menu?.kind === 'selection' || menu?.kind === 'piece' || menu?.kind === 'dieKind' || menu?.kind === 'pieceColor' || menu?.kind === 'components' || menu?.kind === 'addDie' || menu?.kind === 'scale' || menu?.kind === 'pieceShape' || menu?.kind === 'addShape' || menu?.kind === 'addSpot' || menu?.kind === 'pictureSource')}
         title={sheet?.title}
         banner={sheet && 'banner' in sheet ? sheet.banner : undefined}
         tiles={sheet?.tiles}

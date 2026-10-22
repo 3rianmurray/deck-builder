@@ -152,3 +152,15 @@ export async function tokenPicture(uri: string): Promise<string> {
   const out = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 0.85 });
   return out.uri;
 }
+/** How big custom art is kept, on its longest side: sharp at any sensible size, and quick to draw (see ART_MAX). */
+const ART_SIDE = 512;
+
+/** A picture made into custom art: shrunk to ART_SIDE on its longest side, kept see-through if it is. */
+export async function artPicture(uri: string): Promise<LoadedImage> {
+  const see = await hasTransparency(uri);
+  const size = await ImageManipulator.manipulate(uri).renderAsync();
+  let ctx = ImageManipulator.manipulate(uri);
+  if (Math.max(size.width, size.height) > ART_SIDE) ctx = ctx.resize(size.width >= size.height ? { width: ART_SIDE } : { height: ART_SIDE });
+  const out = await (await ctx.renderAsync()).saveAsync(see ? { format: SaveFormat.PNG } : { format: SaveFormat.JPEG, compress: 0.85 });
+  return { uri: out.uri, width: out.width, height: out.height };
+}

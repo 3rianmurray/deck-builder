@@ -1,5 +1,5 @@
 import { Canvas, Circle, Group, Path, Shadow, Skia } from '@shopify/react-native-skia';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 import { Image } from 'expo-image';
@@ -20,10 +20,14 @@ const ROLL_TURNS = 2;
 /** How much bigger a piece looks while it's dragged. */
 const LIFT = 1.08;
 /**
- * A die is drawn this many times bigger than it lies and shrunk back down, so it stays sharp when the table's
- * zoomed in on it (the camera scales the table's drawing up).
+ * A piece's drawing is made up to this many times bigger than it lies and shrunk back down, so it stays sharp when
+ * the table's zoomed in on it (the camera scales the table's drawing up); but never bigger than MAX_CANVAS across
+ * (a big scaled-up piece drawn that much bigger was more than the phone could draw, and went missing or awry).
  */
 const OVERSAMPLE = 3;
+const MAX_CANVAS = 1100;
+/** How much bigger the piece being drawn is drawn (see OVERSAMPLE), for its parts' drawings. */
+const OversampleContext = createContext(OVERSAMPLE);
 /** Room round a die's drawing, as a share of its size, for its shadow. */
 const PAD = 0.2;
 
@@ -225,7 +229,10 @@ export const TablePieceView = memo(function TablePieceView({
   const x = at?.x ?? piece.x;
   const y = at?.y ?? piece.y;
   const color = piece.color ?? defaultPieceColor(piece);
+  // Drawn bigger to stay sharp zoomed in, within what the phone can draw (see OVERSAMPLE).
+  const os = Math.max(1, Math.min(OVERSAMPLE, MAX_CANVAS / (Math.max(w, h) * (1 + PAD * 2))));
   return (
+    <OversampleContext.Provider value={os}>
     <View
       pointerEvents="none"
       style={[
@@ -260,6 +267,7 @@ export const TablePieceView = memo(function TablePieceView({
         <PlayingPiece piece={piece} color={color} w={w} h={h} selected={selected} />
       )}
     </View>
+    </OversampleContext.Provider>
   );
 });
 
@@ -319,6 +327,7 @@ function Die({
   size: number;
   selected: boolean;
 }) {
+  const OS = useContext(OversampleContext);
   const sides = piece.sides ?? 6;
   const [face, setFace] = useState<number | null>(null);
   // How far through the roll: eased (sliding and spinning to a stop), and steady (for the bounces).
@@ -367,7 +376,7 @@ function Die({
   const ink = isLight(color) ? '#2c2c2a' : '#ffffff';
   const shape = useMemo(() => dieShape(sides), [sides]);
   // The drawing, oversampled (see OVERSAMPLE), with room round it for the shadow.
-  const px = size * OVERSAMPLE;
+  const px = size * OS;
   const canvas = px * (1 + PAD * 2);
   const at = (p: Pt) => [(p[0] + PAD) * px, (p[1] + PAD) * px] as const;
   const path = (pts: Pt[]) => {
@@ -388,7 +397,7 @@ function Die({
     p.close();
     return p;
   };
-  const shadow = <Shadow dx={2 * OVERSAMPLE} dy={4 * OVERSAMPLE} blur={4 * OVERSAMPLE} color="rgba(0,0,0,0.45)" shadowOnly />;
+  const shadow = <Shadow dx={2 * OS} dy={4 * OS} blur={4 * OS} color="rgba(0,0,0,0.45)" shadowOnly />;
   const edge = shade(color, -0.45);
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { transform }]}>
@@ -399,7 +408,7 @@ function Die({
           height: canvas,
           left: -size * PAD - (canvas - size * (1 + PAD * 2)) / 2,
           top: -size * PAD - (canvas - size * (1 + PAD * 2)) / 2,
-          transform: [{ scale: 1 / OVERSAMPLE }],
+          transform: [{ scale: 1 / OS }],
         }}>
         {sides === 6 ? (
           <>
@@ -417,8 +426,8 @@ function Die({
             </Group>
             <Path path={rounded(CUBE_TOP, CUBE_ROUND)} color={shade(color, 0.04)} />
             {/* The light catching the top face's edge. */}
-            <Path path={rounded(CUBE_TOP, CUBE_ROUND)} color={shade(color, 0.35)} style="stroke" strokeWidth={0.8 * OVERSAMPLE} opacity={0.5} />
-            {selected ? <Path path={rounded(CUBE_OUTLINE, CUBE_ROUND)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+            <Path path={rounded(CUBE_TOP, CUBE_ROUND)} color={shade(color, 0.35)} style="stroke" strokeWidth={0.8 * OS} opacity={0.5} />
+            {selected ? <Path path={rounded(CUBE_OUTLINE, CUBE_ROUND)} color={colors.accent} style="stroke" strokeWidth={3 * OS} /> : null}
             {(PIPS[shown] ?? []).map((cell) => {
               const [cx, cy] = at([CUBE_FACE.x + CUBE_FACE.size * ((cell % 3) * 0.3 + 0.2), CUBE_FACE.y + CUBE_FACE.size * (Math.floor(cell / 3) * 0.3 + 0.2)]);
               return <Circle key={cell} cx={cx} cy={cy} r={0.085 * px} color={ink} />;
@@ -433,9 +442,9 @@ function Die({
               <Path key={i} path={path(f.pts)} color={shade(color, f.light)} />
             ))}
             {shape.faces.map((f, i) => (
-              <Path key={`e${i}`} path={path(f.pts)} color={edge} style="stroke" strokeWidth={0.6 * OVERSAMPLE} opacity={0.35} />
+              <Path key={`e${i}`} path={path(f.pts)} color={edge} style="stroke" strokeWidth={0.6 * OS} opacity={0.35} />
             ))}
-            {selected ? <Path path={path(shape.outline)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+            {selected ? <Path path={path(shape.outline)} color={colors.accent} style="stroke" strokeWidth={3 * OS} /> : null}
           </>
         )}
       </Canvas>
@@ -463,11 +472,11 @@ function Die({
  * A drawing for a piece `w` × `h` on the table, oversampled to stay sharp zoomed in (see OVERSAMPLE), with room
  * round it for a shadow. `at` takes a point in a 0–1 box over the piece to the drawing's own.
  */
-function artFrame(w: number, h: number) {
+function artFrame(w: number, h: number, OS: number) {
   const pad = Math.max(w, h) * PAD;
-  const cw = (w + pad * 2) * OVERSAMPLE;
-  const ch = (h + pad * 2) * OVERSAMPLE;
-  const at = (p: Pt) => [(p[0] * w + pad) * OVERSAMPLE, (p[1] * h + pad) * OVERSAMPLE] as const;
+  const cw = (w + pad * 2) * OS;
+  const ch = (h + pad * 2) * OS;
+  const at = (p: Pt) => [(p[0] * w + pad) * OS, (p[1] * h + pad) * OS] as const;
   return {
     style: {
       position: 'absolute' as const,
@@ -475,11 +484,11 @@ function artFrame(w: number, h: number) {
       height: ch,
       left: -pad - (cw - (w + pad * 2)) / 2,
       top: -pad - (ch - (h + pad * 2)) / 2,
-      transform: [{ scale: 1 / OVERSAMPLE }],
+      transform: [{ scale: 1 / OS }],
     },
     at,
     /** A length across the piece (as a share of its width) in the drawing's own units. */
-    len: (u: number) => u * w * OVERSAMPLE,
+    len: (u: number) => u * w * OS,
     poly: (pts: Pt[]) => {
       const p = Skia.Path.Make();
       pts.forEach((pt, i) => (i ? p.lineTo(...at(pt)) : p.moveTo(...at(pt))));
@@ -489,7 +498,7 @@ function artFrame(w: number, h: number) {
   };
 }
 
-const pieceShadow = () => <Shadow dx={2 * OVERSAMPLE} dy={4 * OVERSAMPLE} blur={4 * OVERSAMPLE} color="rgba(0,0,0,0.45)" shadowOnly />;
+const pieceShadow = (OS: number) => <Shadow dx={2 * OS} dy={4 * OS} blur={4 * OS} color="rgba(0,0,0,0.45)" shadowOnly />;
 
 /** A shape with its corners rounded (by up to `r`, as a share of the piece's width), as a solid's edges are. */
 function roundedPath(art: ReturnType<typeof artFrame>, pts: Pt[], r: number) {
@@ -535,6 +544,7 @@ const COIN_FLIPS = 5;
 
 /** A coin: heads (H) or tails (T). Tossed, it hops and turns over and over, edge-on between faces. */
 function Coin({ piece, color, rollKey, size, selected }: { piece: TablePiece; color: string; rollKey: number; size: number; selected: boolean }) {
+  const OS = useContext(OversampleContext);
   const motion = useRollMotion(rollKey);
   const [face, setFace] = useState<number | null>(null);
   useEffect(() => {
@@ -559,19 +569,19 @@ function Coin({ piece, color, rollKey, size, selected }: { piece: TablePiece; co
       { scale: motion.interpolate({ inputRange: [0, 0.4, 1], outputRange: [1, 1.35, 1] }) },
     ];
   }, [motion]);
-  const art = artFrame(size, size);
+  const art = artFrame(size, size, OS);
   const ink = shade(color, -0.55);
   const c = art.at([0.5, 0.5]);
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { transform }]}>
       <Canvas style={art.style}>
         <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={shade(color, -0.35)}>
-          {pieceShadow()}
+          {pieceShadow(OS)}
         </Circle>
         <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={shade(color, -0.35)} />
         <Circle cx={c[0] - art.len(0.02)} cy={c[1] - art.len(0.02)} r={art.len(0.44)} color={shade(color, shown === 1 ? 0.08 : -0.06)} />
         <Circle cx={c[0] - art.len(0.02)} cy={c[1] - art.len(0.02)} r={art.len(0.36)} color={shade(color, 0.35)} style="stroke" strokeWidth={art.len(0.03)} opacity={0.6} />
-        {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+        {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={colors.accent} style="stroke" strokeWidth={3 * OS} /> : null}
       </Canvas>
       <Text allowFontScaling={false} style={[styles.coinFace, { color: ink, fontSize: size * 0.42, lineHeight: size, width: size }]}>
         {shown === 1 ? 'H' : 'T'}
@@ -593,7 +603,8 @@ function TextLabel({ piece, color, selected, k }: { piece: TablePiece; color: st
 
 /** A first-player (or any) marker: a raised gold disc with a star, and its word on it. */
 function Marker({ piece, color, size, selected }: { piece: TablePiece; color: string; size: number; selected: boolean }) {
-  const art = artFrame(size, size);
+  const OS = useContext(OversampleContext);
+  const art = artFrame(size, size, OS);
   const c = art.at([0.5, 0.5]);
   const star = ring(10, 0.42, [0.5, 0.5]).map((p, i) => (i % 2 ? ([0.5 + (p[0] - 0.5) * 0.45, 0.5 + (p[1] - 0.5) * 0.45] as Pt) : p));
   const ink = shade(color, -0.6);
@@ -601,13 +612,13 @@ function Marker({ piece, color, size, selected }: { piece: TablePiece; color: st
     <View style={StyleSheet.absoluteFill}>
       <Canvas style={art.style}>
         <Path path={cylinderPath(c, art.len(0.5), [art.len(0.04), art.len(0.05)])} color={shade(color, -0.45)}>
-          {pieceShadow()}
+          {pieceShadow(OS)}
         </Path>
         <Path path={cylinderPath(c, art.len(0.5), [art.len(0.04), art.len(0.05)])} color={shade(color, -0.45)} />
         <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={color} />
         <Path path={art.poly(star)} color={shade(color, 0.3)} />
         <Path path={art.poly(star)} color={shade(color, -0.3)} style="stroke" strokeWidth={art.len(0.015)} opacity={0.6} />
-        {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.52)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+        {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.52)} color={colors.accent} style="stroke" strokeWidth={3 * OS} /> : null}
       </Canvas>
       {piece.label ? (
         <Text allowFontScaling={false} numberOfLines={1} adjustsFontSizeToFit style={[styles.markerText, { color: ink, fontSize: size * 0.26, lineHeight: size, width: size }]}>
@@ -623,6 +634,7 @@ const SPIN_TURNS = 3;
 
 /** A spinner: a dial with an arrow. Spun, the arrow whirls round a few times and slows to where it points. */
 function Spinner({ piece, color, rollKey, size, selected }: { piece: TablePiece; color: string; rollKey: number; size: number; selected: boolean }) {
+  const OS = useContext(OversampleContext);
   const [turn] = useState(() => new Animated.Value(piece.value));
   // Where the arrow's turned to so far, in whole degrees round and round (it only ever goes clockwise).
   const total = useRef(piece.value);
@@ -637,7 +649,7 @@ function Spinner({ piece, color, rollKey, size, selected }: { piece: TablePiece;
     Animated.timing(turn, { toValue: to, duration: ROLL_MS * 2, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, [piece.value, rollKey, turn]);
   const rotate = useMemo(() => turn.interpolate({ inputRange: [0, 360], outputRange: ['0deg', '360deg'], extrapolate: 'extend' }), [turn]);
-  const art = artFrame(size, size);
+  const art = artFrame(size, size, OS);
   const c = art.at([0.5, 0.5]);
   const ticks = ring(8, 0.4, [0.5, 0.5]);
   const arrow: Pt[] = [
@@ -653,7 +665,7 @@ function Spinner({ piece, color, rollKey, size, selected }: { piece: TablePiece;
     <View style={StyleSheet.absoluteFill}>
       <Canvas style={art.style}>
         <Path path={cylinderPath(c, art.len(0.5), [art.len(0.02), art.len(0.03)])} color={shade(color, -0.4)}>
-          {pieceShadow()}
+          {pieceShadow(OS)}
         </Path>
         <Path path={cylinderPath(c, art.len(0.5), [art.len(0.02), art.len(0.03)])} color={shade(color, -0.4)} />
         <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={color} />
@@ -662,12 +674,12 @@ function Spinner({ piece, color, rollKey, size, selected }: { piece: TablePiece;
           const q = art.at(p);
           return <Circle key={i} cx={q[0]} cy={q[1]} r={art.len(0.025)} color={shade(color, -0.45)} />;
         })}
-        {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.52)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+        {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.52)} color={colors.accent} style="stroke" strokeWidth={3 * OS} /> : null}
       </Canvas>
       <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ rotate }] }]}>
         <Canvas style={art.style}>
           <Path path={art.poly(arrow)} color="#2c2c2a">
-            <Shadow dx={OVERSAMPLE} dy={2 * OVERSAMPLE} blur={2 * OVERSAMPLE} color="rgba(0,0,0,0.35)" />
+            <Shadow dx={OS} dy={2 * OS} blur={2 * OS} color="rgba(0,0,0,0.35)" />
           </Path>
           <Circle cx={c[0]} cy={c[1]} r={art.len(0.07)} color="#2c2c2a" />
           <Circle cx={c[0] - art.len(0.015)} cy={c[1] - art.len(0.015)} r={art.len(0.03)} color="#8a8a86" />
@@ -682,7 +694,8 @@ const PIECE_DEPTH: Pt = [0.06, 0.07];
 
 /** A meeple, pawn, cube or disc: its shape raised a little off the cloth, its side showing below and to the right. */
 function PlayingPiece({ piece, color, w, h, selected }: { piece: TablePiece; color: string; w: number; h: number; selected: boolean }) {
-  const art = artFrame(w, h);
+  const OS = useContext(OversampleContext);
+  const art = artFrame(w, h, OS);
   const shift = (pts: Pt[]): Pt[] => pts.map((p) => [p[0] + PIECE_DEPTH[0], p[1] + PIECE_DEPTH[1]]);
   const shape = piece.shape ?? 'meeple';
   // Each shape as outlines (several, drawn as one) and circles.
@@ -744,7 +757,7 @@ function PlayingPiece({ piece, color, w, h, selected }: { piece: TablePiece; col
       <View style={StyleSheet.absoluteFill}>
         <Canvas style={art.style}>
           <Path path={body} color={sideColor}>
-            {pieceShadow()}
+            {pieceShadow(OS)}
           </Path>
           <Path path={body} color={sideColor} />
           {shape === 'cube' ? (
@@ -758,7 +771,7 @@ function PlayingPiece({ piece, color, w, h, selected }: { piece: TablePiece; col
           ) : (
             <Circle cx={c[0]} cy={c[1]} r={art.len(0.42)} color={shade(color, 0.3)} style="stroke" strokeWidth={art.len(0.02)} opacity={0.55} />
           )}
-          {selected ? <Path path={body} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+          {selected ? <Path path={body} color={colors.accent} style="stroke" strokeWidth={3 * OS} /> : null}
         </Canvas>
       </View>
     );
@@ -770,21 +783,21 @@ function PlayingPiece({ piece, color, w, h, selected }: { piece: TablePiece; col
         <Group>
           {outlines.map((o, i) => (
             <Path key={`s${i}`} path={art.poly(shift(o))} color={sideColor}>
-              {pieceShadow()}
+              {pieceShadow(OS)}
             </Path>
           ))}
           {circles.map((ci, i) => {
             const q = art.at([ci.at[0] + PIECE_DEPTH[0], ci.at[1] + PIECE_DEPTH[1]]);
             return (
               <Circle key={`sc${i}`} cx={q[0]} cy={q[1]} r={art.len(ci.r)} color={sideColor}>
-                {pieceShadow()}
+                {pieceShadow(OS)}
               </Circle>
             );
           })}
         </Group>
         {draw(sideColor, true)}
         {draw(color, false)}
-        {selected ? draw(colors.accent, false, { style: 'stroke', strokeWidth: 3 * OVERSAMPLE }) : null}
+        {selected ? draw(colors.accent, false, { style: 'stroke', strokeWidth: 3 * OS }) : null}
       </Canvas>
     </View>
   );
@@ -795,7 +808,8 @@ function PlayingPiece({ piece, color, w, h, selected }: { piece: TablePiece; col
  * standing for several shows how many.
  */
 function Token({ piece, color, size, selected, k }: { piece: TablePiece; color: string; size: number; selected: boolean; k: number }) {
-  const art = artFrame(size, size);
+  const OS = useContext(OversampleContext);
+  const art = artFrame(size, size, OS);
   const c = art.at([0.5, 0.5]);
   const depth = [art.len(0.04), art.len(0.06)] as const;
   const outline: Pt[] = [
@@ -813,20 +827,20 @@ function Token({ piece, color, size, selected, k }: { piece: TablePiece; color: 
         {piece.square ? (
           <>
             <Path path={roundedPath(art, squareSide, 0.14)} color={shade(color, -0.45)}>
-              {pieceShadow()}
+              {pieceShadow(OS)}
             </Path>
             <Path path={roundedPath(art, squareSide, 0.14)} color={shade(color, -0.45)} />
             <Path path={roundedPath(art, outline, 0.14)} color={color} />
-            {selected ? <Path path={roundedPath(art, outline, 0.14)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+            {selected ? <Path path={roundedPath(art, outline, 0.14)} color={colors.accent} style="stroke" strokeWidth={3 * OS} /> : null}
           </>
         ) : (
           <>
             <Path path={body!} color={shade(color, -0.45)}>
-              {pieceShadow()}
+              {pieceShadow(OS)}
             </Path>
             <Path path={body!} color={shade(color, -0.45)} />
             <Circle cx={c[0]} cy={c[1]} r={art.len(0.48)} color={color} />
-            {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+            {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={colors.accent} style="stroke" strokeWidth={3 * OS} /> : null}
           </>
         )}
       </Canvas>
@@ -862,6 +876,7 @@ function Token({ piece, color, size, selected, k }: { piece: TablePiece; color: 
  * toggleTimer); run out, it shows 0:00 in red and buzzes.
  */
 function Timer({ piece, color, size, selected, k }: { piece: TablePiece; color: string; size: number; selected: boolean; k: number }) {
+  const OS = useContext(OversampleContext);
   const running = piece.endsAt !== undefined;
   // The time now, only while it's running (it's read on a clock, never while drawing).
   const [now, setNow] = useState(0);
@@ -888,7 +903,7 @@ function Timer({ piece, color, size, selected, k }: { piece: TablePiece; color: 
     }
     if (!done) buzzed.current = false;
   }, [done]);
-  const art = artFrame(size, size);
+  const art = artFrame(size, size, OS);
   const c = art.at([0.5, 0.5]);
   const r = art.len(0.4);
   const share = piece.value ? Math.min(1, left / piece.value) : 0;
@@ -899,13 +914,13 @@ function Timer({ piece, color, size, selected, k }: { piece: TablePiece; color: 
     <View style={StyleSheet.absoluteFill}>
       <Canvas style={art.style}>
         <Path path={cylinderPath(c, art.len(0.5), [art.len(0.03), art.len(0.04)])} color={shade(color, isLight(color) ? -0.4 : 0.15)}>
-          {pieceShadow()}
+          {pieceShadow(OS)}
         </Path>
         <Path path={cylinderPath(c, art.len(0.5), [art.len(0.03), art.len(0.04)])} color={shade(color, isLight(color) ? -0.4 : 0.15)} />
         <Circle cx={c[0]} cy={c[1]} r={art.len(0.5)} color={color} />
         <Circle cx={c[0]} cy={c[1]} r={r} color={shade(color, isLight(color) ? -0.15 : 0.18)} style="stroke" strokeWidth={art.len(0.07)} />
         <Path path={runDown} color={done ? '#e24b4a' : colors.accent} style="stroke" strokeWidth={art.len(0.07)} strokeCap="round" />
-        {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.52)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+        {selected ? <Circle cx={c[0]} cy={c[1]} r={art.len(0.52)} color={colors.accent} style="stroke" strokeWidth={3 * OS} /> : null}
       </Canvas>
       <Text allowFontScaling={false} style={[styles.timerText, { color: done ? '#e24b4a' : ink, fontSize: size * 0.22, lineHeight: size, width: size }]}>
         {timerText(left)}
@@ -948,7 +963,8 @@ function Zone({ piece, color, k }: { piece: TablePiece; color: string; k: number
 }
 /** A drawstring bag: a pouch, tied at its neck, raised a little off the cloth; how many cards are in it on a badge. */
 function Bag({ piece, color, w, h, selected, k }: { piece: TablePiece; color: string; w: number; h: number; selected: boolean; k: number }) {
-  const art = artFrame(w, h);
+  const OS = useContext(OversampleContext);
+  const art = artFrame(w, h, OS);
   const shift = (pts: Pt[]): Pt[] => pts.map((p) => [p[0] + PIECE_DEPTH[0], p[1] + PIECE_DEPTH[1]]);
   const body: Pt[] = [
     [0.14, 0.42],
@@ -978,7 +994,7 @@ function Bag({ piece, color, w, h, selected, k }: { piece: TablePiece; color: st
     <View style={StyleSheet.absoluteFill}>
       <Canvas style={art.style}>
         <Path path={roundedPath(art, shift(body), 0.14)} color={shade(color, -0.45)}>
-          {pieceShadow()}
+          {pieceShadow(OS)}
         </Path>
         <Path path={roundedPath(art, shift(body), 0.14)} color={shade(color, -0.45)} />
         <Path path={roundedPath(art, top, 0.06)} color={shade(color, -0.12)} />
@@ -986,7 +1002,7 @@ function Bag({ piece, color, w, h, selected, k }: { piece: TablePiece; color: st
         {/* The light catching its upper left. */}
         <Circle cx={art.at([0.36, 0.55])[0]} cy={art.at([0.36, 0.55])[1]} r={art.len(0.2)} color={shade(color, 0.18)} opacity={0.5} />
         <Path path={roundedPath(art, tie, 0.04)} color={shade(color, -0.5)} />
-        {selected ? <Path path={roundedPath(art, body, 0.14)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
+        {selected ? <Path path={roundedPath(art, body, 0.14)} color={colors.accent} style="stroke" strokeWidth={3 * OS} /> : null}
       </Canvas>
       {n ? (
         <View style={[styles.tokenCount, { right: -6 * k, top: -6 * k, minWidth: 24 * k, height: 24 * k, borderRadius: 12 * k, paddingHorizontal: 5 * k }]}>

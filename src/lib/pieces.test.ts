@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, raiseArt, artLevel, layerArt, keepArtLevels, trackSize, trackSpaceAt } from './sandbox.ts';
+import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, raiseArt, artLevel, layerArt, keepArtLevels, copyItems, pasteItems, clipCards, trackSize, trackSpaceAt } from './sandbox.ts';
 
 const table = () => newSandbox('t', 'Test', 0);
 
@@ -222,4 +222,24 @@ test('custom art lies among the cards: over the stack it was put on, under any p
   // A piece other than art is found first, wherever it is in the list.
   const both = addPiece({ ...withB, pieces: [newPiece('die', 'die', { x: 520, y: 520 }), ...withB.pieces!] }, newPiece('coin', 'c', { x: 2000, y: 2000 }));
   assert.equal(pieceAt(both, 520, 520)?.piece.id, 'die');
+});
+test('a copy is pasted laid out as it was, round a point, everything new; dice kept apart', () => {
+  const card = (iid: string) => ({ iid, deckId: 'd', cardId: iid, faceUp: true });
+  let t = { ...table(), stacks: [{ id: 'S', x: 100, y: 100, angle: 0, cards: [card('a'), card('b')] }] };
+  t = addPiece(t, newPiece('die', 'D', { x: 300, y: 100 }));
+  t = putInBag(addPiece(t, newPiece('bag', 'B', { x: 200, y: 300 })), 'B', [{ card: card('c') }]);
+  const clip = copyItems(t, ['S'], ['D', 'B']);
+  assert.equal(clipCards(clip), 3);
+  let n = 0;
+  const { table: pasted, stackIds, pieceIds } = pasteItems(t, clip, { x: 1000, y: 1000 }, () => `new${n++}`);
+  assert.equal(pasted.stacks.length, 2);
+  assert.equal(stackIds.length, 1);
+  assert.equal(pieceIds.length, 2);
+  const s = pasted.stacks.find((x) => x.id === stackIds[0])!;
+  // Its middle round the point: the copy spanned 100–300 across and 100–300 down.
+  assert.deepEqual([s.x, s.y], [900, 900]);
+  assert.ok(s.cards.every((c) => c.iid.startsWith('new')));
+  const bag = pasted.pieces!.find((p) => p.id === pieceIds[1])!;
+  assert.ok(bagItems(bag)[0].card!.iid.startsWith('new'));
+  assert.equal(tableCardCount(pasted), 6);
 });

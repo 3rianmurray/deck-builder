@@ -64,6 +64,9 @@ import {
   besideBagOf,
   pieceName,
   artSize,
+  clipCards,
+  copyItems,
+  pasteItems,
   PIECE_SIZE,
   turnArt,
   normalizeAngle,
@@ -132,6 +135,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { artPicture, tokenPicture } from '../lib/images';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
+import { clipSize, setClip, useClip } from '../lib/tableClipboard';
 import { offerTipAfterUses, offerTipSoon, tipLearned } from '../lib/tips';
 import { tourEvent } from '../lib/tour';
 import { cardRadius, cardRatio, cardSizeMm, copiesOf, deckSize, PRESET_SIZES_MM } from '../lib/types';
@@ -2531,6 +2535,29 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     haptics.lift();
   };
   /** Whether this many more cards fit on the table (see `MAX_TABLE_CARDS`); if not, says so. */
+  // ---- Copy and paste (anything on the table, onto this table or another) ----
+  const clip = useClip();
+  /** Stacks and pieces copied, to paste (and copied again: what was copied before goes). */
+  const copyThese = (stackIds: string[], pieceIds: string[]) => {
+    if (!table) return;
+    setClip(copyItems(table, stackIds, pieceIds));
+    haptics.success();
+  };
+  /**
+   * What's been copied put in the middle of the view, laid out as it was, and picked out, ready to drag where it's
+   * wanted. Not past the table's card limit, nor its custom art's.
+   */
+  const pasteClip = () => {
+    if (!table || !view || !clip) return;
+    if (!roomFor(table, clipCards(clip))) return;
+    if (artCount + clip.pieces.filter((p) => p.kind === 'art').length > ART_MAX) return artFull();
+    const mid = toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2);
+    const { table: next, stackIds, pieceIds } = pasteItems(table, clip, mid, newId);
+    commit(next);
+    setSelected(stackIds);
+    setPickedPieces(pieceIds);
+    haptics.drop();
+  };
   const roomFor = (t: SandboxTable, more: number) => {
     if (tableCardCount(t) + more <= MAX_TABLE_CARDS) return true;
     haptics.warn();
@@ -2802,6 +2829,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // A single card can be kept from stacking: nothing goes onto it, and it goes onto nothing.
         ...(n === 1 ? [{ kind: 'toggle' as const, label: 'Never stack', value: !!top.solo, onChange: (on: boolean) => commit(setSolo(table, menuStack.id, on)) }] : []),
         ...(top.faceUp ? [{ kind: 'action' as const, label: 'Full size', keepsOpen: true, onPress: () => setZoomed(top) }] : []),
+        { kind: 'action', label: 'Copy', onPress: () => copyThese([menuStack.id], []) },
         { kind: 'action', label: 'Take off the table', destructive: true, onPress: () => commit(removeStacks(table, [menuStack.id])) },
       ];
       return {
@@ -2837,6 +2865,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         title: table.name,
         tiles: [],
         actions: [
+          ...(clip ? [{ label: clipSize(clip) === 1 ? 'Paste' : `Paste ${clipSize(clip)} things`, onPress: pasteClip }] : []),
           { label: 'Add a deck…', onPress: () => setTimeout(() => setMenu({ kind: 'addDeck' }), 250) },
           // Its own screen, which iOS can only show once this menu has gone.
           { label: 'Add cards…', opensModal: true, onPress: () => setAddingCards(true) },
@@ -2929,6 +2958,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             : []),
           // (Not what's locked in place.)
           { label: 'Scale…', onPress: () => openScale(chosen, pieces.filter((p) => !p.locked).map((p) => p.id)) },
+          { label: total === 1 ? 'Copy' : `Copy all ${total}`, onPress: () => copyThese(chosen, pieces.map((p) => p.id)) },
           { label: total === 1 ? 'Take it off the table' : `Take all ${total} off the table`, destructive: true, onPress: takeAllOff },
         ],
       };
@@ -2960,7 +2990,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           </View>
         </View>
       );
-      const focus = (title: string, tiles: SheetTile[], rows: FocusRow[]) => ({ title, header, tiles, rows, actions: [] as SheetAction[] });
+      // Copy, last but one (taking it off the table is last).
+      const copyRow: FocusRow = { kind: 'action', label: 'Copy', onPress: () => copyThese([], [id]) };
+      const focus = (title: string, tiles: SheetTile[], rows: FocusRow[]) => ({
+        title,
+        header,
+        tiles,
+        rows: [...rows.slice(0, -1), copyRow, ...rows.slice(-1)],
+        actions: [] as SheetAction[],
+      });
       const named = (title: string, current: string) =>
         ask(title, current, (label) => commit(setPiece(table, id, { label })));
       switch (piece.kind) {
@@ -3258,7 +3296,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           { label: 'Track', icon: icon('number.square', 'pin'), onPress: () => addPieceToTable('track') },
           { label: 'Pieces', icon: icon('figure.stand', 'person'), onPress: next({ kind: 'addShape' }) },
           { label: '1st player', icon: icon('star.circle', 'stars'), onPress: () => addPieceToTable('marker') },
-          { label: 'Token', icon: icon('circle.circle', 'radio_button_checked'), onPress: () => addPieceToTable('token') },
           { label: 'Custom art', icon: icon('photo.on.rectangle', 'add_photo_alternate'), opensModal: true, onPress: () => (artCount < ART_MAX ? choosePicture({ kind: 'art' }) : artFull()) },
           { label: 'Bag', icon: icon('bag', 'shopping_bag'), onPress: () => addPieceToTable('bag') },
           { label: 'Text', icon: icon('textformat', 'title'), onPress: () => addPieceToTable('text') },
@@ -3744,6 +3781,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                     },
                   ],
                   ['die.face.5', 'casino', 'Add Components', () => setMenu({ kind: 'components' })],
+                  // Once something's been copied.
+                  ...(clip ? ([['doc.on.clipboard', 'content_paste', 'Paste', pasteClip]] as const) : []),
                   ['wand.and.stars', 'auto_fix_high', 'Clean Up', cleanUp],
                   ['rectangle.stack', 'layers', 'Gather by Deck', gatherUp],
                   ['trash', 'delete', `Trash${table.trash?.length ? ` (${table.trash.length})` : ''}`, () => setTrashOpen(true)],

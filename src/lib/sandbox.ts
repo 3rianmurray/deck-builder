@@ -50,9 +50,9 @@ export const HAND_COUNT = 4;
 
 /**
  * What a piece on the table is, besides cards: a counter (a number to count up and down), a die, a coin, a text
- * label, a first-player marker, a spinner, a playing piece (a meeple, pawn, cube or disc: see PieceShape), a token\n * (round or square, plain or with a picture of the player's own), a timer, or a zone (an area marked out on the cloth,\n * under the cards; a card spot is one that cards snap into), a bag (cards dropped in, drawn out at random), or a\n * track (a row of numbered spaces with a marker).
+ * label, a first-player marker, a spinner, a playing piece (a meeple, pawn, cube or disc: see PieceShape), a token\n * (round or square, plain or with a picture of the player's own), a timer, or a zone (an area marked out on the cloth,\n * under the cards; a card spot is one that cards snap into), a bag (cards dropped in, drawn out at random), or a\n * track (a row of numbered spaces with a marker), or custom art (the player's own picture, at its own shape).
  */
-export type PieceKind = 'counter' | 'die' | 'coin' | 'text' | 'marker' | 'spinner' | 'meeple' | 'token' | 'timer' | 'zone' | 'bag' | 'track';
+export type PieceKind = 'counter' | 'die' | 'coin' | 'text' | 'marker' | 'spinner' | 'meeple' | 'token' | 'timer' | 'zone' | 'bag' | 'track' | 'art';
 
 /** A playing piece's shape. */
 export type PieceShape = 'meeple' | 'pawn' | 'cube' | 'disc';
@@ -83,13 +83,13 @@ export interface TablePiece {
   label?: string;
   /** A playing piece's shape. */
   shape?: PieceShape;
-  /** A token's picture (a saved picture's path), and whether it's square (round, otherwise). */
+  /** A token's (or custom art's) picture (a saved picture's path), and whether a token's square (round, otherwise). */
   image?: string;
   square?: boolean;
   /** A running timer: when it runs out (ms since 1970). A paused one: how many seconds it had left. */
   endsAt?: number;
   left?: number;
-  /** A zone's own size (table units, before its scale), and how it's drawn. */
+  /** A zone's (or custom art's) own size (table units, before its scale), and how a zone's drawn. */
   w?: number;
   h?: number;
   look?: ZoneLook;
@@ -389,7 +389,9 @@ export function pieceSizeOf(p: TablePiece): { w: number; h: number } {
         ? { w: p.w ?? PIECE_SIZE.zone.w, h: p.h ?? PIECE_SIZE.zone.h }
         : p.kind === 'track'
           ? trackSize(p.spaces ?? 10)
-          : PIECE_SIZE[p.kind];
+          : p.kind === 'art'
+            ? { w: p.w ?? PIECE_SIZE.art.w, h: p.h ?? PIECE_SIZE.art.h }
+            : PIECE_SIZE[p.kind];
   const k = p.scale ?? 1;
   return k === 1 ? base : { w: base.w * k, h: base.h * k };
 }
@@ -491,7 +493,18 @@ export const PIECE_SIZE: Record<PieceKind, { w: number; h: number }> = {
   bag: { w: 84, h: 96 },
   // A track's height (its width goes by its spaces: see trackSize).
   track: { w: 0, h: 56 },
+  // Custom art's room on its longest side (each has its own shape: see TablePiece.w and h).
+  art: { w: 120, h: 120 },
 };
+
+/** The most custom art a table can have (each is a picture to draw). */
+export const ART_MAX = 40;
+
+/** Custom art's own size on the table, from its picture's: ART's room on its longest side. */
+export function artSize(width: number, height: number) {
+  const side = PIECE_SIZE.art.w;
+  return width >= height ? { w: side, h: Math.max(20, Math.round((side * height) / width)) } : { w: Math.max(20, Math.round((side * width) / height)), h: side };
+}
 
 /** How wide each of a track's spaces is, the room at its ends, and how many it can have. */
 export const TRACK_SPACE = 44;
@@ -588,6 +601,7 @@ export function newPiece(kind: PieceKind, id: string, at: { x: number; y: number
   if (kind === 'zone') return { id, kind, ...spot, value: 0, label: 'Zone', w: PIECE_SIZE.zone.w, h: PIECE_SIZE.zone.h };
   if (kind === 'bag') return { id, kind, ...spot, value: 0, cards: [] };
   if (kind === 'track') return { id, kind, ...spot, value: 0, spaces: 10, first: 1 };
+  if (kind === 'art') return { id, kind, ...spot, value: 0, w: PIECE_SIZE.art.w, h: PIECE_SIZE.art.h };
   return { id, kind, ...spot, value: 0 };
 }
 

@@ -243,6 +243,8 @@ export const TablePieceView = memo(function TablePieceView({
         <Bag piece={piece} color={color} w={w} h={h} selected={selected} />
       ) : piece.kind === 'track' ? (
         <Track piece={piece} color={color} selected={selected} />
+      ) : piece.kind === 'art' ? (
+        <Art piece={piece} w={w} h={h} selected={selected} />
       ) : (
         <PlayingPiece piece={piece} color={color} w={w} h={h} selected={selected} />
       )}
@@ -994,6 +996,29 @@ function Track({ piece, color, selected }: { piece: TablePiece; color: string; s
     </View>
   );
 }
+/**
+ * Custom art: the player's own picture at its own shape. A cut-out (see-through) shows just its subject, with a
+ * shadow of the same outline under it; any other, as a print with slightly rounded corners and a shadow.
+ */
+function Art({ piece, w, h, selected }: { piece: TablePiece; w: number; h: number; selected: boolean }) {
+  if (!piece.image) return <View style={[styles.artMissing, selected && styles.artSelected]} />;
+  const uri = imageUri(piece.image);
+  if (isSeeThrough(piece.image)) {
+    return (
+      <View style={StyleSheet.absoluteFill}>
+        {/* Its shadow: the same picture, darkened to a silhouette, a little down and right. */}
+        <Image source={{ uri }} style={[StyleSheet.absoluteFill, styles.artShadow]} contentFit="contain" tintColor="#000" cachePolicy="memory-disk" />
+        <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="contain" cachePolicy="memory-disk" />
+        {selected ? <View style={[StyleSheet.absoluteFill, styles.artSelected]} /> : null}
+      </View>
+    );
+  }
+  return (
+    <View style={[styles.artPrint, { width: w, height: h }, selected && styles.artSelected]}>
+      <Image source={{ uri }} style={[StyleSheet.absoluteFill, styles.artPrintImage]} contentFit="cover" cachePolicy="memory-disk" />
+    </View>
+  );
+}
 const styles = StyleSheet.create({
   piece: { position: 'absolute' },
 
@@ -1046,6 +1071,11 @@ const styles = StyleSheet.create({
   timerText: { position: 'absolute', left: 0, top: 0, textAlign: 'center', fontWeight: '800', fontVariant: ['tabular-nums'] },
   timerHint: { position: 'absolute', left: 0, textAlign: 'center', fontSize: 9, fontWeight: '700', opacity: 0.7 },
   zone: { flex: 1, borderWidth: 3, borderRadius: 12 },
+  artShadow: { opacity: 0.4, transform: [{ translateX: 2 }, { translateY: 4 }] },
+  artPrint: { borderRadius: 6, boxShadow: '1px 3px 8px rgba(0, 0, 0, 0.45)' },
+  artPrintImage: { borderRadius: 6 },
+  artSelected: { borderWidth: 3, borderColor: colors.accent, borderRadius: 8, borderStyle: 'dashed' },
+  artMissing: { flex: 1, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.12)' },
   track: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, borderRadius: 12, borderWidth: 1, boxShadow: '1px 3px 8px rgba(0, 0, 0, 0.45)' },
   trackSpace: { width: 40, height: 40, marginHorizontal: 2, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   trackMarker: { position: 'absolute', width: 34, height: 34, borderRadius: 17, backgroundColor: colors.accent, boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.5)' },

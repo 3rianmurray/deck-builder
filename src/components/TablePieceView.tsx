@@ -216,10 +216,9 @@ export const TablePieceView = memo(function TablePieceView({
   /** Picked out with the lasso: outlined in gold. */
   selected?: boolean;
 }) {
-  // Custom art is laid out at its scaled size, so its picture's drawn at that size (scaled up afterward instead,
-  // it went soft). Every other piece is drawn at its own size and scaled about its middle, so its parts and
-  // lettering keep their proportions.
-  const laidOut = piece.kind === 'art' ? (piece.scale ?? 1) : 1;
+  // Laid out at its scaled size, and drawn at that size (its parts and lettering sized to match): drawn at its own
+  // size and scaled afterward instead, it went soft, scaled up or down.
+  const laidOut = piece.scale ?? 1;
   const own = pieceSizeOf({ ...piece, scale: 1 });
   const w = own.w * laidOut;
   const h = own.h * laidOut;
@@ -234,29 +233,29 @@ export const TablePieceView = memo(function TablePieceView({
         { left: x - w / 2, top: y - h / 2, width: w, height: h, transform: [{ rotate: `${turn ?? piece.angle ?? 0}deg` }, { scale: ((piece.scale ?? 1) / laidOut) * (lifted ? LIFT : 1) }] },
       ]}>
       {piece.kind === 'counter' ? (
-        <Counter piece={piece} color={color} selected={selected} />
+        <Counter piece={piece} color={color} selected={selected} k={laidOut} />
       ) : piece.kind === 'die' ? (
         <Die piece={piece} color={color} rollKey={rollKey} rollFrom={rollFrom} size={w} selected={selected} />
       ) : piece.kind === 'coin' ? (
         <Coin piece={piece} color={color} rollKey={rollKey} size={w} selected={selected} />
       ) : piece.kind === 'text' ? (
-        <TextLabel piece={piece} color={color} selected={selected} />
+        <TextLabel piece={piece} color={color} selected={selected} k={laidOut} />
       ) : piece.kind === 'marker' ? (
         <Marker piece={piece} color={color} size={w} selected={selected} />
       ) : piece.kind === 'spinner' ? (
         <Spinner piece={piece} color={color} rollKey={rollKey} size={w} selected={selected} />
       ) : piece.kind === 'token' ? (
-        <Token piece={piece} color={color} size={w} selected={selected} />
+        <Token piece={piece} color={color} size={w} selected={selected} k={laidOut} />
       ) : piece.kind === 'timer' ? (
-        <Timer piece={piece} color={color} size={w} selected={selected} />
+        <Timer piece={piece} color={color} size={w} selected={selected} k={laidOut} />
       ) : piece.kind === 'zone' ? (
-        <Zone piece={piece} color={color} />
+        <Zone piece={piece} color={color} k={laidOut} />
       ) : piece.kind === 'bag' ? (
-        <Bag piece={piece} color={color} w={w} h={h} selected={selected} />
+        <Bag piece={piece} color={color} w={w} h={h} selected={selected} k={laidOut} />
       ) : piece.kind === 'track' ? (
-        <Track piece={piece} color={color} selected={selected} />
+        <Track piece={piece} color={color} selected={selected} k={laidOut} />
       ) : piece.kind === 'art' ? (
-        <Art piece={piece} w={w} h={h} selected={selected} />
+        <Art piece={piece} w={w} h={h} selected={selected} k={laidOut} />
       ) : (
         <PlayingPiece piece={piece} color={color} w={w} h={h} selected={selected} />
       )}
@@ -264,31 +263,36 @@ export const TablePieceView = memo(function TablePieceView({
   );
 });
 
-function Counter({ piece, color, selected }: { piece: TablePiece; color: string; selected: boolean }) {
+/** Sizes a piece's parts (its buttons, lettering, edges) at its scale `k`, so it's drawn at the size it's shown. */
+const scaled = (k: number) => (n: number) => n * k;
+
+function Counter({ piece, color, selected, k }: { piece: TablePiece; color: string; selected: boolean; k: number }) {
   const ink = isLight(color) ? '#2c2c2a' : '#ffffff';
+  const z = scaled(k);
+  const button = { width: z(40), height: z(40), borderRadius: z(20) };
   return (
     <View
       style={[
         styles.counter,
-        { backgroundColor: color, borderColor: shade(color, isLight(color) ? -0.25 : 0.3) },
+        { backgroundColor: color, borderColor: shade(color, isLight(color) ? -0.25 : 0.3), paddingHorizontal: z(8), borderRadius: z(30), borderWidth: z(1) },
         // Picked out with the lasso: outlined in gold.
-        selected && { borderColor: colors.accent, borderWidth: 3 },
+        selected && { borderColor: colors.accent, borderWidth: z(3) },
       ]}>
-      <View style={[styles.counterButton, { backgroundColor: shade(color, isLight(color) ? -0.12 : 0.16) }]}>
-        <Text allowFontScaling={false} style={[styles.counterSign, { color: ink }]}>
+      <View style={[styles.counterButton, button, { backgroundColor: shade(color, isLight(color) ? -0.12 : 0.16) }]}>
+        <Text allowFontScaling={false} style={[styles.counterSign, { color: ink, fontSize: z(26), marginTop: z(-2) }]}>
           −
         </Text>
       </View>
-      <Text allowFontScaling={false} style={[styles.counterValue, { color: ink }]} numberOfLines={1} adjustsFontSizeToFit>
+      <Text allowFontScaling={false} style={[styles.counterValue, { color: ink, fontSize: z(30) }]} numberOfLines={1} adjustsFontSizeToFit>
         {piece.value}
       </Text>
-      <View style={[styles.counterButton, { backgroundColor: shade(color, isLight(color) ? -0.12 : 0.16) }]}>
-        <Text allowFontScaling={false} style={[styles.counterSign, { color: ink }]}>
+      <View style={[styles.counterButton, button, { backgroundColor: shade(color, isLight(color) ? -0.12 : 0.16) }]}>
+        <Text allowFontScaling={false} style={[styles.counterSign, { color: ink, fontSize: z(26), marginTop: z(-2) }]}>
           +
         </Text>
       </View>
       {piece.label ? (
-        <Text allowFontScaling={false} style={styles.counterLabel} numberOfLines={1}>
+        <Text allowFontScaling={false} style={[styles.counterLabel, { top: z(64), left: z(-20), right: z(-20), fontSize: z(16), textShadowRadius: z(3) }]} numberOfLines={1}>
           {piece.label}
         </Text>
       ) : null}
@@ -577,10 +581,10 @@ function Coin({ piece, color, rollKey, size, selected }: { piece: TablePiece; co
 }
 
 /** Words on the table: in its color, with a soft shadow so they read on any cloth. */
-function TextLabel({ piece, color, selected }: { piece: TablePiece; color: string; selected: boolean }) {
+function TextLabel({ piece, color, selected, k }: { piece: TablePiece; color: string; selected: boolean; k: number }) {
   return (
-    <View style={[styles.textBox, selected && styles.textBoxOn]}>
-      <Text allowFontScaling={false} numberOfLines={1} style={[styles.text, { color }]}>
+    <View style={[styles.textBox, { borderRadius: 8 * k }, selected && [styles.textBoxOn, { borderWidth: 2 * k }]]}>
+      <Text allowFontScaling={false} numberOfLines={1} style={[styles.text, { color, fontSize: TEXT_SIZE * k, textShadowRadius: 4 * k, textShadowOffset: { width: k, height: 2 * k } }]}>
         {piece.label || ' '}
       </Text>
     </View>
@@ -790,7 +794,7 @@ function PlayingPiece({ piece, color, w, h, selected }: { piece: TablePiece; col
  * A token: a raised disc (or rounded square) with the player's own picture on top, or plain in its color. One
  * standing for several shows how many.
  */
-function Token({ piece, color, size, selected }: { piece: TablePiece; color: string; size: number; selected: boolean }) {
+function Token({ piece, color, size, selected, k }: { piece: TablePiece; color: string; size: number; selected: boolean; k: number }) {
   const art = artFrame(size, size);
   const c = art.at([0.5, 0.5]);
   const depth = [art.len(0.04), art.len(0.06)] as const;
@@ -843,8 +847,8 @@ function Token({ piece, color, size, selected }: { piece: TablePiece; color: str
         />
       ) : null}
       {piece.value > 1 ? (
-        <View style={styles.tokenCount}>
-          <Text allowFontScaling={false} style={styles.tokenCountText}>
+        <View style={[styles.tokenCount, { right: -6 * k, top: -6 * k, minWidth: 24 * k, height: 24 * k, borderRadius: 12 * k, paddingHorizontal: 5 * k }]}>
+          <Text allowFontScaling={false} style={[styles.tokenCountText, { fontSize: 14 * k }]}>
             {piece.value}
           </Text>
         </View>
@@ -857,7 +861,7 @@ function Token({ piece, color, size, selected }: { piece: TablePiece; color: str
  * A timer: a dial with the time left, and a ring round it running down. Tapped, it starts or pauses (see
  * toggleTimer); run out, it shows 0:00 in red and buzzes.
  */
-function Timer({ piece, color, size, selected }: { piece: TablePiece; color: string; size: number; selected: boolean }) {
+function Timer({ piece, color, size, selected, k }: { piece: TablePiece; color: string; size: number; selected: boolean; k: number }) {
   const running = piece.endsAt !== undefined;
   // The time now, only while it's running (it's read on a clock, never while drawing).
   const [now, setNow] = useState(0);
@@ -907,7 +911,7 @@ function Timer({ piece, color, size, selected }: { piece: TablePiece; color: str
         {timerText(left)}
       </Text>
       {!running && !done ? (
-        <Text allowFontScaling={false} style={[styles.timerHint, { color: ink, top: size * 0.66, width: size }]}>
+        <Text allowFontScaling={false} style={[styles.timerHint, { color: ink, top: size * 0.66, width: size, fontSize: 9 * k }]}>
           {piece.left !== undefined ? 'paused' : 'tap to start'}
         </Text>
       ) : null}
@@ -918,27 +922,32 @@ function Timer({ piece, color, size, selected }: { piece: TablePiece; color: str
  * A zone: an area marked out on the cloth, under the cards (outlined, filled in, or dashed), its name in a corner.
  * Unlocked, a grip in its bottom-right corner resizes it.
  */
-function Zone({ piece, color }: { piece: TablePiece; color: string }) {
+function Zone({ piece, color, k }: { piece: TablePiece; color: string; k: number }) {
   const look = piece.look ?? 'outline';
   return (
     <View
       style={[
         styles.zone,
+        { borderWidth: 3 * k, borderRadius: 12 * k },
         // Its edge a little see-through, and filled in faintly (the cloth showing through); its name solid.
         { borderColor: `${color}b3`, borderStyle: look === 'dashed' ? 'dashed' : 'solid' },
         look === 'filled' && { backgroundColor: `${color}38` },
       ]}>
       {piece.label ? (
-        <Text allowFontScaling={false} numberOfLines={1} style={[styles.zoneLabel, { color }]}>
+        <Text allowFontScaling={false} numberOfLines={1} style={[styles.zoneLabel, { color, fontSize: 18 * k, left: 10 * k, top: 6 * k, right: 10 * k }]}>
           {piece.label}
         </Text>
       ) : null}
-      {piece.locked ? null : <View style={[styles.zoneGrip, { borderColor: color }]} />}
+      {piece.locked ? null : (
+        <View
+          style={[styles.zoneGrip, { borderColor: color, right: 4 * k, bottom: 4 * k, width: 18 * k, height: 18 * k, borderRightWidth: 3 * k, borderBottomWidth: 3 * k, borderBottomRightRadius: 6 * k }]}
+        />
+      )}
     </View>
   );
 }
 /** A drawstring bag: a pouch, tied at its neck, raised a little off the cloth; how many cards are in it on a badge. */
-function Bag({ piece, color, w, h, selected }: { piece: TablePiece; color: string; w: number; h: number; selected: boolean }) {
+function Bag({ piece, color, w, h, selected, k }: { piece: TablePiece; color: string; w: number; h: number; selected: boolean; k: number }) {
   const art = artFrame(w, h);
   const shift = (pts: Pt[]): Pt[] => pts.map((p) => [p[0] + PIECE_DEPTH[0], p[1] + PIECE_DEPTH[1]]);
   const body: Pt[] = [
@@ -980,8 +989,8 @@ function Bag({ piece, color, w, h, selected }: { piece: TablePiece; color: strin
         {selected ? <Path path={roundedPath(art, body, 0.14)} color={colors.accent} style="stroke" strokeWidth={3 * OVERSAMPLE} /> : null}
       </Canvas>
       {n ? (
-        <View style={styles.tokenCount}>
-          <Text allowFontScaling={false} style={styles.tokenCountText}>
+        <View style={[styles.tokenCount, { right: -6 * k, top: -6 * k, minWidth: 24 * k, height: 24 * k, borderRadius: 12 * k, paddingHorizontal: 5 * k }]}>
+          <Text allowFontScaling={false} style={[styles.tokenCountText, { fontSize: 14 * k }]}>
             {n}
           </Text>
         </View>
@@ -991,16 +1000,21 @@ function Bag({ piece, color, w, h, selected }: { piece: TablePiece; color: strin
 }
 
 /** A track: a row of numbered spaces, its marker on one of them (tapped, it moves to the space tapped). */
-function Track({ piece, color, selected }: { piece: TablePiece; color: string; selected: boolean }) {
+function Track({ piece, color, selected, k }: { piece: TablePiece; color: string; selected: boolean; k: number }) {
   const spaces = piece.spaces ?? 10;
   const first = piece.first ?? 1;
   const ink = isLight(color) ? '#2c2c2a' : '#ffffff';
   return (
-    <View style={[styles.track, { backgroundColor: color, borderColor: selected ? colors.accent : shade(color, isLight(color) ? -0.25 : 0.3) }, selected && { borderWidth: 3 }]}>
+    <View
+      style={[
+        styles.track,
+        { backgroundColor: color, borderColor: selected ? colors.accent : shade(color, isLight(color) ? -0.25 : 0.3), paddingHorizontal: 8 * k, borderRadius: 12 * k, borderWidth: k },
+        selected && { borderWidth: 3 * k },
+      ]}>
       {Array.from({ length: spaces }, (_, i) => (
-        <View key={i} style={[styles.trackSpace, { backgroundColor: shade(color, isLight(color) ? -0.08 : 0.12) }]}>
-          {i === piece.value ? <View style={styles.trackMarker} /> : null}
-          <Text allowFontScaling={false} style={[styles.trackNumber, { color: i === piece.value ? colors.accentText : ink }]}>
+        <View key={i} style={[styles.trackSpace, { width: 40 * k, height: 40 * k, marginHorizontal: 2 * k, borderRadius: 8 * k, backgroundColor: shade(color, isLight(color) ? -0.08 : 0.12) }]}>
+          {i === piece.value ? <View style={[styles.trackMarker, { width: 34 * k, height: 34 * k, borderRadius: 17 * k }]} /> : null}
+          <Text allowFontScaling={false} style={[styles.trackNumber, { fontSize: 16 * k, color: i === piece.value ? colors.accentText : ink }]}>
             {first + i}
           </Text>
         </View>
@@ -1012,22 +1026,22 @@ function Track({ piece, color, selected }: { piece: TablePiece; color: string; s
  * Custom art: the player's own picture at its own shape. A cut-out (see-through) shows just its subject, with a
  * shadow of the same outline under it; any other, as a print with slightly rounded corners and a shadow. Drawn from its\n * full picture, not one shrunk to its size on the table: zoomed in, it stays sharp (as cards' art does).
  */
-function Art({ piece, w, h, selected }: { piece: TablePiece; w: number; h: number; selected: boolean }) {
+function Art({ piece, w, h, selected, k }: { piece: TablePiece; w: number; h: number; selected: boolean; k: number }) {
   if (!piece.image) return <View style={[styles.artMissing, selected && styles.artSelected]} />;
   const uri = imageUri(piece.image);
   if (isSeeThrough(piece.image)) {
     return (
       <View style={StyleSheet.absoluteFill}>
         {/* Its shadow: the same picture, darkened to a silhouette, a little down and right. */}
-        <Image source={{ uri }} style={[StyleSheet.absoluteFill, styles.artShadow]} contentFit="contain" tintColor="#000" cachePolicy="memory-disk" allowDownscaling={false} />
+        <Image source={{ uri }} style={[StyleSheet.absoluteFill, styles.artShadow, { transform: [{ translateX: 2 * k }, { translateY: 4 * k }] }]} contentFit="contain" tintColor="#000" cachePolicy="memory-disk" allowDownscaling={false} />
         <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="contain" cachePolicy="memory-disk" allowDownscaling={false} />
         {selected ? <View style={[StyleSheet.absoluteFill, styles.artSelected]} /> : null}
       </View>
     );
   }
   return (
-    <View style={[styles.artPrint, { width: w, height: h }, selected && styles.artSelected]}>
-      <Image source={{ uri }} style={[StyleSheet.absoluteFill, styles.artPrintImage]} contentFit="cover" cachePolicy="memory-disk" allowDownscaling={false} />
+    <View style={[styles.artPrint, { width: w, height: h, borderRadius: 6 * k }, selected && styles.artSelected]}>
+      <Image source={{ uri }} style={[StyleSheet.absoluteFill, styles.artPrintImage, { borderRadius: 6 * k }]} contentFit="cover" cachePolicy="memory-disk" allowDownscaling={false} />
     </View>
   );
 }

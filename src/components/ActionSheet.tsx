@@ -20,7 +20,7 @@ export interface SheetAction {
   keepsOpen?: boolean;
   /** Starts a new group of actions: a little space above it. */
   groupStart?: boolean;
-  /** Part of Shufflevale Pro, not yet unlocked: a gold PRO tag on the right (it still works: it opens Pro). */
+  /** Part of Shufflevale Pro, not yet unlocked: a gold PRO tag on the right (a tile's, in its corner). It still works: it opens Pro. */
   pro?: boolean;
 }
 
@@ -183,6 +183,11 @@ export function ActionSheet(props: Props) {
                       <Text style={[styles.tileText, t.destructive && { color: colors.danger }]} numberOfLines={1}>
                         {t.label}
                       </Text>
+                      {t.pro ? (
+                        <View style={[styles.proTag, styles.tileProTag]}>
+                          <Text style={styles.proTagText}>PRO</Text>
+                        </View>
+                      ) : null}
                     </Pressable>
                   </View>
                 ))}
@@ -255,6 +260,8 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   tileDisabled: { opacity: 0.35 },
+  // On a tile: in its top right corner.
+  tileProTag: { position: 'absolute', top: 4, right: 4, paddingHorizontal: 5, paddingVertical: 1 },
   tileText: { color: colors.text, fontSize: 12, fontWeight: '500' },
   pressed: { opacity: 0.7 },
   // The walkthrough's choice, ringed in gold.

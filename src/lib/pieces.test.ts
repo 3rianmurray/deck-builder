@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, raiseArt, artLevel, layerArt, keepArtLevels, copyItems, pasteItems, clipCards, fitZone, trackSize, trackSpaceAt, pieceSizeOf } from './sandbox.ts';
+import { addPiece, movePiece, newPiece, pieceAt, piecesInShape, removePiece, rollDie, setPiece, newSandbox, PIECE_SIZE, THROW_MAX, THROW_MIN, throwDice, separateDice, movePieces, gridDice, DICE_SPACE, toggleTimer, parseTimerText, timerText, zoneAt, spotAt, zoneGripAt, resizeZone, ZONE_MIN, putInBag, drawFromBag, emptyBag, tableCardCount, prune, bagItems, itemKey, reorderBag, shuffleBag, allAlike, bagTakes, endSupply, raiseArt, artLevel, layerArt, keepArtLevels, copyItems, pasteItems, clipCards, fitZone, trackSize, trackSpaceAt, pieceSizeOf, playground } from './sandbox.ts';
 
 const table = () => newSandbox('t', 'Test', 0);
 
@@ -268,4 +268,15 @@ test('a small piece is caught a little way off it, but not over one right under 
   assert.equal(pieceAt(t, 500 + 35, 500, 40)?.piece.id, 'm');
   t = addPiece(t, newPiece('die', 'd', { x: 570, y: 500 }));
   assert.equal(pieceAt(t, 545, 500, 40)?.piece.id, 'd');
+});
+test('the Playground has every component (a bag of cubes, an endless supply) and no cards', () => {
+  let n = 0;
+  const t = playground(newSandbox('p', 'Playground', 0), () => `p${n++}`);
+  assert.equal(t.stacks.length, 0);
+  const kinds = new Set((t.pieces ?? []).map((p) => p.kind));
+  for (const k of ['zone', 'text', 'track', 'meeple', 'bag', 'counter', 'die', 'coin', 'spinner', 'timer', 'marker']) assert.ok(kinds.has(k as never), k);
+  const bags = (t.pieces ?? []).filter((p) => p.kind === 'bag');
+  assert.equal(bagItems(bags[0]).length, 6);
+  assert.equal(bags[1].supply?.piece?.shape, 'disc');
+  assert.equal(new Set((t.pieces ?? []).map((p) => p.id)).size, t.pieces!.length);
 });

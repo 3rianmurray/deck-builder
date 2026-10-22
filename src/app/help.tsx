@@ -74,7 +74,7 @@ export default function HelpScreen() {
       <View style={styles.actions}>
         <Button label="Replay the Tutorial" variant="primary" onPress={replayTutorial} />
         <Button label="Restore Examples" onPress={confirmRestore} />
-        <Text style={styles.note}>Puts the Playing Cards deck and its Solitaire table back as new: brought back if deleted, reset if changed.</Text>
+        <Text style={styles.note}>Puts the Playing Cards deck, its Solitaire table and the Playground back as new: brought back if deleted, reset if changed.</Text>
       </View>
 
       <Text style={styles.heading}>Gestures and tips</Text>

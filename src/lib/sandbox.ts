@@ -1552,7 +1552,7 @@ export function solitaire(t: SandboxTable, deck: Deck, ids: () => string, random
 
 /**
  * Brings some of a deck's cards onto the table: the ones chosen (every copy of each), in the deck's order, in one
- * face-down stack at (x, y). `ids` makes unique ids for the stack and its cards.
+ * face-up stack at (x, y) (chosen, they're meant to be seen). `ids` makes unique ids for the stack and its cards.
  */
 export function addCards(
   t: SandboxTable,
@@ -1564,7 +1564,7 @@ export function addCards(
   const chosen = new Set(cardIds);
   const cards: SandboxCard[] = deck.cards
     .filter((c) => chosen.has(c.id))
-    .flatMap((c) => Array.from({ length: c.copies ?? 1 }, () => ({ iid: ids(), deckId: deck.id, cardId: c.id, faceUp: false, single: true })));
+    .flatMap((c) => Array.from({ length: c.copies ?? 1 }, () => ({ iid: ids(), deckId: deck.id, cardId: c.id, faceUp: true, single: true })));
   if (!cards.length) return t;
   // Bottom first: the deck's first card ends up on top, as at the top of a deck.
   return { ...t, stacks: [...t.stacks, { id: ids(), x: at.x, y: at.y, angle: 0, cards: cards.reverse() }] };

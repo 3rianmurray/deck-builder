@@ -1322,7 +1322,18 @@ export function shuffled<T>(items: T[], random: () => number = Math.random): T[]
 
 /** The box round every card on the table (each stack as it's turned), or null with nothing on it. */
 export function tableBounds(t: SandboxTable, size: CardSize): Area | null {
-  const points = t.stacks.flatMap((s) => stackCorners(s, size));
+  // Every card, and every other thing on the table (each piece's corners, turned as it lies).
+  const pieceCorners = (t.pieces ?? []).flatMap((p) => {
+    const { w, h } = pieceSizeOf(p);
+    const r = ((p.angle ?? 0) * Math.PI) / 180;
+    return [
+      [-w / 2, -h / 2],
+      [w / 2, -h / 2],
+      [w / 2, h / 2],
+      [-w / 2, h / 2],
+    ].map(([x, y]) => ({ x: p.x + x * Math.cos(r) - y * Math.sin(r), y: p.y + x * Math.sin(r) + y * Math.cos(r) }));
+  });
+  const points = [...t.stacks.flatMap((s) => stackCorners(s, size)), ...pieceCorners];
   if (!points.length) return null;
   const xs = points.map((p) => p.x);
   const ys = points.map((p) => p.y);

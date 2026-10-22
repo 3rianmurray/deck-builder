@@ -19,7 +19,7 @@ export const TIPS = {
   'reveal-hold': 'Hold a card to see it full size.',
   'search-take-out': 'Hold a card, then tap Close with another finger, to take it out onto the table.',
   'sprite-slide': 'Slide a finger across a number to change it.',
-  'tables-quick-pinch': 'Quicker: pinch in fast with two fingers to fit every card in view.',
+  'tables-quick-pinch': 'Quicker: tap twice with two fingers to fit everything in view.',
   'tables-tools-drag': 'Hold the tools tab to move it: up or down, or across to the other side.',
   'tables-drag-to-hand': 'You can also drag a card straight down into the hand to draw it.',
 } as const;
@@ -74,7 +74,7 @@ export function tipLearned(id: TipId) {
 export const USES_BEFORE_TIP = 3;
 
 /**
- * Counts a use of a button that has a quicker hidden gesture (e.g. Fit All Cards, and the quick pinch). After a few
+ * Counts a use of a button that has a quicker hidden gesture (e.g. Fit All, and a two-finger double tap). After a few
  * uses (remembered across launches), that gesture's tip is offered: once someone's shown they want the thing, and
  * not before.
  */

@@ -626,21 +626,29 @@ export function fitZone(t: SandboxTable, zoneId: string, size: CardSize): Sandbo
   });
 }
 
-/** The topmost piece (not a zone: see zoneAt) under a table point, if any, and which part of it the point is on. */
-export function pieceAt(t: SandboxTable, x: number, y: number): { piece: TablePiece; part: PiecePart } | null {
+/**
+ * The topmost piece (not a zone: see zoneAt) under a table point, if any, and which part of it the point is on.
+ * A small piece can be caught a little way off it too (`reach`: at least this far from its middle each way, in
+ * table units), so it's easy to get a finger on; but only when nothing's right under the point.
+ */
+export function pieceAt(t: SandboxTable, x: number, y: number, reach = 0): { piece: TablePiece; part: PiecePart } | null {
   // Custom art lies among the cards, under every other piece: looked for last.
   const all = (t.pieces ?? []).filter((p) => p.kind !== 'zone');
   const pieces = [...all.filter((p) => p.kind === 'art'), ...all.filter((p) => p.kind !== 'art')];
-  for (let i = pieces.length - 1; i >= 0; i--) {
-    const p = pieces[i];
-    const { w, h } = pieceSizeOf(p);
-    const { x: dx, y: dy } = inPiece(p, x, y);
-    if (Math.abs(dx) > w / 2 || Math.abs(dy) > h / 2) continue;
-    const button = COUNTER_BUTTON * (p.scale ?? 1);
-    const part: PiecePart = p.kind !== 'counter' ? 'body' : dx < -w / 2 + button ? 'minus' : dx > w / 2 - button ? 'plus' : 'body';
-    return { piece: p, part };
-  }
-  return null;
+  const find = (grow: number) => {
+    for (let i = pieces.length - 1; i >= 0; i--) {
+      const p = pieces[i];
+      const { w, h } = pieceSizeOf(p);
+      const { x: dx, y: dy } = inPiece(p, x, y);
+      if (Math.abs(dx) > Math.max(w / 2, grow) || Math.abs(dy) > Math.max(h / 2, grow)) continue;
+      const button = COUNTER_BUTTON * (p.scale ?? 1);
+      const part: PiecePart = p.kind !== 'counter' ? 'body' : dx < -w / 2 + button ? 'minus' : dx > w / 2 - button ? 'plus' : 'body';
+      return { piece: p, part };
+    }
+    return null;
+  };
+  // Right on one first; then (art aside: it's big) small ones near.
+  return find(0) ?? (reach > 0 ? find(reach) : null);
 }
 
 /** A new piece at a table point: a counter at 0, or a d6 showing a 6 (or a die of `sides`, showing its highest). */

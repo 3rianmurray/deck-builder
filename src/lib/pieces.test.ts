@@ -256,3 +256,10 @@ test('a zone fits snugly round the cards and art whose middles are in it', () =>
   const empty = addPiece(table(), newPiece('zone', 'e', { x: 100, y: 100 }));
   assert.equal(fitZone(empty, 'e', size), empty);
 });
+test('a small piece is caught a little way off it, but not over one right under the finger', () => {
+  let t = addPiece(table(), newPiece('meeple', 'm', { x: 500, y: 500 }, 6, 'cube'));
+  assert.equal(pieceAt(t, 500 + 35, 500)?.piece.id, undefined);
+  assert.equal(pieceAt(t, 500 + 35, 500, 40)?.piece.id, 'm');
+  t = addPiece(t, newPiece('die', 'd', { x: 570, y: 500 }));
+  assert.equal(pieceAt(t, 545, 500, 40)?.piece.id, 'd');
+});

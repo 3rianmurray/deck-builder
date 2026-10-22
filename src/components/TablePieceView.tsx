@@ -1001,7 +1001,7 @@ function Track({ piece, color, selected }: { piece: TablePiece; color: string; s
 }
 /**
  * Custom art: the player's own picture at its own shape. A cut-out (see-through) shows just its subject, with a
- * shadow of the same outline under it; any other, as a print with slightly rounded corners and a shadow.
+ * shadow of the same outline under it; any other, as a print with slightly rounded corners and a shadow. Drawn from its\n * full picture, not one shrunk to its size on the table: zoomed in, it stays sharp (as cards' art does).
  */
 function Art({ piece, w, h, selected }: { piece: TablePiece; w: number; h: number; selected: boolean }) {
   if (!piece.image) return <View style={[styles.artMissing, selected && styles.artSelected]} />;
@@ -1010,15 +1010,15 @@ function Art({ piece, w, h, selected }: { piece: TablePiece; w: number; h: numbe
     return (
       <View style={StyleSheet.absoluteFill}>
         {/* Its shadow: the same picture, darkened to a silhouette, a little down and right. */}
-        <Image source={{ uri }} style={[StyleSheet.absoluteFill, styles.artShadow]} contentFit="contain" tintColor="#000" cachePolicy="memory-disk" />
-        <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="contain" cachePolicy="memory-disk" />
+        <Image source={{ uri }} style={[StyleSheet.absoluteFill, styles.artShadow]} contentFit="contain" tintColor="#000" cachePolicy="memory-disk" allowDownscaling={false} />
+        <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="contain" cachePolicy="memory-disk" allowDownscaling={false} />
         {selected ? <View style={[StyleSheet.absoluteFill, styles.artSelected]} /> : null}
       </View>
     );
   }
   return (
     <View style={[styles.artPrint, { width: w, height: h }, selected && styles.artSelected]}>
-      <Image source={{ uri }} style={[StyleSheet.absoluteFill, styles.artPrintImage]} contentFit="cover" cachePolicy="memory-disk" />
+      <Image source={{ uri }} style={[StyleSheet.absoluteFill, styles.artPrintImage]} contentFit="cover" cachePolicy="memory-disk" allowDownscaling={false} />
     </View>
   );
 }

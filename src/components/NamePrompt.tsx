@@ -15,9 +15,12 @@ export function NamePrompt() {
   const [draft, setDraft] = useState('');
   // A new request starts from its own name.
   const [shown, setShown] = useState<typeof request>(null);
+  // A name is title-cased as it's typed; a number or a time is kept as typed, with the number keyboard.
+  const kind = shown?.kind ?? 'name';
+  const asTyped = (t: string) => (kind === 'name' ? titleCase(t) : t);
   if (request !== shown) {
     setShown(request);
-    setDraft(request ? titleCase(request.current) : '');
+    setDraft(request ? ((request.kind ?? 'name') === 'name' ? titleCase(request.current) : request.current) : '');
   }
   const save = () => answerName(draft);
 
@@ -33,13 +36,15 @@ export function NamePrompt() {
             maxFontSizeMultiplier={MAX_TEXT_SCALE}
             value={draft}
             maxLength={MAX_NAME_LENGTH}
-            onChangeText={(t) => setDraft(titleCase(t))}
-            autoCapitalize="words"
+            onChangeText={(t) => setDraft(asTyped(t))}
+            autoCapitalize={kind === 'name' ? 'words' : 'none'}
+            // Digits only for a count; with a minus sign, or a colon for a time, the keyboard that has them.
+            keyboardType={kind === 'number' ? 'number-pad' : kind === 'name' ? 'default' : 'numbers-and-punctuation'}
             returnKeyType="done"
             onSubmitEditing={save}
             style={styles.input}
             placeholderTextColor={colors.textMuted}
-            placeholder="Name"
+            placeholder={kind === 'name' ? 'Name' : kind === 'time' ? '1:30' : '0'}
           />
           <View style={styles.buttons}>
             <Button label="Cancel" onPress={() => answerName(null)} style={{ flex: 1 }} />

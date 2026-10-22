@@ -11,7 +11,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useDecks } from '../lib/DecksContext';
-import { askName } from '../lib/names';
+import { askName, askNumber } from '../lib/names';
 import * as haptics from '../lib/haptics';
 import { newId } from '../lib/id';
 import {
@@ -370,6 +370,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   // Every other time: not moved. (Set, not just left off: a moving style taken off a view leaves its last move on
   // it, so a piece would be drawn where it wasn't, and couldn't be picked up where it was seen.)
   const pieceStillStyle = useAnimatedStyle(() => ({ transform: [{ translateX: 0 }, { translateY: 0 }] }));
+  /**
+   * Pieces being dragged follow the finger by this much (table units), on the animation thread: the same drawing
+   * moved along, never drawn again (or stretched) as it goes, so it stays as sharp as it lies.
+   */
+  const pieceDX = useSharedValue(0);
+  const pieceDY = useSharedValue(0);
+  const pieceDragStyle = useAnimatedStyle(() => ({ transform: [{ translateX: pieceDX.value }, { translateY: pieceDY.value }] }));
   /** Cards flying into a stack just gathered (each the top of a stack that was picked out). */
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   /** Where carried cards would go into the hand, while they're over it: a gap opens there. */
@@ -1332,6 +1339,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         whole?: boolean;
         /** A piece just taken out of a bag (see PieceDrag). */
         out?: { bagId: string; piece: TablePiece };
+        /** The drag's been shown (and with what turn): after that, only the shared move changes as the finger does. */
+        shown?: boolean;
+        shownTurn?: number;
         /** Custom art being twisted by a second finger (which, the fingers' angle then, its turn then), and its turn now. */
         twist?: { id: number; from: number; base: number } | null;
         turn?: number;
@@ -1761,7 +1771,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       }
       const piece = { ...item.piece!, x: w.x, y: w.y };
       const out = { bagId: bag.id, piece };
-      touch.piece = { id: piece.id, part: 'body', group: [piece.id], from: w, moved: true, out };
+      touch.piece = { id: piece.id, part: 'body', group: [piece.id], from: w, moved: true, out, shown: true };
+      pieceDX.set(0);
+      pieceDY.set(0);
       L.setPieceDrag({ lead: piece.id, ids: [piece.id], dx: 0, dy: 0, out });
     };
     const down = (changed: Touch[]) => {
@@ -2085,7 +2097,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           touch.piece.twist = null;
         }
         const { id, group, from, out, turn } = touch.piece;
-        latest.get().setPieceDrag({ lead: id, ids: group, dx: w.x - from.x, dy: w.y - from.y, ...(out ? { out } : {}), ...(turn !== undefined ? { turn } : {}) });
+        pieceDX.set(w.x - from.x);
+        pieceDY.set(w.y - from.y);
+        // Which pieces follow (and a twisted one's turn) is told once, and again only when the turn changes.
+        if (!touch.piece.shown || turn !== touch.piece.shownTurn) {
+          touch.piece.shown = true;
+          touch.piece.shownTurn = turn;
+          latest.get().setPieceDrag({ lead: id, ids: group, dx: 0, dy: 0, ...(out ? { out } : {}), ...(turn !== undefined ? { turn } : {}) });
+        }
         return;
       }
       if (touch.mode === 'lasso') {
@@ -3024,6 +3043,9 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       // What opens over the table once this has gone: another menu, the name prompt, the system's picture menu.
       const next = (m: Menu) => () => setTimeout(() => setMenu(m), 250);
       const ask = (title: string, current: string, done: (text: string) => void) => () => setTimeout(() => rename(title, current, done), 350);
+      // A number (or a time), with the number keyboard.
+      const askNum = (title: string, current: string, done: (text: string) => void, kind: 'number' | 'signed' | 'time' = 'number') => () =>
+        setTimeout(() => askNumber(title, current, done, kind), 350);
       const colorTile = tile('Color', 'paintpalette', 'palette', next({ kind: 'pieceColor', id }));
       // Not for what's locked in place (it's meant to stay as it is).
       const scaleTile = tile('Scale', 'arrow.up.left.and.arrow.down.right', 'open_in_full', () => openScale([], [id]), !!piece.locked);
@@ -3060,10 +3082,15 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 'Number',
                 'number',
                 'pin',
-                ask('Set the number', String(piece.value), (text) => {
-                  const n = parseInt(text.replace(/[^\d-]/g, ''), 10);
-                  if (Number.isFinite(n)) commit(setPiece(table, id, { value: n }));
-                }),
+                askNum(
+                  'Set the number',
+                  String(piece.value),
+                  (text) => {
+                    const n = parseInt(text.replace(/[^\d-]/g, ''), 10);
+                    if (Number.isFinite(n)) commit(setPiece(table, id, { value: n }));
+                  },
+                  'signed',
+                ),
               ),
               tile('Reset', 'arrow.counterclockwise', 'restart_alt', () => commit(setPiece(table, id, { value: 0 }))),
               tile('Name', 'character.cursor.ibeam', 'edit', named('Name the counter', piece.label ?? '')),
@@ -3101,7 +3128,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 'How many',
                 'number',
                 'pin',
-                ask('How many', String(piece.value), (text) => {
+                askNum('How many', String(piece.value), (text) => {
                   const n = parseInt(text.replace(/\D/g, ''), 10);
                   if (n > 0) commit(setPiece(table, id, { value: Math.min(999, n) }));
                 }),
@@ -3125,11 +3152,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 'Time',
                 'timer',
                 'timer',
-                ask('Minutes, or minutes:seconds', timerText(piece.value), (text) => {
-                  const secs = parseTimerText(text);
-                  if (secs) commit(setPiece(table, id, { value: secs, endsAt: undefined, left: undefined }));
-                  else Alert.alert('That isn’t a time', 'Type minutes (like 5) or minutes and seconds (like 1:30).');
-                }),
+                askNum(
+                  'Minutes, or minutes:seconds',
+                  timerText(piece.value),
+                  (text) => {
+                    const secs = parseTimerText(text);
+                    if (secs) commit(setPiece(table, id, { value: secs, endsAt: undefined, left: undefined }));
+                    else Alert.alert('That isn’t a time', 'Type minutes (like 5) or minutes and seconds (like 1:30).');
+                  },
+                  'time',
+                ),
               ),
               tile('Reset', 'arrow.counterclockwise', 'restart_alt', () => commit(setPiece(table, id, { endsAt: undefined, left: undefined }))),
               colorTile,
@@ -3145,7 +3177,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 'Spaces',
                 'number',
                 'pin',
-                ask(`Spaces (2 to ${TRACK_MAX})`, String(piece.spaces ?? 10), (text) => {
+                askNum(`Spaces (2 to ${TRACK_MAX})`, String(piece.spaces ?? 10), (text) => {
                   const n = Math.min(TRACK_MAX, Math.max(2, parseInt(text.replace(/\D/g, ''), 10) || 0));
                   commit(setPiece(table, id, { spaces: n, value: Math.min(piece.value, n - 1) }));
                 }),
@@ -3474,8 +3506,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const chosenIds = new Set(chosen);
   /** A piece's menu is laid out as a card's (see CardFocus), not as a sheet. */
   const menuIsPiece = menu?.kind === 'piece';
-  /** A piece being dragged: drawn over everything meanwhile (picked out with dragged cards, it moves where it lies). */
-  const floating = (p: TablePiece) => !!pieceDrag?.ids.includes(p.id);
+  /** How a piece is moved for now: dragged (with the finger), with picked-out cards being dragged, or not at all. */
+  const moveStyleOf = (p: TablePiece) => (pieceDrag?.ids.includes(p.id) ? pieceDragStyle : groupMoving && pickedPieces.includes(p.id) ? pieceGroupStyle : pieceStillStyle);
   /** A piece as it's drawn on the table. */
   const drawPiece = (p: TablePiece) => {
     const dragged = !!pieceDrag?.ids.includes(p.id);
@@ -3484,18 +3516,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <TablePieceView
         key={p.id}
         piece={p}
-        at={dragged && pieceDrag ? { x: p.x + pieceDrag.dx, y: p.y + pieceDrag.dy } : undefined}
-        lifted={dragged}
         turn={turn}
         rollKey={rolls[p.id]?.key}
         rollFrom={rolls[p.id]}
         selected={pickedPieces.includes(p.id)}
       />
     );
-    // Picked out with cards that are being dragged: they go along with them. (Always in this wrapper, so it's the
-    // same view throughout, never drawn afresh: a picture would flicker, or wait to load again.)
+    // Moved by its wrapper (dragged, or with dragged cards), always the same view, never drawn afresh as it moves:
+    // a picture would flicker or go soft, or wait to load again.
     return (
-      <Animated.View key={p.id} style={[styles.pieceGroup, groupMoving && pickedPieces.includes(p.id) ? pieceGroupStyle : pieceStillStyle]}>
+      <Animated.View key={p.id} style={[styles.pieceGroup, moveStyleOf(p)]}>
         {view}
       </Animated.View>
     );
@@ -3504,7 +3534,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const stackIds = new Set(table?.stacks.map((s) => s.id));
   const artOver = (stackId: string | null) =>
     (table?.pieces ?? [])
-      .filter((p) => p.kind === 'art' && !floating(p) && (stackId ? p.over === stackId : !p.over || !stackIds.has(p.over)))
+      .filter((p) => p.kind === 'art' && (stackId ? p.over === stackId : !p.over || !stackIds.has(p.over)))
       .map(drawPiece);
   const theme = themeOf(table.background);
   const ink = (alpha: number) => `rgba(${theme.ink},${alpha})`;
@@ -3540,8 +3570,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               .filter((p) => p.kind === 'zone')
               .map((p) => {
                 const shown = zoneSize?.id === p.id ? { ...p, ...resizeZone(p, zoneSize.w, zoneSize.h) } : p;
-                const dragged = !!pieceDrag?.ids.includes(p.id);
-                return <TablePieceView key={p.id} piece={shown} at={dragged && pieceDrag ? { x: p.x + pieceDrag.dx, y: p.y + pieceDrag.dy } : undefined} />;
+                return (
+                  <Animated.View key={p.id} style={[styles.pieceGroup, moveStyleOf(p)]}>
+                    <TablePieceView piece={shown} />
+                  </Animated.View>
+                );
               })}
             {/* Custom art under every card, then the stacks, each with any custom art lying just over it. */}
             {artOver(null)}
@@ -3571,15 +3604,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               </Fragment>
             ))}
             {/* Counters and dice, above every card (and custom art, while it's being moved). */}
-            {(table.pieces ?? []).map((p) => (p.kind === 'zone' || (p.kind === 'art' && !floating(p)) ? null : drawPiece(p)))}
+            {(table.pieces ?? []).map((p) => (p.kind === 'zone' || p.kind === 'art' ? null : drawPiece(p)))}
             {/* A piece just taken out of a bag, under the finger (it's on the table once it's put down). */}
             {pieceDrag?.out ? (
-              <TablePieceView
-                key={`out:${pieceDrag.out.piece.id}`}
-                piece={pieceDrag.out.piece}
-                at={{ x: pieceDrag.out.piece.x + pieceDrag.dx, y: pieceDrag.out.piece.y + pieceDrag.dy }}
-                lifted
-              />
+              <Animated.View key={`out:${pieceDrag.out.piece.id}`} style={[styles.pieceGroup, pieceDragStyle]}>
+                <TablePieceView piece={pieceDrag.out.piece} />
+              </Animated.View>
             ) : null}
             {/* A stack being shuffled: the riffle, played where it lies, turned as it is. */}
             {riffling && riffleStack && riffleDeck ? (

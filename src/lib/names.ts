@@ -16,11 +16,18 @@ export function titleCase(text: string): string {
   return text.replace(/(^|[\s\-/(])(\p{Ll})/gu, (_, before: string, letter: string) => before + letter.toUpperCase());
 }
 
+/**
+ * What's being asked for: words (a name, title-cased as it's typed); a whole number (`number`, or `signed` if it can
+ * be below 0); or a time (minutes, or minutes:seconds). Each brings up the keyboard it wants.
+ */
+export type AskKind = 'name' | 'number' | 'signed' | 'time';
+
 /** A name being asked for: the prompt's title, the name it starts with, and what's done with the new one. */
 export interface NameRequest {
   title: string;
   current: string;
   done: (name: string) => void;
+  kind?: AskKind;
 }
 
 let request: NameRequest | null = null;
@@ -37,6 +44,11 @@ const set = (next: NameRequest | null) => {
 /** Asks for a name (see NamePrompt); `done` gets it trimmed, and only if it isn't empty. */
 export function askName(title: string, current: string, done: (name: string) => void) {
   set({ title, current, done });
+}
+
+/** Asks for a number (or a time) the same way, with the number keyboard (see AskKind). */
+export function askNumber(title: string, current: string, done: (text: string) => void, kind: Exclude<AskKind, 'name'> = 'number') {
+  set({ title, current, done, kind });
 }
 
 /** Closes the prompt (with the name it gives, if any). */

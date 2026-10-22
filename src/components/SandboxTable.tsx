@@ -2911,9 +2911,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         tiles: [],
         actions: [
           ...(clip ? [{ label: clipSize(clip) === 1 ? 'Paste' : `Paste ${clipSize(clip)} things`, onPress: () => pasteClip(true) }] : []),
-          { label: 'Add a deck…', onPress: () => setTimeout(() => setMenu({ kind: 'addDeck' }), 250) },
-          // Its own screen, which iOS can only show once this menu has gone.
-          { label: 'Add cards…', opensModal: true, onPress: () => setAddingCards(true) },
           { label: 'Table theme…', onPress: () => setTimeout(() => setMenu({ kind: 'color' }), 250) },
           {
             label: 'Reset the view',

@@ -177,6 +177,8 @@ export interface SandboxTable {
   showGrid?: boolean;
   /** The grid's spacing, in table units, or none for GRID_STEP. */
   gridStep?: number;
+  /** For testing: each piece's hit box (where a finger catches it) outlined in green. */
+  showHitBoxes?: boolean;
   /** The hands' tray is hidden: the table runs to the bottom of the screen (the hands keep their cards). */
   hideHands?: boolean;
   /** Stacks don't show how many cards they hold. */

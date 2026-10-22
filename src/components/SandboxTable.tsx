@@ -366,18 +366,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       ],
     };
   });
-  /** Counters and dice picked out with dragged cards follow them (as far as they've gone; they don't turn). */
-  const pieceGroupStyle = useAnimatedStyle(() => ({ transform: [{ translateX: groupDX.value }, { translateY: groupDY.value }] }));
-  // Every other time: not moved. (Set, not just left off: a moving style taken off a view leaves its last move on
-  // it, so a piece would be drawn where it wasn't, and couldn't be picked up where it was seen.)
-  const pieceStillStyle = useAnimatedStyle(() => ({ transform: [{ translateX: 0 }, { translateY: 0 }] }));
   /**
-   * Pieces being dragged follow the finger by this much (table units), on the animation thread: the same drawing
-   * moved along, never drawn again (or stretched) as it goes, so it stays as sharp as it lies.
+   * How far counters and dice picked out with dragged cards have gone with them (they don't turn). Pieces are moved
+   * by where they're drawn (never by a moving style on their views: one could be left on a view used again for
+   * another piece, which was then drawn away from where it lay, and couldn't be picked up where it was seen).
    */
-  const pieceDX = useSharedValue(0);
-  const pieceDY = useSharedValue(0);
-  const pieceDragStyle = useAnimatedStyle(() => ({ transform: [{ translateX: pieceDX.value }, { translateY: pieceDY.value }] }));
+  const [groupShift, setGroupShift] = useState<{ dx: number; dy: number } | null>(null);
   /** Cards flying into a stack just gathered (each the top of a stack that was picked out). */
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   /** Where carried cards would go into the hand, while they're over it: a gap opens there. */
@@ -1095,6 +1089,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** The group let go: each stack moved as far as the finger went (and snapped to the grid, if it's on). */
   const dropGroup = (by: { x: number; y: number }) => {
     setGroupMoving(false);
+    setGroupShift(null);
     setGroupInHand(null);
     setFlyers([]);
     setPileFlights([]);
@@ -1149,6 +1144,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
    */
   const groupToHand = (at: number) => {
     setGroupMoving(false);
+    setGroupShift(null);
     setGroupInHand(null);
     setFlyers([]);
     setPileFlights([]);
@@ -1312,6 +1308,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       onRollButton: (x: number, y: number) => boolean;
       rollDice: (ids: string[]) => void;
       setPieceDrag: (d: PieceDrag | null) => void;
+      setGroupShift: (d: { dx: number; dy: number } | null) => void;
       dropPieces: (d: PieceDrag) => void;
       onDiceGridButton: (x: number, y: number) => boolean;
       gridPickedDice: () => void;
@@ -1323,7 +1320,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, addPieceToTable, openAddAt: (at) => { setAddAt(at); setMenu({ kind: 'components' }); }, dropIntoBag, setZoneSize, dropZoneSize, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, setGroupShift, addPieceToTable, openAddAt: (at) => { setAddAt(at); setMenu({ kind: 'components' }); }, dropIntoBag, setZoneSize, dropZoneSize, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -1343,9 +1340,6 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         whole?: boolean;
         /** A piece just taken out of a bag (see PieceDrag). */
         out?: { bagId: string; piece: TablePiece };
-        /** The drag's been shown (and with what turn): after that, only the shared move changes as the finger does. */
-        shown?: boolean;
-        shownTurn?: number;
         /** Custom art being twisted by a second finger (which, the fingers' angle then, its turn then), and its turn now. */
         twist?: { id: number; from: number; base: number } | null;
         turn?: number;
@@ -1775,9 +1769,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       }
       const piece = { ...item.piece!, x: w.x, y: w.y };
       const out = { bagId: bag.id, piece };
-      touch.piece = { id: piece.id, part: 'body', group: [piece.id], from: w, moved: true, out, shown: true };
-      pieceDX.set(0);
-      pieceDY.set(0);
+      touch.piece = { id: piece.id, part: 'body', group: [piece.id], from: w, moved: true, out };
       L.setPieceDrag({ lead: piece.id, ids: [piece.id], dx: 0, dy: 0, out });
     };
     const down = (changed: Touch[], fresh = false) => {
@@ -2104,14 +2096,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
           touch.piece.twist = null;
         }
         const { id, group, from, out, turn } = touch.piece;
-        pieceDX.set(w.x - from.x);
-        pieceDY.set(w.y - from.y);
-        // Which pieces follow (and a twisted one's turn) is told once, and again only when the turn changes.
-        if (!touch.piece.shown || turn !== touch.piece.shownTurn) {
-          touch.piece.shown = true;
-          touch.piece.shownTurn = turn;
-          latest.get().setPieceDrag({ lead: id, ids: group, dx: 0, dy: 0, ...(out ? { out } : {}), ...(turn !== undefined ? { turn } : {}) });
-        }
+        latest.get().setPieceDrag({ lead: id, ids: group, dx: w.x - from.x, dy: w.y - from.y, ...(out ? { out } : {}), ...(turn !== undefined ? { turn } : {}) });
         return;
       }
       if (touch.mode === 'lasso') {
@@ -2145,6 +2130,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         const w = toTable(readCamera(), f.now.x, f.now.y);
         groupDX.set(w.x - touch.groupFrom.x);
         groupDY.set(w.y - touch.groupFrom.y);
+        // Counters and dice picked out with them go along (drawn where they've got to).
+        if (latest.get().pickedPieces.length) latest.get().setGroupShift({ dx: w.x - touch.groupFrom.x, dy: w.y - touch.groupFrom.y });
         // Twisted by a second finger: turned round the first, settling onto the table's 45° steps when close.
         const tw = touch.groupTwist && touch.fingers.get(touch.groupTwist.id);
         if (touch.groupTwist && tw) {
@@ -3523,27 +3510,27 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   /** A piece's menu is laid out as a card's (see CardFocus), not as a sheet. */
   const menuIsPiece = menu?.kind === 'piece';
   /** How a piece is moved for now: dragged (with the finger), with picked-out cards being dragged, or not at all. */
-  const moveStyleOf = (p: TablePiece) => (pieceDrag?.ids.includes(p.id) ? pieceDragStyle : groupMoving && pickedPieces.includes(p.id) ? pieceGroupStyle : pieceStillStyle);
-  /** A piece as it's drawn on the table. */
+  /** Where a piece is drawn for now: as far as it's been dragged, or gone with dragged cards; or where it lies. */
+  const movedTo = (p: TablePiece) =>
+    pieceDrag?.ids.includes(p.id)
+      ? { x: p.x + pieceDrag.dx, y: p.y + pieceDrag.dy }
+      : groupMoving && groupShift && pickedPieces.includes(p.id)
+        ? { x: p.x + groupShift.dx, y: p.y + groupShift.dy }
+        : undefined;
+  /** A piece as it's drawn on the table (always the same view, never drawn afresh as it moves). */
   const drawPiece = (p: TablePiece) => {
     const dragged = !!pieceDrag?.ids.includes(p.id);
     const turn = dragged && pieceDrag?.lead === p.id ? pieceDrag.turn : undefined;
-    const view = (
+    return (
       <TablePieceView
         key={p.id}
         piece={p}
+        at={movedTo(p)}
         turn={turn}
         rollKey={rolls[p.id]?.key}
         rollFrom={rolls[p.id]}
         selected={pickedPieces.includes(p.id)}
       />
-    );
-    // Moved by its wrapper (dragged, or with dragged cards), always the same view, never drawn afresh as it moves:
-    // a picture would flicker or go soft, or wait to load again.
-    return (
-      <Animated.View key={p.id} style={[styles.pieceGroup, moveStyleOf(p)]}>
-        {view}
-      </Animated.View>
     );
   };
   /** The custom art lying just over a stack (or, for null, under every card), where it lies. */
@@ -3586,11 +3573,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
               .filter((p) => p.kind === 'zone')
               .map((p) => {
                 const shown = zoneSize?.id === p.id ? { ...p, ...resizeZone(p, zoneSize.w, zoneSize.h) } : p;
-                return (
-                  <Animated.View key={p.id} style={[styles.pieceGroup, moveStyleOf(p)]}>
-                    <TablePieceView piece={shown} />
-                  </Animated.View>
-                );
+                return <TablePieceView key={p.id} piece={shown} at={movedTo(p)} />;
               })}
             {/* Custom art under every card, then the stacks, each with any custom art lying just over it. */}
             {artOver(null)}
@@ -3621,11 +3604,27 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             ))}
             {/* Counters and dice, above every card (and custom art, while it's being moved). */}
             {(table.pieces ?? []).map((p) => (p.kind === 'zone' || p.kind === 'art' ? null : drawPiece(p)))}
+            {/* For testing: where each piece really is (what a finger catches), as a thin green outline. */}
+            {table.showHitBoxes
+              ? (table.pieces ?? []).map((p) => {
+                  const { w: bw, h: bh } = pieceSizeOf(p);
+                  const at = movedTo(p) ?? p;
+                  return (
+                    <View
+                      key={`hit:${p.id}`}
+                      pointerEvents="none"
+                      style={[styles.hitBox, { left: at.x - bw / 2, top: at.y - bh / 2, width: bw, height: bh, transform: [{ rotate: `${p.angle ?? 0}deg` }] }]}
+                    />
+                  );
+                })
+              : null}
             {/* A piece just taken out of a bag, under the finger (it's on the table once it's put down). */}
             {pieceDrag?.out ? (
-              <Animated.View key={`out:${pieceDrag.out.piece.id}`} style={[styles.pieceGroup, pieceDragStyle]}>
-                <TablePieceView piece={pieceDrag.out.piece} />
-              </Animated.View>
+              <TablePieceView
+                key={`out:${pieceDrag.out.piece.id}`}
+                piece={pieceDrag.out.piece}
+                at={{ x: pieceDrag.out.piece.x + pieceDrag.dx, y: pieceDrag.out.piece.y + pieceDrag.dy }}
+              />
             ) : null}
             {/* A stack being shuffled: the riffle, played where it lies, turned as it is. */}
             {riffling && riffleStack && riffleDeck ? (
@@ -3828,6 +3827,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                   ['grid', 'grid_4x4', 'Show grid', !!table.showGrid, (on: boolean) => ({ showGrid: on }), 'Draws the grid’s lines on the table.'],
                   ['number', 'tag', 'Stack counts', !table.hideCounts, (on: boolean) => ({ hideCounts: !on }), 'Shows how many cards each stack holds.'],
                   ['lock', 'lock', 'Lock camera', !!table.lockCamera, (on: boolean) => ({ lockCamera: on }), 'The view stays put: sliding, zooming and turning the table do nothing. Cards still move.'],
+                  // For testing: where each piece really is (see showHitBoxes).
+                  ['viewfinder', 'crop_free', 'Show hit boxes', !!table.showHitBoxes, (on: boolean) => ({ showHitBoxes: on || undefined }), 'A thin green outline where each component really is.'],
                 ] as const
               ).map(([ios, android, label, value, change, hint]) => (
                 <View key={label} style={styles.toolRow}>
@@ -4642,8 +4643,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
   },
   held: { position: 'absolute' },
-  // Counters and dice moving with dragged cards: laid out on the table's terms, as the rest are.
-  pieceGroup: { position: 'absolute', left: 0, top: 0 },
+  // For testing: a piece's hit box (see showHitBoxes).
+  hitBox: { position: 'absolute', borderWidth: 1.5, borderColor: '#3ddc84' },
   hidden: { opacity: 0 },
   /** The selection's buttons while the tools lie over them: dimmed, and doing nothing till they're put away. */
   waiting: { opacity: 0.5 },

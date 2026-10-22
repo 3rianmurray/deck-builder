@@ -50,11 +50,18 @@ export interface ProState {
   busy: boolean;
 }
 
+/**
+ * A build with the tester switch always showing in About, Pro until it's switched to free (`extra.testerSwitch` in
+ * its app config: the iPad test build's, whose App Store environment never came back as a test one; never set for
+ * the App Store).
+ */
+export const TESTER_BUILD = !!(Constants.expoConfig?.extra as { testerSwitch?: boolean } | undefined)?.testerSwitch;
+
 let state: ProState = {
   owned: !!loadSettings().proOwned,
   price: null,
   available: true,
-  testing: __DEV__,
+  testing: __DEV__ || TESTER_BUILD,
   override: loadSettings().proOverride ?? null,
   busy: false,
 };
@@ -68,16 +75,11 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 
-/**
- * A build that comes with Pro on (`extra.unlockPro` in its app config: the iPad test build's, for testing; never
- * one for the App Store).
- */
-const UNLOCKED = !!(Constants.expoConfig?.extra as { unlockPro?: boolean } | undefined)?.unlockPro;
-
 /** Whether Pro is on: owned, or switched on for testing. Where there's no App Store (Expo Go), everything's open. */
 export function isPro(s: ProState = state): boolean {
-  if (UNLOCKED) return true;
   if (s.testing && s.override) return s.override === 'pro';
+  // A tester build, not switched either way: as Pro.
+  if (TESTER_BUILD) return true;
   return s.owned || !s.available;
 }
 

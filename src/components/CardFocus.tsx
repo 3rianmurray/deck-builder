@@ -41,6 +41,13 @@ interface Props {
   onClose: () => void;
   /** Shown over it, filling the screen (the card full size); this stays open underneath. */
   overlay?: ReactNode;
+  /**
+   * Instead of a copy of the card: the thing itself, where it lies (the camera glides in on it), lit up over the
+   * darkened table. The options sit at the bottom of the screen, and onOptionsTop says where they start, so it
+   * can be centered above them.
+   */
+  spotlight?: ReactNode;
+  onOptionsTop?: (y: number) => void;
 }
 
 /**
@@ -57,7 +64,8 @@ export function CardFocus(props: Props) {
     return { keep: (p: Props) => Object.assign(box, { last: p }), get: () => box.last };
   }, []);
   if (visible) kept.keep(props);
-  const { card, title, tiles, rows, panel, overlay } = visible ? props : (kept.get() ?? props);
+  const { card, title, tiles, rows, panel, overlay, spotlight } = visible ? props : (kept.get() ?? props);
+  const { onOptionsTop } = props;
 
   const [mounted, setMounted] = useState(visible);
   if (visible && !mounted) setMounted(true);
@@ -112,23 +120,39 @@ export function CardFocus(props: Props) {
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose}>
       {/* The screen behind, darkened; tapping it closes this. */}
-      <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: anim.shown }]}>
+      <Animated.View style={[StyleSheet.absoluteFill, spotlight ? styles.darker : styles.backdrop, { opacity: anim.shown }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
       </Animated.View>
+      {/* The thing itself, lit up as the rest goes dark (a tap on it, as on the dark, closes this). */}
+      {spotlight ? (
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: anim.shown }]}>
+          {spotlight}
+        </Animated.View>
+      ) : null}
       <Animated.View
         pointerEvents="box-none"
         style={[
           styles.middle,
+          !!spotlight && styles.bottom,
           { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 },
           {
             opacity: anim.shown,
             transform: [{ scale: anim.shown.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }],
           },
         ]}>
-        {title ? <Text style={styles.title}>{title}</Text> : null}
-        <Animated.View {...cardTouches.panHandlers} style={{ transform: anim.pan.getTranslateTransform() }}>
-          {card}
-        </Animated.View>
+        {spotlight ? null : (
+          <>
+            {title ? <Text style={styles.title}>{title}</Text> : null}
+            <Animated.View {...cardTouches.panHandlers} style={{ transform: anim.pan.getTranslateTransform() }}>
+              {card}
+            </Animated.View>
+          </>
+        )}
+        <View
+          pointerEvents="box-none"
+          style={styles.options}
+          onLayout={(e) => visible && onOptionsTop?.(e.nativeEvent.layout.y)}>
+        {spotlight && title ? <Text style={styles.title}>{title}</Text> : null}
         {panel ?? (
           <>
           <View style={styles.tiles}>
@@ -200,6 +224,7 @@ export function CardFocus(props: Props) {
           ) : null}
           </>
         )}
+        </View>
       </Animated.View>
       {overlay}
     </Modal>
@@ -211,7 +236,12 @@ const ROW_H = 44;
 
 const styles = StyleSheet.create({
   backdrop: { backgroundColor: 'rgba(0,0,0,0.3)' },
+  // Behind the thing lit up: the rest of the table, well darkened.
+  darker: { backgroundColor: 'rgba(0,0,0,0.62)' },
   middle: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', gap: 18 },
+  // With the thing lit up where it lies: the options at the foot of the screen, under it.
+  bottom: { justifyContent: 'flex-end' },
+  options: { alignItems: 'center', gap: 18, alignSelf: 'stretch' },
   title: {
     color: colors.text,
     fontSize: 15,

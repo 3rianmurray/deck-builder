@@ -79,6 +79,7 @@ import {
   reorderBag,
   shuffleBag,
   keepCards,
+  MIN_ZOOM,
   takeFromBag,
   trackSpaceAt,
   TRACK_MAX,
@@ -198,6 +199,13 @@ const DICE_AT_ONCE = 20;
 const TAKE_OUT_FINGER = -7;
 /** How long a stack brought onto the table takes to fly in (and the camera to glide over to it). */
 const ARRIVE_MS = 480;
+/**
+ * Opening a stack's or piece's options: how long the camera takes to glide in on it, how much of the room above
+ * the options it then fills, and the closest it comes (a die isn't blown up to fill the screen).
+ */
+const SPOT_MS = 280;
+const SPOT_FILL = 0.7;
+const SPOT_MAX_ZOOM = 2.5;
 /** Hand cards sliding to new places (one gone, one coming in, the gap moving). */
 const HAND_SLIDE = LinearTransition.duration(200);
 /** A finger moving less than this before lifting is a tap. */
@@ -2887,6 +2895,91 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   };
   const menuStack = menu?.kind === 'stack' ? table?.stacks.find((s) => s.id === menu.id) : undefined;
   const menuHandCard = menu?.kind === 'hand' ? table?.hands[menu.hand].find((c) => c.iid === menu.iid) : undefined;
+
+  // ---- A stack's or piece's options: the camera glides in on it where it lies, and the rest goes dark. ----
+  /** Where its options start on screen, once laid out: it's centered in the room above them. */
+  const [optionsTop, setOptionsTop] = useState<number | null>(null);
+  /** The camera before it glided in (to glide back to as the options close), and where it glided to. */
+  const [glide] = useState(() => {
+    const box: { before: Camera | null; to: Camera | null } = { before: null, to: null };
+    return { get: () => box, set: (next: Partial<typeof box>) => Object.assign(box, next) };
+  });
+  const spotPiece = menu?.kind === 'piece' ? table?.pieces?.find((p) => p.id === menu.id) : undefined;
+  /** What's lit up: where it lies, how big, and its turn on the table. */
+  const spot = (() => {
+    if (menuStack) {
+      const { w, h } = cardSizeOf(menuStack.cards[menuStack.cards.length - 1], size);
+      return { key: `s:${menuStack.id}`, x: menuStack.x, y: menuStack.y, w, h, angle: menuStack.angle };
+    }
+    if (spotPiece) {
+      const { w, h } = pieceSizeOf(spotPiece);
+      return { key: `p:${spotPiece.id}`, x: spotPiece.x, y: spotPiece.y, w, h, angle: spotPiece.kind === 'art' ? (spotPiece.angle ?? 0) : 0 };
+    }
+    return null;
+  })();
+  const spotKey = spot?.key ?? null;
+  const glideCamera = (to: Camera) => {
+    const t = { duration: SPOT_MS, easing: ReEasing.out(ReEasing.cubic) };
+    camA.set(withTiming(to.a, t));
+    camB.set(withTiming(to.b, t));
+    camX.set(withTiming(to.tx, t));
+    camY.set(withTiming(to.ty, t));
+  };
+  useEffect(() => {
+    if (!spot) {
+      // Closed: back to where the camera was, unless something chosen has moved it since.
+      const { before, to } = glide.get();
+      glide.set({ before: null, to: null });
+      const now = readCamera();
+      if (before && to && Math.abs(now.tx - to.tx) < 2 && Math.abs(now.ty - to.ty) < 2 && Math.abs(now.a - to.a) < 0.01) glideCamera(before);
+      return;
+    }
+    if (optionsTop === null) return;
+    const cam = glide.get().before ?? readCamera();
+    const turn = Math.atan2(cam.b, cam.a);
+    // Its outline as seen on screen (turned with the table), fitted to the room above the options.
+    const seen = turn + (spot.angle * Math.PI) / 180;
+    const bw = Math.abs(spot.w * Math.cos(seen)) + Math.abs(spot.h * Math.sin(seen));
+    const bh = Math.abs(spot.w * Math.sin(seen)) + Math.abs(spot.h * Math.cos(seen));
+    const roomTop = insets.top + 16;
+    const room = { w: screenW - 64, h: Math.max(80, optionsTop - roomTop - 16) };
+    const z = Math.min(SPOT_MAX_ZOOM, Math.max(MIN_ZOOM, SPOT_FILL * Math.min(room.w / Math.max(1, bw), room.h / Math.max(1, bh))));
+    const at = { x: screenW / 2, y: roomTop + room.h / 2 };
+    const a = z * Math.cos(turn);
+    const b = z * Math.sin(turn);
+    const to = { a, b, tx: at.x - (a * spot.x - b * spot.y), ty: at.y - (b * spot.x + a * spot.y) };
+    glide.set({ before: cam, to });
+    glideCamera(to);
+    // As it opens (and if its options change size, or it changes).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spotKey, optionsTop]);
+  /** It, lit up over the darkened table: drawn as it lies, through the same camera, so it's just where it is. */
+  const spotStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: camX.value },
+      { translateY: camY.value },
+      { rotate: `${Math.atan2(camB.value, camA.value)}rad` },
+      { scale: Math.hypot(camA.value, camB.value) },
+    ],
+  }));
+  const spotlight = spot ? (
+    <Animated.View style={[styles.world, spotStyle]} pointerEvents="none">
+      {menuStack ? (
+        <StackView
+          stack={menuStack}
+          deck={decksById.get(menuStack.cards[menuStack.cards.length - 1].deckId)}
+          decks={decksById}
+          size={cardSizeOf(menuStack.cards[menuStack.cards.length - 1], size)}
+          hidden=""
+          target={false}
+          selected={false}
+          showCount={!table?.hideCounts}
+        />
+      ) : spotPiece ? (
+        <TablePieceView piece={spotPiece} />
+      ) : null}
+    </Animated.View>
+  ) : undefined;
   const sheet = (() => {
     if (!table || !menu) return null;
     if (menu.kind === 'stack' && menuStack) {
@@ -4228,6 +4321,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       <CardFocus
         visible={!!sheet && (menu?.kind === 'stack' || menu?.kind === 'hand' || menuIsPiece)}
         card={sheet && 'header' in sheet ? sheet.header : null}
+        spotlight={spotlight}
+        onOptionsTop={setOptionsTop}
         title={sheet?.title}
         tiles={sheet?.tiles ?? []}
         rows={sheet && 'rows' in sheet ? sheet.rows : undefined}

@@ -10,16 +10,18 @@ import { FREE_CARD_LIMIT } from '../lib/limits';
 import { buyPro, isPro, restorePro, useProState } from '../lib/pro';
 import { colors } from '../theme';
 
-/** Why the screen was opened: the card limit reached, or a deck file wanted. */
-type Reason = 'cards' | 'files';
+/** Why the screen was opened: the card limit reached, a deck file wanted, or one of the table's components. */
+type Reason = 'cards' | 'files' | 'components';
 
 const REASONS: Record<Reason, string> = {
   cards: `The free version holds ${FREE_CARD_LIMIT} cards, and you’ve used them all. Pro removes the limit.`,
   files: 'Sharing, backing up and importing decks and tables are part of Pro.',
+  components: 'Bags, tracks, timers, counters and the rest of the table’s components are part of Pro. Dice are free, and the Playground has them all to try.',
 };
 
 const PERKS: [string, string][] = [
   ['Unlimited cards', `No ${FREE_CARD_LIMIT}-card limit: every deck for every game.`],
+  ['Every component', 'Bags, tracks, timers, counters, pieces, zones and your own art, on any table.'],
   ['Share decks and tables', 'Send a deck, a group or a whole table to a friend as one file.'],
   ['Back up and import', 'Keep everything safe in Files, and bring it to a new phone.'],
   ['Support Shufflevale', 'Made by one person. Every Pro keeps it growing.'],

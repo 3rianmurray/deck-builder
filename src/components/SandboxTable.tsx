@@ -135,6 +135,7 @@ import type { BagItem, Camera, CardSize, PieceKind, PiecePart, PieceShape, Sandb
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { artPicture, tokenPicture } from '../lib/images';
+import { isPlayground, isProPiece, usePro } from '../lib/pro';
 import { updateSandbox, useSandbox } from '../lib/sandboxStore';
 import { clipSize, setClip, useClip } from '../lib/tableClipboard';
 import { offerTipAfterUses, offerTipSoon, tipLearned } from '../lib/tips';
@@ -927,6 +928,11 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
   const dropIntoBag = (bagId: string, items: BagItem[], without: SandboxTable) => {
     const bag = without.pieces?.find((p) => p.id === bagId);
     if (!bag || !items.length) return;
+    // A bag that's part of Pro, with Pro off: what's dropped stays where it was.
+    if (lockedOut(bagId)) {
+      haptics.warn();
+      return openPro();
+    }
     if (!bagTakes(bag, items)) return haptics.warn();
     const put = (asSupply: boolean) => {
       commit(putInBag(without, bagId, items, asSupply));
@@ -967,6 +973,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
    * so the picker that follows always opens (one of our sheets still sliding away could stop it).
    */
   const choosePicture = (target: PictureTarget) => {
+    // New custom art (or a token) is part of Pro.
+    if (!target.id && !pro) return openPro();
     const sources: PictureSource[] = ['photos', 'files', 'camera'];
     const title = target.id ? 'Change the picture' : target.kind === 'art' ? 'Custom art' : 'Token picture';
     if (Platform.OS === 'ios') {
@@ -1045,13 +1053,32 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     commit(gridDice(table, pickedDice));
     haptics.drop();
   };
-  /** A new piece in the middle of what's in view (a little apart from the last few, so they don't hide each other). */
+  // ---- Pro: every component but dice is part of it. The Playground's are there to try, but nothing more comes
+  // onto it (no cards, no more components, nothing pasted) and nothing of it goes elsewhere (copies need Pro). ----
+  const pro = usePro();
+  const playgroundHere = !!table && isPlayground(table.id);
+  /** A Pro component that can't be used here: Pro is off (refunded, say) and this isn't the Playground. Left as it lies. */
+  const lockedOut = (id: string) => {
+    const p = table?.pieces?.find((x) => x.id === id);
+    return !!p && !pro && !playgroundHere && isProPiece(p);
+  };
+  const openPro = () => router.push({ pathname: '/pro', params: { reason: 'components' } });
+  /** Something brought onto the Playground without Pro: it's for trying what's there. */
+  const playgroundOnly = () => {
+    haptics.warn();
+    Alert.alert('The Playground is for trying things out', 'Everything on it can be used here. Bringing more onto it, and using components on tables of your own, is part of Pro.', [
+      { text: 'OK', style: 'cancel' },
+      { text: 'See Pro', onPress: openPro },
+    ]);
+  };
   /** Where what's added goes: where the table was held to add it, if it was; or the middle of the view. */
   const [addAt, setAddAt] = useState<{ x: number; y: number } | null>(null);
   const middleOfView = () => (view ? toTable(readCamera(), view.w / 2, (insets.top + TOP_BAR_H + handTop - HAND_TAB_H) / 2) : { x: TABLE_W / 2, y: TABLE_H / 2 });
   const addSpot = () => addAt ?? middleOfView();
   const addPieceToTable = (kind: PieceKind, sides?: number, shape?: PieceShape, extra?: Partial<TablePiece>) => {
     if (!table || !view) return;
+    // (The menus show these as Pro's: this is so nothing else can.)
+    if (!pro && isProPiece({ kind })) return openPro();
     const mid = addSpot();
     // In the middle of the view, a little apart from the last few (so they don't hide each other); where held, right there.
     const nudge = addAt ? 0 : ((table.pieces?.length ?? 0) % 5) * 24;
@@ -1318,10 +1345,12 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       openAddAt: (at: { x: number; y: number }) => void;
       dropIntoBag: (bagId: string, items: BagItem[], without: SandboxTable) => void;
       dropZoneSize: () => void;
+      lockedOut: (id: string) => boolean;
+      openPro: () => void;
     };
     return { set: (next: typeof box) => Object.assign(box, next), get: () => box };
   });
-  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, setGroupShift, addPieceToTable, openAddAt: (at) => { setAddAt(at); setMenu({ kind: 'components' }); }, dropIntoBag, setZoneSize, dropZoneSize, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice });
+  latest.set({ table, size, handTop, hand, handIndex, handCardAt, handInsertAt, maxHandScroll, gridOn, gridStep, setGroupInHand, flyPile, groupToHand, groupHandScale, handScaleOf, selected: chosen, setSelected: selectStacks, setLassoPath, setGroupMoving, stackButton, moreButton, dropGroup, flipGroup, trashSelection, selectionButtonAt, shuffleSelection, gatherGroup, flipFromTap, cameraLocked: !!table?.lockCamera, toolsOpen, showTools, fitAll: () => table && fitView(table), setHandGap: changeGap, flipButton, commit, saveCamera, setHeld, setTarget, setMenu, searchFrom: searching, endSearch, setGroupShift, addPieceToTable, openAddAt: (at) => { setAddAt(at); setMenu({ kind: 'components' }); }, dropIntoBag, setZoneSize, dropZoneSize, tapPiece, setPieceDrag, dropPieces, onDiceGridButton, gridPickedDice, pickedDice, pickedRollables, pickedPieces, setPickedPieces, onRollButton, rollDice, lockedOut, openPro });
 
   // The gesture in progress (never drawn from, so kept outside React state).
   const [gestureState] = useState(() => {
@@ -1694,6 +1723,14 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     /** A finger down on a piece (or an unlocked zone): a tap uses it, a drag moves it (and any picked out with it), a hold gives its options. */
     const pressPiece = (pressed: string, part: PiecePart, w: { x: number; y: number }) => {
       const L = latest.get();
+      // Part of Pro, with Pro off (and not on the Playground): left as it lies.
+      if (L.lockedOut(pressed)) {
+        touch.mode = 'button';
+        touch.onEmpty = false;
+        haptics.warn();
+        L.openPro();
+        return;
+      }
       // Picked out along with cards: dragged, it all goes (as if from one of the cards); held, the group's options.
       if (L.pickedPieces.includes(pressed) && L.selected.length) {
         touch.pressed = { kind: 'top', stackId: L.selected[L.selected.length - 1] };
@@ -1886,14 +1923,16 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         // is; locked, the table under it works as ever (and a hold still gives its options).
         if (L.table) {
           const grip = zoneGripAt(L.table, w.x, w.y, ZONE_GRIP_REACH / cameraZoom(readCamera()));
-          if (grip) {
+          if (grip && !L.lockedOut(grip.id)) {
             if (L.selected.length || L.pickedPieces.length) L.setSelected([]);
             touch.zone = { id: grip.id, from: w, size: pieceSizeOf({ ...grip, scale: 1 }), scale: grip.scale ?? 1 };
             touch.mode = 'zoneResize';
             haptics.lift();
             return;
           }
-          const zone = zoneAt(L.table, w.x, w.y);
+          // (One that's part of Pro, with Pro off, is just painted on: the table under it works as ever.)
+          const found = zoneAt(L.table, w.x, w.y);
+          const zone = found && !L.lockedOut(found.id) ? found : null;
           if (zone && !zone.locked) return pressPiece(zone.id, 'body', w);
           if (zone) {
             const held = zone.id;
@@ -2116,7 +2155,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
         L.setLassoPath(touch.lassoScreen);
         const caught = stacksInShape(L.table, touch.lasso, L.size);
         const picked = [...touch.lassoBase, ...caught.filter((id) => !touch.lassoBase.includes(id))];
-        const pieces = [...touch.lassoPieceBase, ...piecesInShape(L.table, touch.lasso).filter((id) => !touch.lassoPieceBase.includes(id))];
+        const pieces = [...touch.lassoPieceBase, ...piecesInShape(L.table, touch.lasso).filter((id) => !touch.lassoPieceBase.includes(id) && !L.lockedOut(id))];
         const grew = picked.length > L.selected.length || pieces.length > L.pickedPieces.length;
         if (picked.join() !== L.selected.join()) L.setSelected(picked);
         // Counters and dice too (set after the cards, which let them go when there are none).
@@ -2619,6 +2658,8 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
    */
   const pasteClip = (inMiddle = false) => {
     if (!table || !view || !clip) return;
+    if (!pro && playgroundHere) return playgroundOnly();
+    if (!pro && clip.pieces.some(isProPiece)) return openPro();
     if (!roomFor(table, clipCards(clip))) return;
     if (artCount + clip.pieces.filter((p) => p.kind === 'art').length > ART_MAX) return artFull();
     const { table: next, stackIds, pieceIds } = pasteItems(table, clip, inMiddle ? middleOfView() : addSpot(), newId);
@@ -2637,11 +2678,13 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
     return false;
   };
   const addDeckToTable = (deck: Deck) => {
+    if (!pro && playgroundHere) return playgroundOnly();
     if (!table || !roomFor(table, deckSize(deck))) return;
     arrive(addDeck(table, deck, viewMiddle(), newId));
   };
   /** Some of a deck's cards, chosen one by one: in one face-down stack. */
   const addCardsToTable = (deck: Deck, cardIds: string[]) => {
+    if (!pro && playgroundHere) return playgroundOnly();
     const more = deck.cards.filter((c) => cardIds.includes(c.id)).reduce((n, c) => n + copiesOf(c), 0);
     if (!table || !roomFor(table, more)) return;
     arrive(addCards(table, deck, cardIds, viewMiddle(), newId));
@@ -3391,21 +3434,27 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       // table's layout. Those with more to choose (which die, which deck, which picture) open another menu.
       const next = (m: Menu) => () => setTimeout(() => setMenu(m), 250);
       const icon = (ios: string, android: string) => ({ ios, android, web: android }) as SheetTile['icon'];
+      // Without Pro, all but the dice are tagged as Pro's, and open it (on the Playground too: it's to try what's there).
+      const proTile = (t: SheetTile): SheetTile => (pro ? t : { ...t, pro: true, opensModal: false, onPress: () => setTimeout(openPro, 250) });
       return {
         title: 'Add to the table',
         tiles: [
           { label: 'Dice', icon: icon('dice', 'casino'), onPress: next({ kind: 'addDie' }) },
-          { label: 'Coin', icon: icon('centsign.circle', 'toll'), onPress: () => addPieceToTable('coin') },
-          { label: 'Spinner', icon: icon('arrow.clockwise.circle', 'autorenew'), onPress: () => addPieceToTable('spinner') },
-          { label: 'Counter', icon: icon('plus.forwardslash.minus', 'exposure'), onPress: () => addPieceToTable('counter') },
-          { label: 'Timer', icon: icon('timer', 'timer'), onPress: () => addPieceToTable('timer') },
-          { label: 'Track', icon: icon('number.square', 'pin'), onPress: () => addPieceToTable('track') },
-          { label: 'Pieces', icon: icon('figure.stand', 'person'), onPress: next({ kind: 'addShape' }) },
-          { label: '1st player', icon: icon('star.circle', 'stars'), onPress: () => addPieceToTable('marker') },
-          { label: 'Custom art', icon: icon('photo.on.rectangle', 'add_photo_alternate'), opensModal: true, onPress: () => (artCount < ART_MAX ? choosePicture({ kind: 'art' }) : artFull()) },
-          { label: 'Bag', icon: icon('bag', 'shopping_bag'), onPress: () => addPieceToTable('bag') },
-          { label: 'Text', icon: icon('textformat', 'title'), onPress: () => addPieceToTable('text') },
-          { label: 'Zone', icon: icon('rectangle.dashed', 'crop_free'), onPress: () => addPieceToTable('zone') },
+          ...(
+            [
+              { label: 'Coin', icon: icon('centsign.circle', 'toll'), onPress: () => addPieceToTable('coin') },
+              { label: 'Spinner', icon: icon('arrow.clockwise.circle', 'autorenew'), onPress: () => addPieceToTable('spinner') },
+              { label: 'Counter', icon: icon('plus.forwardslash.minus', 'exposure'), onPress: () => addPieceToTable('counter') },
+              { label: 'Timer', icon: icon('timer', 'timer'), onPress: () => addPieceToTable('timer') },
+              { label: 'Track', icon: icon('number.square', 'pin'), onPress: () => addPieceToTable('track') },
+              { label: 'Pieces', icon: icon('figure.stand', 'person'), onPress: next({ kind: 'addShape' }) },
+              { label: '1st player', icon: icon('star.circle', 'stars'), onPress: () => addPieceToTable('marker') },
+              { label: 'Custom art', icon: icon('photo.on.rectangle', 'add_photo_alternate'), opensModal: true, onPress: () => (artCount < ART_MAX ? choosePicture({ kind: 'art' }) : artFull()) },
+              { label: 'Bag', icon: icon('bag', 'shopping_bag'), onPress: () => addPieceToTable('bag') },
+              { label: 'Text', icon: icon('textformat', 'title'), onPress: () => addPieceToTable('text') },
+              { label: 'Zone', icon: icon('rectangle.dashed', 'crop_free'), onPress: () => addPieceToTable('zone') },
+            ] as SheetTile[]
+          ).map(proTile),
         ],
         actions: [],
       };
@@ -3895,7 +3944,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                       offerTipAfterUses('tables-quick-pinch', undefined, 900);
                     },
                   ],
-                  ['rectangle.portrait.on.rectangle.portrait', 'style', 'Add Cards', () => setMenu({ kind: 'addCards' })],
+                  ['rectangle.portrait.on.rectangle.portrait', 'style', 'Add Cards', () => (!pro && playgroundHere ? playgroundOnly() : setMenu({ kind: 'addCards' }))],
                   [
                     'die.face.5',
                     'casino',

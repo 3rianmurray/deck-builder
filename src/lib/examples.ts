@@ -1,17 +1,36 @@
-// The app's own examples: a Playing Cards deck and a Solitaire table dealt from it, made once on first opening
-// to show what Free Play can do, and put back as new from Help whenever they're wanted again (deleted or changed).
+// The app's own examples: a Playing Cards deck and a Solitaire table dealt from it, and the Playground (every
+// component, to try), made once on first opening to show what Free Play can do, and put back as new from Help
+// whenever they're wanted again (deleted or changed).
 import { Alert } from 'react-native';
 
 import { useDecks } from './DecksContext';
 import * as haptics from './haptics';
 import { newId } from './id';
 import { playingCards } from './playingCards';
-import { newSandbox, solitaire } from './sandbox';
+import { newSandbox, playground, solitaire } from './sandbox';
+import type { SandboxTable } from './sandbox';
 import { createSandboxWith, sandboxes, updateSandbox } from './sandboxStore';
 import { loadSettings, saveSettings } from './storage';
 
 const PLAYING_CARDS = 'Playing Cards';
 const SOLITAIRE = 'Solitaire';
+const PLAYGROUND = 'Playground';
+
+/**
+ * The Playground, as new: laid out again in place (keeping its spot, and its name if it's been renamed), or made
+ * again (and noted as the Playground). Whether it was made.
+ */
+function restorePlayground(): boolean {
+  const id = loadSettings().playgroundTableId;
+  const table = id ? sandboxes().find((t) => t.id === id) : undefined;
+  if (table) {
+    updateSandbox(playground(newSandbox(table.id, table.name, table.createdAt), newId));
+    return false;
+  }
+  const made: SandboxTable = createSandboxWith(PLAYGROUND, (empty) => playground(empty, newId));
+  saveSettings({ ...loadSettings(), playgroundTableId: made.id, playgroundMade: true });
+  return true;
+}
 
 export function useExamples() {
   const { decks, createReadyDeck, refillDeck, getDeck } = useDecks();
@@ -46,14 +65,22 @@ export function useExamples() {
       createSandboxWith(SOLITAIRE, (empty) => solitaire(empty, deck, newId));
       added.push(SOLITAIRE);
     }
+    (restorePlayground() ? added : reset).push(PLAYGROUND);
     return { added, reset };
+  };
+
+  /** Just the Playground, if it's never been made (for those who had the other examples before it came). */
+  const addPlayground = () => {
+    const s = loadSettings();
+    if (s.playgroundMade) return;
+    restorePlayground();
   };
 
   /** Asks first (changes to the examples are lost), then restores them and says so. */
   const confirmRestore = () =>
     Alert.alert(
       'Restore the examples?',
-      'The Playing Cards deck and the Solitaire table go back to how they first were. Any changes made to them are lost.',
+      'The Playing Cards deck and the Solitaire and Playground tables go back to how they first were. Any changes made to them are lost.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -63,7 +90,7 @@ export function useExamples() {
             void restore().then(
               () => {
                 haptics.success();
-                Alert.alert('Examples restored', 'The Playing Cards deck and the Solitaire table are on the home screen, as new.');
+                Alert.alert('Examples restored', 'The Playing Cards deck and the Solitaire and Playground tables are on the home screen, as new.');
               },
               (e) => Alert.alert('Couldn’t restore the examples', e instanceof Error ? e.message : String(e)),
             ),
@@ -71,5 +98,5 @@ export function useExamples() {
       ],
     );
 
-  return { restore, confirmRestore };
+  return { restore, confirmRestore, addPlayground };
 }

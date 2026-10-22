@@ -1551,6 +1551,48 @@ export function solitaire(t: SandboxTable, deck: Deck, ids: () => string, random
 }
 
 /**
+ * The Playground example: every component laid out as a little board game, to try them all (without Pro, too:
+ * see isPlayground). Along the top a track, with two players' pieces at its start; across the middle a zone, a bag
+ * of cubes, an endless supply of discs and a score counter; along the bottom dice, a coin, a spinner, a timer and
+ * the first-player marker; and a line of words saying how to begin. No cards: it's for the components, not a
+ * table of someone's own decks with every component on it.
+ */
+export function playground(t: SandboxTable, ids: () => string): SandboxTable {
+  const cx = TABLE_W / 2;
+  const cy = TABLE_H / 2;
+  const at = (dx: number, dy: number) => ({ x: cx + dx, y: cy + dy });
+  const piece = (kind: PieceKind, dx: number, dy: number, more: Partial<TablePiece> = {}): TablePiece => ({ ...newPiece(kind, ids(), at(dx, dy)), ...more });
+  const cube = (color: string) => ({ piece: { ...newPiece('meeple', ids(), { x: 0, y: 0 }, 6, 'cube'), color } });
+  const cubes = ids();
+  const discs = ids();
+  let table: SandboxTable = {
+    ...t,
+    pieces: [
+      piece('zone', -260, -40, { label: 'Zone', look: 'dashed', w: 220, h: 200 }),
+      piece('text', 0, -330, { label: 'Playground', scale: 1.5 }),
+      piece('track', 0, -240, { spaces: 10, first: 1 }),
+      piece('meeple', -300, -240, { color: PIECE_COLORS.Red }),
+      piece('meeple', -350, -240, { shape: 'pawn', color: PIECE_COLORS.Blue }),
+      { ...piece('bag', 20, -40), id: cubes },
+      { ...piece('bag', 130, -40, { color: PIECE_COLORS.Black }), id: discs },
+      piece('counter', 300, -40, { label: 'Score' }),
+      piece('die', -330, 170, { value: 3 }),
+      piece('die', -255, 170, { value: 5 }),
+      piece('die', -170, 170, { sides: 20, value: 20 }),
+      piece('coin', -80, 170),
+      piece('spinner', 40, 170),
+      piece('timer', 180, 170),
+      piece('marker', 300, 170),
+      piece('text', 0, 300, { label: 'Tap, hold or drag anything to try it.' }),
+    ],
+  };
+  table = putInBag(table, cubes, [PIECE_COLORS.Red, PIECE_COLORS.Blue, PIECE_COLORS.Green, PIECE_COLORS.Yellow, PIECE_COLORS.Red, PIECE_COLORS.Blue].map(cube));
+  table = putInBag(table, discs, [{ piece: { ...newPiece('meeple', ids(), { x: 0, y: 0 }, 6, 'disc'), color: PIECE_COLORS.Gold } }], true);
+  // In view: all of it, with a little room round.
+  return { ...table, focus: { x: cx - 440, y: cy - 390, w: 880, h: 740 } };
+}
+
+/**
  * Brings some of a deck's cards onto the table: the ones chosen (every copy of each), in the deck's order, in one
  * face-up stack at (x, y) (chosen, they're meant to be seen). `ids` makes unique ids for the stack and its cards.
  */

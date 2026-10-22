@@ -21,7 +21,7 @@ import { backUpWithNotice, shareWithNotice } from '../lib/fileActions';
 import { newId } from '../lib/id';
 import { deleteDeckWarning } from '../lib/deckInUse';
 import { cardRoom, cardsUsed, FREE_CARD_LIMIT } from '../lib/limits';
-import { exampleAllowances, usePro } from '../lib/pro';
+import { exampleAllowances, isPlayground, usePro } from '../lib/pro';
 import * as haptics from '../lib/haptics';
 import { buildRows, dropDeck, dropGroup } from '../lib/groups';
 import type { Row } from '../lib/groups';
@@ -78,16 +78,32 @@ export default function HomeScreen() {
   const examples = useExamples();
   useEffect(() => {
     const settings = loadSettings();
-    if (settings.solitaireMade) return;
-    saveSettings({ ...settings, solitaireMade: true });
+    // Made after the others came out: for those who had them already, just it.
+    if (settings.solitaireMade) return examples.addPlayground();
+    saveSettings({ ...settings, solitaireMade: true, playgroundMade: true });
     examples
       .restore()
       // Tried again next time.
-      .catch(() => saveSettings({ ...loadSettings(), solitaireMade: false }));
+      .catch(() => saveSettings({ ...loadSettings(), solitaireMade: false, playgroundMade: false }));
     // Once, on opening.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * A copy of a table, just after it. Not of the Playground without Pro: a copy would be a table of its own with
+   * every component on it, to keep (only the Playground itself lets them be tried).
+   */
+  const duplicateTable = (id: string) => {
+    if (!pro && isPlayground(id)) {
+      haptics.warn();
+      Alert.alert('The Playground can’t be copied', 'It’s there to try every component. Using them on tables of your own is part of Pro.', [
+        { text: 'OK', style: 'cancel' },
+        { text: 'See Pro', onPress: () => openPro() },
+      ]);
+      return undefined;
+    }
+    return duplicateSandbox(id);
+  };
   /** Duplicating or deleting from a menu: after a couple of times, the tip that swiping a row does it quicker. */
   const swipeTipSoon = () => offerTipAfterUses('home-swipe', 2, 1200);
 
@@ -346,13 +362,18 @@ export default function HomeScreen() {
               accessibilityHint="Shows the table's options."
               {...rowActions([
                 { name: 'play', label: 'Play', run: open },
-                { name: 'duplicate', label: 'Duplicate', run: () => duplicateSandbox(t.id) },
+                { name: 'duplicate', label: 'Duplicate', run: () => duplicateTable(t.id) },
                 { name: 'delete', label: 'Delete', run: () => confirmDeleteSandbox(t.id, t.name) },
               ])}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.name} numberOfLines={1}>
                   {t.name}
                 </Text>
+                {isPlayground(t.id) ? (
+                  <Text style={styles.meta} numberOfLines={1}>
+                    Every component, ready to try.
+                  </Text>
+                ) : null}
               </View>
               {/* The walkthrough's table: the Solitaire one (or the first, without it). */}
               {t.id === tourTableId ? (
@@ -370,7 +391,7 @@ export default function HomeScreen() {
       <SwipeRow
         {...swipe(`table:${t.id}`, () => confirmDeleteSandbox(t.id, t.name), () => {
           closeRows();
-          if (duplicateSandbox(t.id)) haptics.success();
+          if (duplicateTable(t.id)) haptics.success();
         })}>
         {tableRow}
       </SwipeRow>
@@ -647,7 +668,7 @@ export default function HomeScreen() {
                 {
                   label: 'Duplicate',
                   onPress: () => {
-                    duplicateSandbox(menuTable.id);
+                    duplicateTable(menuTable.id);
                     swipeTipSoon();
                   },
                 },

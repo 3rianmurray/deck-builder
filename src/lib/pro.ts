@@ -1,5 +1,5 @@
 // Shufflevale Pro: a one-time purchase from the App Store (StoreKit, through expo-iap), which takes away the free
-// version's card limit and opens up deck files. Owning it is remembered on the phone, so it works offline; the
+// version's card limit, opens up deck files and adds the table's components (all but dice: see isProPiece). Owning it is remembered on the phone, so it works offline; the
 // App Store is asked again each time the app opens (which also catches a refund).
 //
 // TestFlight and development builds have a tester switch (in About) to act as free or as Pro without buying.
@@ -7,6 +7,7 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useSyncExternalStore } from 'react';
 import { Alert } from 'react-native';
 
+import type { TablePiece } from './sandbox';
 import { loadSettings, saveSettings } from './storage';
 
 /** The Pro product, as set up in App Store Connect. */
@@ -121,7 +122,7 @@ export async function startPro() {
     if (purchase.purchaseState === 'purchased') {
       setOwned(true);
       m.finishTransaction({ purchase, isConsumable: false }).catch((e) => console.warn('finishTransaction failed', e));
-      if (state.busy) Alert.alert('Welcome to Shufflevale Pro', 'Unlimited cards and deck files are yours. Thank you!');
+      if (state.busy) Alert.alert('Welcome to Shufflevale Pro', 'Unlimited cards, deck files and every component are yours. Thank you!');
     }
     set({ busy: false });
   });
@@ -151,6 +152,15 @@ export async function startPro() {
   // What the App Store says now (a refund takes Pro away again).
   if (purchases.status === 'fulfilled') setOwned(purchases.value.some((p) => p.productId === PRO_PRODUCT_ID));
 }
+
+/** The table's components that are part of Pro: all but dice (decks and dice are free). */
+export const isProPiece = (p: Pick<TablePiece, 'kind'>) => p.kind !== 'die';
+
+/**
+ * The Playground example (see examples.ts): the one table where Pro's components can be tried without it. Known by
+ * its id, so renaming it changes nothing (and a copy of it isn't it).
+ */
+export const isPlayground = (tableId: string) => loadSettings().playgroundTableId === tableId;
 
 /** How many cards the walkthrough's sample deck comes with (see sampleDeck.ts). */
 const SAMPLE_CARDS = 12;

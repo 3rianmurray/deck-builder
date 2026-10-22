@@ -83,6 +83,13 @@ export interface TablePiece {
   label?: string;
   /** A playing piece's shape. */
   shape?: PieceShape;
+  /**
+   * Custom art's place among the cards: the stack it lies just over (it's drawn after that one, under any after it),
+   * or none for under every card. Everything else that isn't a zone lies over every card.
+   */
+  over?: string;
+  /** Custom art's turn on the table, in degrees clockwise (as a stack's). */
+  angle?: number;
   /** A token's (or custom art's) picture (a saved picture's path), and whether a token's square (round, otherwise). */
   image?: string;
   square?: boolean;
@@ -534,8 +541,17 @@ export type PiecePart = 'minus' | 'plus' | 'body';
 /** Whether a table point is on a piece (within its size, at its scale). */
 const onPiece = (p: TablePiece, x: number, y: number) => {
   const { w, h } = pieceSizeOf(p);
-  return Math.abs(x - p.x) <= w / 2 && Math.abs(y - p.y) <= h / 2;
+  const q = inPiece(p, x, y);
+  return Math.abs(q.x) <= w / 2 && Math.abs(q.y) <= h / 2;
 };
+
+/** Where a table point is relative to a piece: in its own (turned) frame, from its middle. */
+function inPiece(p: TablePiece, x: number, y: number) {
+  const r = (-(p.angle ?? 0) * Math.PI) / 180;
+  const dx = x - p.x;
+  const dy = y - p.y;
+  return { x: dx * Math.cos(r) - dy * Math.sin(r), y: dx * Math.sin(r) + dy * Math.cos(r) };
+}
 
 /** The topmost zone under a table point, if any (zones lie under everything else; see pieceAt). */
 export function zoneAt(t: SandboxTable, x: number, y: number): TablePiece | null {
@@ -573,12 +589,13 @@ export function resizeZone(p: TablePiece, w: number, h: number): Pick<TablePiece
 
 /** The topmost piece (not a zone: see zoneAt) under a table point, if any, and which part of it the point is on. */
 export function pieceAt(t: SandboxTable, x: number, y: number): { piece: TablePiece; part: PiecePart } | null {
-  const pieces = (t.pieces ?? []).filter((p) => p.kind !== 'zone');
+  // Custom art lies among the cards, under every other piece: looked for last.
+  const all = (t.pieces ?? []).filter((p) => p.kind !== 'zone');
+  const pieces = [...all.filter((p) => p.kind === 'art'), ...all.filter((p) => p.kind !== 'art')];
   for (let i = pieces.length - 1; i >= 0; i--) {
     const p = pieces[i];
     const { w, h } = pieceSizeOf(p);
-    const dx = x - p.x;
-    const dy = y - p.y;
+    const { x: dx, y: dy } = inPiece(p, x, y);
     if (Math.abs(dx) > w / 2 || Math.abs(dy) > h / 2) continue;
     const button = COUNTER_BUTTON * (p.scale ?? 1);
     const part: PiecePart = p.kind !== 'counter' ? 'body' : dx < -w / 2 + button ? 'minus' : dx > w / 2 - button ? 'plus' : 'body';
@@ -633,8 +650,8 @@ export function piecesInShape(t: SandboxTable, shape: { x: number; y: number }[]
   if (!shape.length) return [];
   return (t.pieces ?? [])
     .filter((p) => {
-      // Zones are part of the table's layout, not picked out with what's on it.
-      if (kind ? p.kind !== kind : p.kind === 'zone') return false;
+      // Zones are part of the table's layout, not picked out with what's on it; nor is anything locked in place.
+      if ((kind ? p.kind !== kind : p.kind === 'zone') || p.locked) return false;
       const { w, h } = pieceSizeOf(p);
       if (shape.some((q) => Math.abs(q.x - p.x) <= w / 2 && Math.abs(q.y - p.y) <= h / 2)) return true;
       return shape.length >= 3 && insideShape(p, shape);
@@ -767,7 +784,8 @@ export function placeItem(t: SandboxTable, item: BagItem, at: { x: number; y: nu
     return putOnTable(t, [item.card], { ...at, angle: 0 }, stackId, there);
   }
   const piece = { ...item.piece!, x: Math.round(at.x), y: Math.round(at.y) };
-  return separateDice(addPiece(t, piece), [piece.id]);
+  // Custom art comes out over every card.
+  return separateDice(piece.kind === 'art' ? raiseArt(addPiece(t, piece), [piece.id]) : addPiece(t, piece), [piece.id]);
 }
 
 /** The top thing out of a bag, laid beside it (a card face up or down). The table as it was if there's nothing. */
@@ -798,7 +816,7 @@ export function emptyBag(t: SandboxTable, bagId: string, ids: () => string): San
     const spot = { x: at.x + CARD_W + (i % cols) * step, y: at.y - step / 2 + Math.floor(i / cols) * step };
     table = addPiece(table, { ...p, x: Math.round(spot.x), y: Math.round(spot.y) });
   });
-  return separateDice(table, pieces.map((p) => p.id));
+  return separateDice(raiseArt(table, pieces.map((p) => p.id)), pieces.map((p) => p.id));
 }
 
 /** Things taken out of a bag (by their keys: see itemKey). */
@@ -826,6 +844,75 @@ export function pieceName(p: TablePiece): string {
   if (p.kind === 'meeple') return PIECE_SHAPES.find((s) => s.shape === (p.shape ?? 'meeple'))?.name ?? 'Piece';
   if (p.label) return p.label;
   return p.kind[0].toUpperCase() + p.kind.slice(1);
+}
+
+// ---- Custom art's layer among the cards ----
+
+/** Where custom art lies among the stacks: the index of the stack it's just over (-1 under them all). */
+export const artLevel = (t: SandboxTable, art: TablePiece) => (art.over ? t.stacks.findIndex((s) => s.id === art.over) : -1);
+
+/** Custom art turned (by degrees clockwise), as a stack is; locked art stays as it is. */
+export const turnArt = (t: SandboxTable, ids: string[], by: number): SandboxTable => ({
+  ...t,
+  pieces: (t.pieces ?? []).map((p) => (p.kind === 'art' && !p.locked && ids.includes(p.id) ? { ...p, angle: normalizeAngle((p.angle ?? 0) + by) } : p)),
+});
+
+/** Custom art brought over every card (as a stack moved is). */
+export const raiseArt = (t: SandboxTable, ids: string[]): SandboxTable => {
+  const top = t.stacks[t.stacks.length - 1]?.id;
+  return { ...t, pieces: (t.pieces ?? []).map((p) => (p.kind === 'art' && ids.includes(p.id) ? { ...p, over: top } : p)) };
+};
+
+/**
+ * Custom art whose stack has gone (taken up, put into another, off the table) keeps its place: over the nearest
+ * stack that was under it before and is still there (or under every card, if none). `prev` is the table before.
+ */
+export function keepArtLevels(prev: SandboxTable, next: SandboxTable): SandboxTable {
+  const here = new Set(next.stacks.map((s) => s.id));
+  if (!(next.pieces ?? []).some((p) => p.kind === 'art' && p.over && !here.has(p.over))) return next;
+  const pieces = next.pieces!.map((p) => {
+    if (p.kind !== 'art' || !p.over || here.has(p.over)) return p;
+    let k = prev.stacks.findIndex((s) => s.id === p.over);
+    while (k >= 0 && !here.has(prev.stacks[k].id)) k--;
+    return { ...p, over: k >= 0 ? prev.stacks[k].id : undefined };
+  });
+  return { ...next, pieces };
+}
+
+/** Whether a stack and custom art overlap on the table (roughly: their boxes). */
+function artOverlaps(art: TablePiece, s: SandboxStack, size: CardSize): boolean {
+  const a = pieceSizeOf(art);
+  const corners = stackCorners(s, size);
+  const xs = corners.map((c) => c.x);
+  const ys = corners.map((c) => c.y);
+  return Math.min(...xs) < art.x + a.w / 2 && Math.max(...xs) > art.x - a.w / 2 && Math.min(...ys) < art.y + a.h / 2 && Math.max(...ys) > art.y - a.h / 2;
+}
+
+/**
+ * Custom art moved among the cards' layers, as a stack is (see moveLayer): to the back (under every card), the
+ * front (over every card), or down or up past the nearest stack it overlaps.
+ */
+export function layerArt(t: SandboxTable, id: string, to: 'back' | 'down' | 'up' | 'front', size: CardSize): SandboxTable {
+  const art = t.pieces?.find((p) => p.id === id && p.kind === 'art');
+  if (!art) return t;
+  const level = artLevel(t, art);
+  let over: string | undefined;
+  if (to === 'back') over = undefined;
+  else if (to === 'front') over = t.stacks[t.stacks.length - 1]?.id;
+  else if (to === 'down') {
+    // Under the nearest stack it's over that it overlaps.
+    let k = level;
+    while (k >= 0 && !artOverlaps(art, t.stacks[k], size)) k--;
+    if (k < 0) return t;
+    over = k > 0 ? t.stacks[k - 1].id : undefined;
+  } else {
+    // Over the nearest stack above it that it overlaps.
+    let k = level + 1;
+    while (k < t.stacks.length && !artOverlaps(art, t.stacks[k], size)) k++;
+    if (k >= t.stacks.length) return t;
+    over = t.stacks[k].id;
+  }
+  return over === art.over ? t : setPiece(t, id, { over });
 }
 
 /** Takes a piece off the table. */

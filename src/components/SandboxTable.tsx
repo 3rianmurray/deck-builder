@@ -2824,7 +2824,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
             onPress: () => commit(moveLayer(table, menuStack.id, to, size)),
           })),
         },
-        { kind: 'toggle', label: 'Lock in place', value: !!menuStack.locked, onChange: (on) => commit(setStack(table, menuStack.id, { locked: on })) },
+        { kind: 'toggle', label: 'Lock', value: !!menuStack.locked, onChange: (on) => commit(setStack(table, menuStack.id, { locked: on })) },
         { kind: 'action', label: 'Scale…', onPress: () => openScale([menuStack.id], []) },
         // A single card can be kept from stacking: nothing goes onto it, and it goes onto nothing.
         ...(n === 1 ? [{ kind: 'toggle' as const, label: 'Never stack', value: !!top.solo, onChange: (on: boolean) => commit(setSolo(table, menuStack.id, on)) }] : []),
@@ -2951,7 +2951,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
                 { label: 'Turn left', onPress: () => commit(turnArt(chosen.reduce((t, id) => turnStack(t, id, -90), table), pieces.map((p) => p.id), -90)) },
                 { label: 'Turn right', onPress: () => commit(turnArt(chosen.reduce((t, id) => turnStack(t, id), table), pieces.map((p) => p.id), 90)) },
                 {
-                  label: allLocked ? 'Unlock' : 'Lock in place',
+                  label: allLocked ? 'Unlock' : 'Lock',
                   onPress: () => commit(chosen.reduce((t, id) => setStack(t, id, { locked: !allLocked }), table)),
                 },
               ]
@@ -2978,7 +2978,7 @@ export function SandboxBoard({ id, onControls }: { id: string; onControls: (c: T
       // Not for what's locked in place (it's meant to stay as it is).
       const scaleTile = tile('Scale', 'arrow.up.left.and.arrow.down.right', 'open_in_full', () => openScale([], [id]), !!piece.locked);
       // For what usually sits in one place through a game: locked, it stays put (dragging it moves the table).
-      const lockRow: FocusRow = { kind: 'toggle', label: 'Lock in place', value: !!piece.locked, onChange: (on) => commit(setPiece(table, id, { locked: on || undefined })) };
+      const lockRow: FocusRow = { kind: 'toggle', label: 'Lock', value: !!piece.locked, onChange: (on) => commit(setPiece(table, id, { locked: on || undefined })) };
       const takeOffRow: FocusRow = { kind: 'action', label: 'Take off the table', destructive: true, onPress: () => commit(removePiece(table, id)) };
       // It, big: as it lies on the table, fitted to the middle of the screen.
       const own = pieceSizeOf({ ...piece, scale: 1 });
